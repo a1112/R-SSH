@@ -78,6 +78,11 @@ fn production_tauri_bundles_run_black_box_input_and_cleanup_on_every_pr_platform
     assert!(job.contains("smoke-production-tauri.ps1"));
     assert!(job.contains("smoke-production-tauri.sh"));
     assert!(job.contains("RSSH_FUNCTIONAL_MACOS_CGEVENT_HELPER"));
-    assert!(job.contains("xvfb-run"));
+    assert!(job.contains("scripts/functional/run-x11-seat.sh"));
+    assert!(
+        fs::read_to_string(root().join("scripts/functional/run-x11-seat.sh"))
+            .unwrap()
+            .contains("xvfb-run")
+    );
     assert!(job.contains("rssh-accessibility"));
 }

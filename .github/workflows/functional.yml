@@ -20,6 +20,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - name: Validate contracts and executable catalog
         shell: bash
         run: |
@@ -200,7 +201,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox weston xdotool xterm xfonts-base foot imagemagick
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox weston xdotool xterm xfonts-base foot imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: cargo build --locked -p rssh-app -p rssh-functional-tests --bins
       - name: Run real host terminal OS-input smoke
         shell: bash
@@ -214,7 +215,7 @@ jobs:
             command+=(--capability wayland)
             bash scripts/functional/run-wayland-seat.sh "${command[@]}"
           else
-            xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "${command[@]}"
+            bash scripts/functional/run-x11-seat.sh "${command[@]}"
           fi
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -231,12 +232,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox xdotool xclip imagemagick
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox xdotool xclip imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: cargo build --locked -p rssh-app --features functional-test-observer -p rssh-functional-tests --bins
       - name: Run real X11 XTEST journey
         run: |
           run_x11() {
-            xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "$@"
+            bash scripts/functional/run-x11-seat.sh "$@"
           }
           run_x11 env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.local-interaction --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard --capability real_os_pointer --capability system_clipboard --capability gpu_readback
           run_x11 env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.observer-disconnect --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard
@@ -346,7 +347,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: npm, cache-dependency-path: tauri/package-lock.json }
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip openbox weston imagemagick
+        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip openbox weston imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: npm --prefix web ci && npm --prefix tauri ci
       - run: npm --prefix web run build:functional && cargo build --locked --manifest-path tauri/src-tauri/Cargo.toml --features functional-test-observer
       - name: Run Tauri OS-input journey
@@ -358,7 +359,7 @@ jobs:
             command+=(--capability wayland)
             bash scripts/functional/run-wayland-seat.sh "${command[@]}"
           elif [[ "${RUNNER_OS}" == Linux ]]; then
-            WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=x11 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "${command[@]}"
+            bash scripts/functional/run-x11-seat.sh "${command[@]}"
           else
             "${command[@]}"
           fi
@@ -476,7 +477,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: npm, cache-dependency-path: tauri/package-lock.json }
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip openbox imagemagick
+        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip openbox imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: npm --prefix web ci && npm --prefix tauri ci
       - run: npm --prefix tauri run build
       - name: Probe production Tauri executable for observer isolation
@@ -493,7 +494,7 @@ jobs:
         if: matrix.input == 'x11'
         run: |
           test -n "$(find target/release/bundle -type f -print -quit)"
-          WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=x11 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash \
+          bash scripts/functional/run-x11-seat.sh \
             bash scripts/functional/smoke-production-tauri.sh --binary target/release/rssh-tauri \
             --evidence-directory evidence/production-tauri --input-backend x11
           python scripts/ci/check-functional-observer-isolation.py --binary target/release/rssh-tauri --package rssh-tauri --web-dist web/dist

@@ -87,6 +87,7 @@ fn run() -> Result<u8, Box<dyn std::error::Error>> {
                 .next()
                 .ok_or("host-terminal-probe requires a window title")?;
             set_host_terminal_title(&title)?;
+            fs::write(&marker, "host-terminal-ready")?;
             print!("host-terminal-ready\r\n");
             io::stdout().flush()?;
             let mut input = String::new();

@@ -601,6 +601,7 @@ fn observer_disconnect_driver_uses_os_input_after_dropping_the_read_channel() {
 #[test]
 fn host_terminal_driver_requires_a_real_emulator_and_os_input_marker() {
     let source = include_str!("../src/runner.rs");
+    let fixture = include_str!("../src/fixture_main.rs");
     assert!(source.contains("execute_host_terminal_scenario"));
     assert!(source.contains("RSSH_FUNCTIONAL_HOST_TERMINAL"));
     assert!(source.contains("host-terminal-probe"));
@@ -621,6 +622,17 @@ fn host_terminal_driver_requires_a_real_emulator_and_os_input_marker() {
         source.matches("absolute_from_current(").count() >= 3,
         "host app, fixture, and marker paths must survive terminal cwd changes",
     );
+    assert!(fixture.contains("host-terminal-ready"));
+    let ready = source
+        .find("wait_for_host_terminal_readiness(")
+        .expect("host terminal readiness gate");
+    let actions = source
+        .find("run_host_terminal_actions(scenario")
+        .expect("host terminal input actions");
+    assert!(
+        ready < actions,
+        "host terminal input must wait for fixture readiness"
+    );
 }
 
 #[test]
@@ -630,6 +642,35 @@ fn native_resource_gate_is_observer_backed_not_hard_coded_after_root_exit() {
     assert!(source.contains("snapshot.runtime.worker_count == 0"));
     assert!(source.contains("snapshot.runtime.listener_count == 0"));
     assert!(source.contains("snapshot.runtime.child_process_count == 0"));
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manager =
+        fs::read_to_string(root.join("crates/rssh-app/src/window_parts/part07.rs")).unwrap();
+    let start = manager.find("fn finalize_app_close_at_location(").unwrap();
+    let end = manager[start..]
+        .find("\n    fn reap_retired_apps(")
+        .map(|offset| start + offset)
+        .unwrap();
+    let close = &manager[start..end];
+    let cleanup = close.find("stop_active_runtime()").expect("PTY cleanup");
+    let publish = close
+        .find("functional_observer::publish")
+        .expect("closed resource snapshot");
+    assert!(
+        cleanup < publish,
+        "cleanup must precede the final observer snapshot"
+    );
+}
+
+#[test]
+fn text_input_does_not_claim_that_terminal_echo_must_advance_immediately() {
+    let source = include_str!("../src/runner.rs");
+    let start = source.find("fn action_must_publish(").unwrap();
+    let end = source[start..]
+        .find("\nfn action_name(")
+        .map(|offset| start + offset)
+        .unwrap();
+    assert!(!source[start..end].contains("ActionV1::TypeText"));
 }
 
 #[test]

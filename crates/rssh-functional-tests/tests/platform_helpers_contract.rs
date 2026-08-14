@@ -43,6 +43,14 @@ fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
 }
 
 #[test]
+fn x11_clipboard_helper_owns_one_real_selection_request() {
+    let source = repo_file("scripts/functional/x11-set-clipboard.sh");
+    assert!(source.contains("xclip -selection clipboard -loops 1"));
+    assert!(source.contains("printf '%s' \"$1\""));
+    assert!(!source.contains("eval"));
+}
+
+#[test]
 fn windows_helper_restores_before_focusing_and_verifies_foreground_ownership() {
     let source = repo_file("scripts/functional/windows-send-input.ps1");
     assert!(source.contains("GetForegroundWindow"));
@@ -79,4 +87,23 @@ fn wayland_harness_is_nested_weston_x11_not_headless_input_emulation() {
     assert!(source.contains("dump_startup_logs"));
     assert!(source.contains("export RSSH_FUNCTIONAL_XDOTOOL="));
     assert!(!source.contains("--backend=headless-backend.so"));
+}
+
+#[test]
+fn x11_harness_owns_runtime_dbus_display_and_window_manager_lifetimes() {
+    let source = repo_file("scripts/functional/run-x11-seat.sh");
+    for contract in [
+        "mkdir -m 700",
+        "export XDG_RUNTIME_DIR=",
+        "dbus-run-session",
+        "xvfb-run --auto-servernum",
+        "openbox",
+        "trap cleanup EXIT",
+    ] {
+        assert!(
+            source.contains(contract),
+            "missing X11 harness contract {contract}"
+        );
+    }
+    assert!(!source.contains("eval"));
 }

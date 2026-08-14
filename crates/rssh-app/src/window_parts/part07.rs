@@ -2022,6 +2022,11 @@ impl NativeWindowManager {
         let (app_window_id, quit_when_all_windows_are_closed, snapshot) = {
             let app = self.app_at_location_mut(location)?;
             app.shutdown_gpu_for_window_close();
+            app.stop_active_runtime();
+            for runtime in app.pane_runtimes.values_mut() {
+                let cleanup = runtime.close();
+                report_pane_pty_cleanup("window close pane PTY cleanup", &cleanup);
+            }
             #[cfg(feature = "functional-test-observer")]
             {
                 crate::functional_observer::publish(app.functional_observer_snapshot());

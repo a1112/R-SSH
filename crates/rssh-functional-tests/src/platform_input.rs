@@ -123,12 +123,7 @@ impl PlatformInputDriver {
                 )
             }
         };
-        let script = (backend == InputBackend::WindowsSendInput).then(|| {
-            environment
-                .get("RSSH_FUNCTIONAL_WINDOWS_SENDINPUT")
-                .cloned()
-                .unwrap_or_else(|| "scripts/functional/windows-send-input.ps1".to_owned())
-        });
+        let script = input_script(backend, environment);
         Ok(Self {
             backend,
             program,
@@ -301,8 +296,7 @@ impl PlatformInputDriver {
                 }
             }
             ActionV1::ClipboardPaste { text } => {
-                operations.push(command(vec!["set_clipboard".to_owned(), text.clone()]));
-                operations.push(command(vec!["key".to_owned(), "ctrl+v".to_owned()]));
+                operations.extend(self.xtest_clipboard_operations(text));
             }
             ActionV1::ResizeWindow { width, height } => operations.push(command(vec![
                 "windowsize".to_owned(),
@@ -324,6 +318,30 @@ impl PlatformInputDriver {
             action => return Err(PlatformInputError::UnsupportedAction(format!("{action:?}"))),
         }
         Ok(operations)
+    }
+
+    fn xtest_clipboard_operations(&self, text: &str) -> [DriverOperation; 2] {
+        [
+            DriverOperation::Command {
+                program: "bash".to_owned(),
+                arguments: vec![
+                    self.script
+                        .clone()
+                        .expect("XTEST driver has a clipboard helper"),
+                    text.to_owned(),
+                ],
+                environment: self.environment.clone(),
+            },
+            DriverOperation::Command {
+                program: self.program.clone(),
+                arguments: vec![
+                    "key".to_owned(),
+                    "--clearmodifiers".to_owned(),
+                    "ctrl+v".to_owned(),
+                ],
+                environment: self.environment.clone(),
+            },
+        ]
     }
 
     fn xtest_focus_command(&self) -> &'static str {
@@ -355,6 +373,26 @@ impl PlatformInputDriver {
             environment: self.environment.clone(),
         }])
     }
+}
+
+fn input_script(backend: InputBackend, environment: &BTreeMap<String, String>) -> Option<String> {
+    let (name, default) = match backend {
+        InputBackend::WindowsSendInput => (
+            "RSSH_FUNCTIONAL_WINDOWS_SENDINPUT",
+            "scripts/functional/windows-send-input.ps1",
+        ),
+        InputBackend::X11Xtest | InputBackend::WaylandWestonSeat => (
+            "RSSH_FUNCTIONAL_X11_CLIPBOARD_HELPER",
+            "scripts/functional/x11-set-clipboard.sh",
+        ),
+        InputBackend::MacosCgEvent => return None,
+    };
+    Some(
+        environment
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| default.to_owned()),
+    )
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

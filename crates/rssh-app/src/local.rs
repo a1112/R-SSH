@@ -741,6 +741,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
         pty_input_sender.clone(),
         control_sender,
         runtime_state.input_reporting.clone(),
+        trace,
     );
     let mut reader_done_observed = false;
     let mut writer_done_observed = false;
@@ -1214,6 +1215,7 @@ fn spawn_input_thread(
     pty_input_sender: mpsc::Sender<Vec<u8>>,
     control_sender: mpsc::Sender<LocalControlEvent>,
     input_reporting: InputReporting,
+    trace: LocalPtyTrace,
 ) -> (Option<thread::JoinHandle<()>>, Arc<AtomicBool>) {
     let stop = Arc::new(AtomicBool::new(false));
     spawn_input_thread_for_terminal(
@@ -1222,6 +1224,7 @@ fn spawn_input_thread(
         control_sender,
         input_reporting,
         stop,
+        trace,
     )
 }
 
@@ -1231,6 +1234,7 @@ fn spawn_input_thread_for_terminal(
     control_sender: mpsc::Sender<LocalControlEvent>,
     input_reporting: InputReporting,
     stop: Arc<AtomicBool>,
+    trace: LocalPtyTrace,
 ) -> (Option<thread::JoinHandle<()>>, Arc<AtomicBool>) {
     if !is_terminal {
         return (None, stop);
@@ -1253,6 +1257,7 @@ fn spawn_input_thread_for_terminal(
                     | Event::FocusGained
                     | Event::FocusLost),
                 ) => {
+                    trace.event(format_args!("input event={event:?}"));
                     let Some(bytes) = encode_input_event(event, input_reporting.snapshot()) else {
                         continue;
                     };
@@ -3721,7 +3726,8 @@ fn encode_key_with_mode(key: KeyEvent, modes: InputModes) -> Option<Vec<u8>> {
 }
 
 fn encode_win32_key(key: KeyEvent) -> Option<Vec<u8>> {
-    let virtual_key = win32_virtual_key_code(key.code, key.state)?;
+    let virtual_key = win32_virtual_key_code(key.code, key.state)
+        .or_else(|| matches!(key.code, KeyCode::Char(_)).then_some(0))?;
     let unicode = if key.kind == KeyEventKind::Release {
         0
     } else {
@@ -4528,9 +4534,9 @@ mod tests {
 
     use super::{
         InputModes, InputReporting, LocalCloseProgress, LocalMasterCloseOperation,
-        LocalPtyCloseGroup, LocalTraceMarker, LocalWorkerReaper, Osc52Policy, RawMode,
-        RawModeState, TerminalOutputFilter, begin_close_before_sender_drop, combine_local_result,
-        encode_input_event, encode_key, join_local_worker_before,
+        LocalPtyCloseGroup, LocalPtyTrace, LocalTraceMarker, LocalWorkerReaper, Osc52Policy,
+        RawMode, RawModeState, TerminalOutputFilter, begin_close_before_sender_drop,
+        combine_local_result, encode_input_event, encode_key, join_local_worker_before,
         join_local_worker_before_with_reaper, resolve_local_size, spawn_input_thread_for_terminal,
     };
 
@@ -4875,6 +4881,7 @@ mod tests {
             control_sender,
             InputReporting::default(),
             std::sync::Arc::clone(&stop),
+            LocalPtyTrace::from_environment(Instant::now()),
         );
 
         assert!(worker.is_none());
@@ -5109,6 +5116,20 @@ mod tests {
             )
             .unwrap(),
             b"\x1b[187;0;43;1;16;1_"
+        );
+    }
+
+    #[test]
+    fn encodes_win32_input_mode_unicode_text_without_a_virtual_key() {
+        let modes = InputModes::default().with_win32_input_mode(true);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('终'), KeyModifiers::NONE)),
+                modes,
+            )
+            .unwrap(),
+            b"\x1b[0;0;32456;1;0;1_"
         );
     }
 

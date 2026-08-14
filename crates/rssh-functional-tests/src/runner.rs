@@ -1293,6 +1293,7 @@ fn execute_host_terminal_scenario(
         "BHV-LIFECYCLE-STARTED",
         "host terminal exposed an OS-input surface",
     )?;
+    wait_for_host_terminal_readiness(&launch.marker, scenario, started)?;
     run_host_terminal_actions(scenario, &platform, started, writer)?;
     wait_for_marker(
         &launch.marker,
@@ -1335,6 +1336,18 @@ fn execute_host_terminal_scenario(
             exit_code: status.code().unwrap_or(-1),
             resources_zero: true,
         },
+    )
+}
+
+fn wait_for_host_terminal_readiness(
+    marker: &Path,
+    scenario: &ScenarioV1,
+    started: Instant,
+) -> Result<(), RunnerError> {
+    wait_for_marker(
+        marker,
+        "host-terminal-ready",
+        startup_timeout(scenario, started)?,
     )
 }
 
@@ -2428,10 +2441,7 @@ fn observed_resources_zero(snapshot: &crate::ObserverSnapshotV1) -> bool {
 fn action_must_publish(action: &ActionV1) -> bool {
     matches!(
         action,
-        ActionV1::TypeText { .. }
-            | ActionV1::Key { .. }
-            | ActionV1::ClipboardPaste { .. }
-            | ActionV1::ResizeWindow { .. }
+        ActionV1::Key { .. } | ActionV1::ClipboardPaste { .. } | ActionV1::ResizeWindow { .. }
     )
 }
 

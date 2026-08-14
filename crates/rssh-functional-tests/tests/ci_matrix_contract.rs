@@ -80,8 +80,39 @@ fn native_x11_job_runs_with_an_ewmh_window_manager() {
         .split("  native-wayland:")
         .next()
         .expect("following native Wayland job");
-    assert!(job.contains("openbox"));
-    assert!(job.contains("openbox >/tmp/rssh-openbox.log 2>&1 & exec \"$@\""));
+    assert!(job.contains("scripts/functional/run-x11-seat.sh"));
+    assert!(
+        fs::read_to_string(root().join("scripts/functional/run-x11-seat.sh"))
+            .unwrap()
+            .contains("openbox")
+    );
+}
+
+#[test]
+fn linux_graphics_jobs_install_a_software_adapter_and_use_private_x11_sessions() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    let x11 = fs::read_to_string(root().join("scripts/functional/run-x11-seat.sh")).unwrap();
+
+    for package in ["mesa-vulkan-drivers", "libvulkan1", "libgl1-mesa-dri"] {
+        assert!(
+            workflow.contains(package),
+            "missing software GPU package {package}"
+        );
+    }
+    for contract in [
+        "XDG_RUNTIME_DIR",
+        "dbus-run-session",
+        "xvfb-run",
+        "openbox",
+        "WEBKIT_DISABLE_DMABUF_RENDERER=1",
+        "WEBKIT_DISABLE_COMPOSITING_MODE=1",
+        "GDK_BACKEND=x11",
+    ] {
+        assert!(
+            x11.contains(contract),
+            "missing X11 session contract {contract}"
+        );
+    }
 }
 
 #[test]
@@ -106,6 +137,7 @@ fn contract_catalog_builds_runtime_entries_before_functional_contracts() {
 #[test]
 fn linux_tauri_x11_probes_disable_the_webkit_dmabuf_path() {
     let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    let x11 = fs::read_to_string(root().join("scripts/functional/run-x11-seat.sh")).unwrap();
     for (job, next_job) in [
         ("  tauri-platform:", "  tauri-platform-macos:"),
         (
@@ -120,15 +152,10 @@ fn linux_tauri_x11_probes_disable_the_webkit_dmabuf_path() {
             .split(next_job)
             .next()
             .expect("following Tauri job");
-        assert!(
-            definition.contains("WEBKIT_DISABLE_DMABUF_RENDERER=1"),
-            "Linux X11 path in {job} must use the Xvfb-safe WebKit renderer"
-        );
-        assert!(
-            definition.contains("WEBKIT_DISABLE_COMPOSITING_MODE=1"),
-            "Linux X11 path in {job} must disable WebKit compositing under Xvfb"
-        );
+        assert!(definition.contains("scripts/functional/run-x11-seat.sh"));
     }
+    assert!(x11.contains("WEBKIT_DISABLE_DMABUF_RENDERER=1"));
+    assert!(x11.contains("WEBKIT_DISABLE_COMPOSITING_MODE=1"));
 }
 
 #[test]

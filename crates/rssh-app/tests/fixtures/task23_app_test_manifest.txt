@@ -242,6 +242,7 @@ T23-INPUT-f39c5d6366d0|crates/rssh-app/src/local.rs|encodes_menu_key_as_legacy_f
 T23-COMPATIBILITY-9b3b28f8479b|crates/rssh-app/src/local.rs|encodes_alt_text_with_escape_prefix|1|rssh-app|local::tests|compatibility
 T23-INPUT-b5b92f7b09df|crates/rssh-app/src/local.rs|encodes_win32_input_mode_key_release_events|1|rssh-app|local::tests|input
 T23-INPUT-3b5f46002246|crates/rssh-app/src/local.rs|encodes_win32_input_mode_oem_punctuation_keys|1|rssh-app|local::tests|input
+T23-INPUT-7e7e4e001f61|crates/rssh-app/src/local.rs|encodes_win32_input_mode_unicode_text_without_a_virtual_key|1|rssh-app|local::tests|input
 T23-INPUT-2f620f2d39e2|crates/rssh-app/src/local.rs|encodes_win32_input_mode_keypad_virtual_keys|1|rssh-app|local::tests|input
 T23-INPUT-780e705ff6cc|crates/rssh-app/src/local.rs|encodes_win32_input_mode_extended_function_keys|1|rssh-app|local::tests|input
 T23-INPUT-4c3b6933b241|crates/rssh-app/src/local.rs|encodes_win32_input_mode_modifier_virtual_keys|1|rssh-app|local::tests|input

@@ -102,6 +102,38 @@ fn wayland_requires_nested_weston_x11_backend_and_injects_through_its_seat() {
 }
 
 #[test]
+fn xtest_clipboard_paste_uses_xclip_before_the_focused_keyboard_binding() {
+    let driver = PlatformInputDriver::from_environment(
+        InputBackend::WaylandWestonSeat,
+        &environment(&[
+            ("DISPLAY", ":99"),
+            ("WAYLAND_DISPLAY", "wayland-rssh"),
+            ("RSSH_FUNCTIONAL_WESTON_BACKEND", "x11"),
+            ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
+            ("RSSH_FUNCTIONAL_WESTON_WINDOW", "6291457"),
+        ]),
+    )
+    .expect("nested Weston seat");
+    let operations = driver
+        .plan(&ActionV1::ClipboardPaste {
+            text: "clipboard-probe".to_owned(),
+        })
+        .expect("clipboard plan");
+    assert!(matches!(
+        &operations[1],
+        DriverOperation::Command { program, arguments, .. }
+            if program == "bash"
+                && arguments == &["scripts/functional/x11-set-clipboard.sh", "clipboard-probe"]
+    ));
+    assert!(matches!(
+        &operations[2],
+        DriverOperation::Command { program, arguments, .. }
+            if program == "/usr/bin/xdotool"
+                && arguments == &["key", "--clearmodifiers", "ctrl+v"]
+    ));
+}
+
+#[test]
 fn macos_accessibility_is_a_hard_capability_gate() {
     let denied = PlatformInputDriver::from_environment(
         InputBackend::MacosCgEvent,
