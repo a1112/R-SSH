@@ -633,6 +633,37 @@ fn native_resource_gate_is_observer_backed_not_hard_coded_after_root_exit() {
 }
 
 #[test]
+fn console_pty_waits_for_the_fixture_before_sending_scenario_input() {
+    let source = include_str!("../src/runner.rs");
+    let start = source
+        .find("fn execute_pty_scenario(")
+        .expect("PTY scenario executor");
+    let end = source[start..]
+        .find("\nfn write_pty_evidence(")
+        .map(|offset| start + offset)
+        .expect("PTY evidence writer");
+    let executor = &source[start..end];
+
+    assert!(executor.contains(".wait_for_output(b\"fixture-ready\")"));
+}
+
+#[test]
+fn x11_window_discovery_waits_for_the_window_to_be_mapped() {
+    let source = include_str!("../src/runner.rs");
+    let start = source
+        .find("fn discover_x11_window(")
+        .expect("X11 discovery helper");
+    let end = source[start..]
+        .find("\nfn wait_for_observer_change(")
+        .map(|offset| start + offset)
+        .expect("following observer helper");
+    let discovery = &source[start..end];
+
+    assert!(discovery.contains("for _ in 0..100"));
+    assert!(discovery.contains("Duration::from_millis(50)"));
+}
+
+#[test]
 fn behavior_evidence_is_derived_from_executed_actions_drivers_and_checkpoints() {
     let source = include_str!("../src/runner.rs");
     assert!(!source.contains("for behavior in &scenario.behavior_ids"));

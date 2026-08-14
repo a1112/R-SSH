@@ -78,6 +78,11 @@ fn wayland_requires_nested_weston_x11_backend_and_injects_through_its_seat() {
             button: rssh_functional_tests::MouseButton::Left,
         })
         .expect("pointer plan");
+    assert!(matches!(
+        &operations[0],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["windowfocus", "--sync", "6291457"]
+    ));
     assert!(operations.iter().all(|operation| matches!(
         operation,
         DriverOperation::Command { environment, .. }

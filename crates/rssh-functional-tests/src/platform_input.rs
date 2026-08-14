@@ -243,7 +243,7 @@ impl PlatformInputDriver {
         };
         let focus = || {
             command(vec![
-                "windowactivate".to_owned(),
+                self.xtest_focus_command().to_owned(),
                 "--sync".to_owned(),
                 self.target.clone(),
             ])
@@ -332,6 +332,14 @@ impl PlatformInputDriver {
             action => return Err(PlatformInputError::UnsupportedAction(format!("{action:?}"))),
         }
         Ok(operations)
+    }
+
+    fn xtest_focus_command(&self) -> &'static str {
+        match self.backend {
+            InputBackend::WaylandWestonSeat => "windowfocus",
+            InputBackend::X11Xtest => "windowactivate",
+            _ => unreachable!("XTEST planning is only used for X11-backed inputs"),
+        }
     }
 
     fn plan_macos(&self, action: &ActionV1) -> Result<Vec<DriverOperation>, PlatformInputError> {

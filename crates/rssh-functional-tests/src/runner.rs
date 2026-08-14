@@ -2218,28 +2218,41 @@ fn discover_x11_window(
     let program = environment
         .get("RSSH_FUNCTIONAL_XDOTOOL")
         .map_or("xdotool", String::as_str);
-    let mut command = Command::new(program);
-    command.args(["search", "--onlyvisible", "--pid", &process_id.to_string()]);
-    if let Some(display) = environment.get("DISPLAY") {
-        command.env("DISPLAY", display);
+    let deadline = Instant::now()
+        .checked_add(Duration::from_secs(15))
+        .ok_or_else(|| RunnerError::Driver("X11 discovery deadline overflow".to_owned()))?;
+    let mut observed = 0;
+    for _ in 0..100 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let mut command = Command::new(program);
+        command.args(["search", "--onlyvisible", "--pid", &process_id.to_string()]);
+        if let Some(display) = environment.get("DISPLAY") {
+            command.env("DISPLAY", display);
+        }
+        let output = ChildGuard::spawn(command, remaining.min(Duration::from_secs(2)))
+            .map_err(|source| RunnerError::Driver(format!("discover X11 window: {source}")))?
+            .wait()
+            .map_err(|source| RunnerError::child("discover X11 window", source))?;
+        let windows: Vec<_> = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_owned)
+            .collect();
+        observed = windows.len();
+        if observed == 1 {
+            return Ok(windows[0].clone());
+        }
+        if observed > 1 {
+            break;
+        }
+        std::thread::park_timeout(Duration::from_millis(50));
     }
-    let output = ChildGuard::spawn(command, Duration::from_secs(15))
-        .map_err(|source| RunnerError::Driver(format!("discover X11 window: {source}")))?
-        .wait()
-        .map_err(|source| RunnerError::child("discover X11 window", source))?;
-    let windows: Vec<_> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(str::to_owned)
-        .collect();
-    if windows.len() == 1 {
-        Ok(windows[0].clone())
-    } else {
-        Err(RunnerError::Driver(format!(
-            "expected one visible X11 window for PID {process_id}; observed {}",
-            windows.len()
-        )))
-    }
+    Err(RunnerError::Driver(format!(
+        "expected one visible X11 window for PID {process_id}; observed {observed}"
+    )))
 }
 
 fn wait_for_observer_change(
@@ -2372,6 +2385,7 @@ fn execute_pty_scenario(
         24,
         scenario_timeout(scenario, started)?,
     )
+    .and_then(|driver| driver.wait_for_output(b"fixture-ready"))
     .map_err(|source| RunnerError::Driver(source.to_string()))?;
     for (action_index, action) in scenario.actions.iter().enumerate() {
         match action {

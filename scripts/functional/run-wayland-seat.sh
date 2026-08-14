@@ -10,6 +10,7 @@ mkdir -m 700 "$runtime"
 export XDG_RUNTIME_DIR="$runtime"
 export DISPLAY=:98
 export WAYLAND_DISPLAY=wayland-rssh-functional
+export RSSH_FUNCTIONAL_XDOTOOL="${RSSH_FUNCTIONAL_XDOTOOL:-$(command -v xdotool)}"
 
 dump_startup_logs() {
   for log in xvfb weston; do

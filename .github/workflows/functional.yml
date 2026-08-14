@@ -27,6 +27,7 @@ jobs:
           python -m unittest scripts.ci.tests.test_check_functional_matrix -v
           python -m unittest scripts.ci.tests.test_check_functional_hermeticity -v
           python scripts/ci/check-functional-hermeticity.py
+          cargo build --locked -p rssh-app
           cargo test --locked -p rssh-functional-tests -- --nocapture 2>&1 | tee functional-tests.libtest
           cargo test --locked -p rssh-runtime --features test-support --test pane_worker -- --nocapture 2>&1 | tee -a functional-tests.libtest
           cargo test --locked -p rssh-runtime --features local-transport --test local_transport -- --nocapture 2>&1 | tee -a functional-tests.libtest
@@ -230,14 +231,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb xdotool xclip imagemagick
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox xdotool xclip imagemagick
       - run: cargo build --locked -p rssh-app --features functional-test-observer -p rssh-functional-tests --bins
       - name: Run real X11 XTEST journey
         run: |
-          xvfb-run --auto-servernum env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.local-interaction --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard --capability real_os_pointer --capability system_clipboard --capability gpu_readback
-          xvfb-run --auto-servernum env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.observer-disconnect --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard
-          xvfb-run --auto-servernum env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.config-lifecycle --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard
-          xvfb-run --auto-servernum env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.forced-close-cleanup --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard
+          run_x11() {
+            xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "$@"
+          }
+          run_x11 env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.local-interaction --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard --capability real_os_pointer --capability system_clipboard --capability gpu_readback
+          run_x11 env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.observer-disconnect --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard
+          run_x11 env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.config-lifecycle --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard
+          run_x11 env RSSH_FUNCTIONAL_XDOTOOL=xdotool cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario window.forced-close-cleanup --target linux-x11 --evidence evidence/native-x11 --app target/debug/rssh-app --fixture-bin target/debug/rssh-functional-fixture --capability real_os_keyboard
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: { name: functional-native-x11, path: evidence/native-x11, if-no-files-found: error, retention-days: 7 }
@@ -354,7 +358,7 @@ jobs:
             command+=(--capability wayland)
             bash scripts/functional/run-wayland-seat.sh "${command[@]}"
           elif [[ "${RUNNER_OS}" == Linux ]]; then
-            xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "${command[@]}"
+            WEBKIT_DISABLE_DMABUF_RENDERER=1 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "${command[@]}"
           else
             "${command[@]}"
           fi
@@ -489,7 +493,7 @@ jobs:
         if: matrix.input == 'x11'
         run: |
           test -n "$(find target/release/bundle -type f -print -quit)"
-          xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash \
+          WEBKIT_DISABLE_DMABUF_RENDERER=1 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash \
             bash scripts/functional/smoke-production-tauri.sh --binary target/release/rssh-tauri \
             --evidence-directory evidence/production-tauri --input-backend x11
           python scripts/ci/check-functional-observer-isolation.py --binary target/release/rssh-tauri --package rssh-tauri --web-dist web/dist

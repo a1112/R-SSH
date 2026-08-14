@@ -408,6 +408,8 @@ jobs:
         run: |
           npm --prefix web ci
           npm --prefix web run build
+      - name: Build transport runtime used by coverage contracts
+        run: cargo build --locked -p rssh-app
       - name: Generate and enforce coverage
         run: |
           cargo install cargo-llvm-cov --version 0.8.7 --locked

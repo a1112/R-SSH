@@ -28,6 +28,20 @@ fn native_window_e2e_presents_ten_frames_from_a_real_pty() {
 }
 
 #[test]
+fn native_window_frame_probe_keeps_its_marker_process_alive() {
+    let source = include_str!("common/mod.rs");
+    let start = source
+        .find("pub fn run_ten_frame_native_window_with_log(")
+        .expect("logged native window probe");
+    let end = source[start..]
+        .find("\nfn run_ten_frame_native_window_with_command(")
+        .map(|offset| start + offset)
+        .expect("native window command helper");
+
+    assert!(source[start..end].contains("platform_marker_command_for_window_frames"));
+}
+
+#[test]
 #[ignore = "release-native-window scorecard probe"]
 fn native_window_release_performance_probe() {
     let _native_window = native_window_e2e_guard();

@@ -291,6 +291,13 @@ fn tauri_window_scenario_refocuses_after_window_state_transitions() {
         ),
         "the Tauri window must be focused again before terminal exit input"
     );
+    assert!(
+        matches!(
+            scenario.actions.get(last_restore + 2),
+            Some(ActionV1::MouseClick { .. })
+        ),
+        "the Tauri terminal must regain DOM focus after its window is restored"
+    );
 }
 
 #[test]

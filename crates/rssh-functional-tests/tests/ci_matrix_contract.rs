@@ -71,6 +71,80 @@ fn wayland_job_routes_xtest_through_a_nested_weston_x11_seat() {
 }
 
 #[test]
+fn native_x11_job_runs_with_an_ewmh_window_manager() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    let job = workflow
+        .split("  native-x11:")
+        .nth(1)
+        .expect("native X11 job")
+        .split("  native-wayland:")
+        .next()
+        .expect("following native Wayland job");
+    assert!(job.contains("openbox"));
+    assert!(job.contains("openbox >/tmp/rssh-openbox.log 2>&1 & exec \"$@\""));
+}
+
+#[test]
+fn contract_catalog_builds_runtime_entries_before_functional_contracts() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    let job = workflow
+        .split("  contract-catalog:")
+        .nth(1)
+        .unwrap()
+        .split("  cli-transport:")
+        .next()
+        .unwrap();
+    let build = job
+        .find("cargo build --locked -p rssh-app")
+        .expect("contract runtime build");
+    let contracts = job
+        .find("cargo test --locked -p rssh-functional-tests")
+        .expect("functional contracts");
+    assert!(build < contracts);
+}
+
+#[test]
+fn linux_tauri_x11_probes_disable_the_webkit_dmabuf_path() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    for (job, next_job) in [
+        ("  tauri-platform:", "  tauri-platform-macos:"),
+        (
+            "  production-tauri-bundle-smoke:",
+            "  production-tauri-bundle-smoke-macos:",
+        ),
+    ] {
+        let definition = workflow
+            .split(job)
+            .nth(1)
+            .expect("Tauri job")
+            .split(next_job)
+            .next()
+            .expect("following Tauri job");
+        assert!(
+            definition.contains("WEBKIT_DISABLE_DMABUF_RENDERER=1"),
+            "Linux X11 path in {job} must use the Xvfb-safe WebKit renderer"
+        );
+    }
+}
+
+#[test]
+fn coverage_builds_transport_runtime_outside_llvm_covs_isolated_target() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/ci.yml")).unwrap();
+    let job = workflow
+        .split("  coverage:")
+        .nth(1)
+        .unwrap()
+        .split("  web-quality:")
+        .next()
+        .unwrap();
+    let build = job
+        .find("cargo build --locked -p rssh-app")
+        .expect("coverage transport runtime build");
+    let coverage = job.find("cargo llvm-cov").expect("coverage command");
+    assert!(build < coverage);
+}
+
+#[test]
 fn functional_workflow_has_no_expression_inside_an_inline_yaml_map() {
     let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
     assert!(
