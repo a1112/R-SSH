@@ -183,6 +183,31 @@ fn macos_accessibility_is_a_hard_capability_gate() {
 }
 
 #[test]
+fn xtest_maps_logical_enter_to_the_x11_return_keysym() {
+    let driver = PlatformInputDriver::from_environment(
+        InputBackend::X11Xtest,
+        &environment(&[
+            ("DISPLAY", ":99"),
+            ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
+            ("RSSH_FUNCTIONAL_X11_WINDOW", "0x4200007"),
+        ]),
+    )
+    .expect("X11 target");
+    let operations = driver
+        .plan(&ActionV1::Key {
+            key: "Enter".to_owned(),
+            modifiers: Vec::new(),
+        })
+        .expect("key plan");
+
+    assert!(matches!(
+        &operations[1],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["key", "--clearmodifiers", "Return"]
+    ));
+}
+
+#[test]
 fn platform_driver_rejects_non_os_actions_instead_of_faking_them() {
     let driver = PlatformInputDriver::from_environment(
         InputBackend::WindowsSendInput,

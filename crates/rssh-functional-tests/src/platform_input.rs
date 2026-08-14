@@ -496,6 +496,11 @@ const fn window_control_name(operation: WindowControl) -> &'static str {
 }
 
 fn xtest_key(key: &str, modifiers: &[KeyModifier]) -> String {
+    let key = if key.eq_ignore_ascii_case("enter") {
+        "Return"
+    } else {
+        key
+    };
     let mut components: Vec<_> = modifiers
         .iter()
         .map(|modifier| match modifier {
