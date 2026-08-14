@@ -139,7 +139,7 @@ fn xtest_clipboard_paste_uses_xclip_before_the_focused_keyboard_binding() {
         &operations[2],
         DriverOperation::Command { program, arguments, .. }
             if program == "/usr/bin/xdotool"
-                && arguments == &["key", "--clearmodifiers", "ctrl+v"]
+                && arguments == &["key", "--clearmodifiers", "ctrl+shift+v"]
     ));
     assert!(matches!(
         operations.last(),

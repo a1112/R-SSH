@@ -338,7 +338,7 @@ impl PlatformInputDriver {
                 arguments: vec![
                     "key".to_owned(),
                     "--clearmodifiers".to_owned(),
-                    "ctrl+v".to_owned(),
+                    "ctrl+shift+v".to_owned(),
                 ],
                 environment: self.environment.clone(),
             },
