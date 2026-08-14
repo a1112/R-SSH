@@ -53,7 +53,6 @@ public static class RsshFunctionalInput {
     [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
-    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint count, INPUT[] inputs, int size);
@@ -300,13 +299,12 @@ switch ($Action) {
         if (-not [RsshFunctionalInput]::GetClientRect($window, [ref]$rect)) {
           throw "GetClientRect failed"
         }
-        $dpi = [RsshFunctionalInput]::GetDpiForWindow($window)
-        if ($dpi -eq 0) { $dpi = 96 }
-        $scale = [double]$dpi / 96.0
-        # The Web UI places the 28x26 CSS-pixel close button 14 CSS pixels
-        # from the right edge, centered in its 38 CSS-pixel header.
-        $closeCenterFromRight = [int][Math]::Round(28.0 * $scale)
-        $closeCenterY = [int][Math]::Round(19.0 * $scale)
+        # ClientToScreen applies the caller's DPI virtualization, so these stay
+        # in the Web UI's logical coordinate space. The shell's 16px margin,
+        # 1px border, 14px right padding, and 28px button put its center 45px
+        # from the right and 36px from the top of the client area.
+        $closeCenterFromRight = 45
+        $closeCenterY = 36
         if ($rect.Right -le $closeCenterFromRight -or $rect.Bottom -le $closeCenterY) {
           throw "window client area is too small for its visible close button"
         }

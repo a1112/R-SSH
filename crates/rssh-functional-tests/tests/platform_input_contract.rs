@@ -508,9 +508,9 @@ fn windows_tauri_close_clicks_its_visible_client_button_with_system_input() {
         .expect("bounded client close button action");
 
     assert!(helper.contains("GetClientRect"));
-    assert!(helper.contains("GetDpiForWindow"));
-    assert!(close_button.contains("28.0 * $scale"));
-    assert!(close_button.contains("19.0 * $scale"));
+    assert!(close_button.contains("$closeCenterFromRight = 45"));
+    assert!(close_button.contains("$closeCenterY = 36"));
+    assert!(!close_button.contains("GetDpiForWindow"));
     assert!(
         close_button
             .contains("Set-ClientCursor ($rect.Right - $closeCenterFromRight) $closeCenterY")

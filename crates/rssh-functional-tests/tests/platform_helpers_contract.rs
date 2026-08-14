@@ -66,9 +66,12 @@ fn production_tauri_tracks_linux_helpers_by_identity_and_ignores_zombies() {
         .rfind("wait \"$root_pid\"")
         .expect("reap production Tauri root");
     let helper_wait = source
-        .find("wait_condition 30 \"production Tauri left an owned helper process\"")
+        .find("wait_condition 45 \"production Tauri left an owned helper process\"")
         .expect("verify owned helpers exited");
     assert!(root_wait < helper_wait);
+    assert!(source[helper_wait..].starts_with(
+        "wait_condition 45 \"production Tauri left an owned helper process\" all_owned_exited"
+    ));
 }
 
 #[test]

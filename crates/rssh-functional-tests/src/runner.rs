@@ -3118,12 +3118,11 @@ fn execute_process_scenario(
     for arguments in commands {
         let mut command = hermetic_app_command(app);
         command.args(arguments);
-        let mut child = ChildGuard::spawn(command, scenario_timeout(scenario, started)?)
+        let child = ChildGuard::spawn(command, action_timeout(scenario, started)?)
             .map_err(|source| RunnerError::Driver(format!("launch `{}`: {source}", scenario.id)))?;
         process_ids.push(child.process_id().ok_or_else(|| {
             RunnerError::Driver("spawned child did not expose a process id".to_owned())
         })?);
-        child.cap_remaining_timeout(cleanup_timeout(scenario, started)?);
         let output = child
             .wait()
             .map_err(|source| RunnerError::child(format!("wait for `{}`", scenario.id), source))?;

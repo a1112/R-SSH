@@ -421,6 +421,23 @@ required_evidence = ["event_log", "stdout", "stderr", "process_tree"]
 }
 
 #[test]
+fn process_commands_keep_the_action_budget_instead_of_entering_cleanup_early() {
+    let source = include_str!("../src/runner.rs");
+    let process_driver = source
+        .split("fn execute_process_scenario(")
+        .nth(1)
+        .expect("process driver")
+        .split("fn execute_profile_lifecycle_scenario(")
+        .next()
+        .expect("bounded process driver");
+
+    assert!(
+        process_driver.contains("ChildGuard::spawn(command, action_timeout(scenario, started)?)")
+    );
+    assert!(!process_driver.contains("cap_remaining_timeout(cleanup_timeout"));
+}
+
+#[test]
 fn run_drives_the_real_local_entrypoint_through_a_pty_fixture() {
     let suite = TempDir::new().unwrap();
     write_suite(&suite);

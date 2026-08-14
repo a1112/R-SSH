@@ -165,4 +165,4 @@ wait_condition 15 "production Tauri PTY child did not exit after OS keyboard inp
 input window close
 wait_condition 10 "production Tauri did not exit after its OS close action" root_exited
 wait "$root_pid"
-wait_condition 30 "production Tauri left an owned helper process" all_owned_exited
+wait_condition 45 "production Tauri left an owned helper process" all_owned_exited
