@@ -142,7 +142,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building R-SSH Tauri application")
         .run(|app_handle, event| {
-            if !matches!(event, RunEvent::ExitRequested { .. }) {
+            let main_window_close_requested = if let RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } = &event
+                && label == "main"
+            {
+                api.prevent_close();
+                true
+            } else {
+                false
+            };
+            if !main_window_close_requested && !matches!(event, RunEvent::ExitRequested { .. }) {
                 return;
             }
             if let Some(state) = app_handle.try_state::<BackendState>()
@@ -152,6 +164,8 @@ pub fn run() {
                 let _ = sender.send(());
             }
             #[cfg(feature = "functional-test-observer")]
+            let mut final_observation_delivery = None;
+            #[cfg(feature = "functional-test-observer")]
             if let Some(state) = app_handle.try_state::<FunctionalObserverState>() {
                 let mut snapshot = state.observer.snapshot();
                 snapshot.revision = snapshot.revision.saturating_add(1);
@@ -160,12 +174,45 @@ pub fn run() {
                 snapshot.runtime.listener_count = 0;
                 snapshot.runtime.child_process_count = 0;
                 if state.observer.publish(snapshot.clone()).is_ok() {
-                    let _ = state
-                        .observer
-                        .wait_until_delivered(snapshot.revision, Duration::from_millis(250));
+                    if main_window_close_requested {
+                        final_observation_delivery =
+                            Some((state.observer.clone(), snapshot.revision));
+                    } else {
+                        let _ = state
+                            .observer
+                            .wait_until_delivered(snapshot.revision, Duration::from_millis(250));
+                    }
                 }
             }
+            if main_window_close_requested {
+                #[cfg(feature = "functional-test-observer")]
+                if let Some((observer, revision)) = final_observation_delivery {
+                    exit_after_final_observation_delivery(app_handle.clone(), observer, revision);
+                    return;
+                }
+                app_handle.exit(0);
+            }
         });
+}
+
+#[cfg(feature = "functional-test-observer")]
+fn exit_after_final_observation_delivery(
+    app_handle: tauri::AppHandle,
+    observer: ObserverState,
+    revision: u64,
+) {
+    let fallback_handle = app_handle.clone();
+    let spawn_result = thread::Builder::new()
+        .name("rssh-tauri-observer-exit".to_owned())
+        .spawn(move || {
+            let _ = observer.wait_until_delivered(revision, Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(1));
+            let exit_handle = app_handle;
+            exit_handle.exit(0);
+        });
+    if spawn_result.is_err() {
+        fallback_handle.exit(0);
+    }
 }
 
 #[cfg(feature = "functional-test-observer")]

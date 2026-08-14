@@ -77,7 +77,7 @@ all_owned_exited() {
 
 input() {
   case "$input_backend" in
-    x11) scripts/functional/x11-xtest-input.sh "$root_pid" "$@" ;;
+    x11) bash scripts/functional/x11-xtest-input.sh "$root_pid" "$@" ;;
     macos)
       [[ "${RSSH_FUNCTIONAL_MACOS_ACCESSIBILITY:-}" == authorized ]] || {
         echo "macOS Accessibility authorization is required" >&2

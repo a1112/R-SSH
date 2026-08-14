@@ -28,7 +28,7 @@ fn x11_uses_xtest_and_never_falls_back_to_synthetic_stdin() {
             text: "R-SSH 终端".to_owned(),
         })
         .expect("type plan");
-    assert_eq!(operations.len(), 2);
+    assert_eq!(operations.len(), 3);
     assert!(matches!(
         &operations[0],
         DriverOperation::Command { program, arguments, .. }
@@ -39,6 +39,11 @@ fn x11_uses_xtest_and_never_falls_back_to_synthetic_stdin() {
         &operations[1],
         DriverOperation::Command { arguments, .. }
             if arguments == &["type", "--clearmodifiers", "--delay", "0", "R-SSH 终端"]
+    ));
+    assert!(matches!(
+        &operations[2],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["sleep", "0.1"]
     ));
 }
 
@@ -99,6 +104,11 @@ fn wayland_requires_nested_weston_x11_backend_and_injects_through_its_seat() {
             if arguments.first().map(String::as_str) != Some("click")
                 || !arguments.iter().any(|argument| argument == "--window")
     )));
+    assert!(matches!(
+        operations.last(),
+        Some(DriverOperation::Command { arguments, .. })
+            if arguments == &["sleep", "0.1"]
+    ));
 }
 
 #[test]
@@ -130,6 +140,11 @@ fn xtest_clipboard_paste_uses_xclip_before_the_focused_keyboard_binding() {
         DriverOperation::Command { program, arguments, .. }
             if program == "/usr/bin/xdotool"
                 && arguments == &["key", "--clearmodifiers", "ctrl+v"]
+    ));
+    assert!(matches!(
+        operations.last(),
+        Some(DriverOperation::Command { arguments, .. })
+            if arguments == &["sleep", "0.1"]
     ));
 }
 
@@ -215,6 +230,8 @@ fn windows_clipboard_paste_uses_the_native_terminal_binding() {
     let script = include_str!("../../../scripts/functional/windows-send-input.ps1");
     assert!(script.contains("VirtualKey(0x10, $true)"));
     assert!(script.contains("VirtualKey(0x11, $true)"));
+    assert!(script.contains("function Set-ClipboardWithRetry"));
+    assert!(script.contains("Set-ClipboardWithRetry ($ActionArguments -join \" \")"));
     assert!(script.contains("Send-VirtualKey 0x56"));
     assert!(script.contains("VirtualKey(0x11, $false)"));
     assert!(script.contains("VirtualKey(0x10, $false)"));
@@ -271,6 +288,7 @@ fn windows_mouse_actions_are_one_json_value_not_positional_powershell_arguments(
 fn windows_tauri_production_smoke_passes_json_arrays_to_the_input_helper() {
     let script = include_str!("../../../scripts/functional/smoke-production-tauri.ps1");
     for arguments in [
+        r#"-Action click -ActionArgumentsJson '["80","80","left"]'"#,
         r#"-ActionArgumentsJson '["exit 7"]'"#,
         r#"-ActionArgumentsJson '["enter"]'"#,
         r#"-ActionArgumentsJson '["close"]'"#,
@@ -281,4 +299,27 @@ fn windows_tauri_production_smoke_passes_json_arrays_to_the_input_helper() {
         );
     }
     assert!(!script.contains(" -ActionArguments "));
+}
+
+#[test]
+fn windows_close_uses_focused_system_input_instead_of_an_unobserved_message() {
+    let script = include_str!("../../../scripts/functional/windows-send-input.ps1");
+    assert!(script.contains("SendMessageTimeout"));
+    assert!(script.contains("SendMessageTimeout(WM_CLOSE) failed"));
+    assert!(!script.contains("PostMessage(WM_CLOSE)"));
+}
+
+#[test]
+fn windows_process_target_prefers_the_titled_application_window() {
+    let script = include_str!("../../../scripts/functional/windows-send-input.ps1");
+    let find_window = script
+        .split("public static IntPtr FindWindow(uint expectedProcessId)")
+        .nth(1)
+        .expect("process window lookup")
+        .split("public static IntPtr FindWindowByTitle")
+        .next()
+        .expect("bounded process window lookup");
+
+    assert!(find_window.contains("GetWindowText"));
+    assert!(find_window.contains("title.Length > 0"));
 }

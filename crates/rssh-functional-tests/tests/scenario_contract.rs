@@ -267,7 +267,7 @@ fn every_closed_action_has_an_approved_executable_driver_path() {
 }
 
 #[test]
-fn tauri_window_scenario_refocuses_after_window_state_transitions() {
+fn tauri_window_scenario_closes_after_window_state_transitions() {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let source =
         std::fs::read_to_string(root.join("functional-tests/scenarios/tauri.local-pty.toml"))
@@ -287,16 +287,11 @@ fn tauri_window_scenario_refocuses_after_window_state_transitions() {
     assert!(
         matches!(
             scenario.actions.get(last_restore + 1),
-            Some(ActionV1::FocusWindow)
+            Some(ActionV1::WindowControl {
+                operation: WindowControl::Close
+            })
         ),
-        "the Tauri window must be focused again before terminal exit input"
-    );
-    assert!(
-        matches!(
-            scenario.actions.get(last_restore + 2),
-            Some(ActionV1::MouseClick { .. })
-        ),
-        "the Tauri terminal must regain DOM focus after its window is restored"
+        "the Tauri journey must close the restored window without relying on PTY input focus"
     );
 }
 

@@ -29,6 +29,7 @@ fn windows_helper_uses_send_input_and_targets_only_the_observed_process_window()
 #[test]
 fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
     let source = repo_file("scripts/functional/x11-xtest-input.sh");
+    let production_smoke = repo_file("scripts/functional/smoke-production-tauri.sh");
     assert!(source.contains("search --onlyvisible --pid"));
     assert!(source.contains("find_visible_window"));
     assert!(source.contains("pgrep -P"));
@@ -37,9 +38,11 @@ fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
     assert!(source.contains("xdotool"));
     assert!(source.contains("type --clearmodifiers --delay 0 -- \"$*\""));
     assert!(source.contains("click \"$button\""));
+    assert!(source.contains("sleep 0.1"));
     assert!(!source.contains("type --clearmodifiers --delay 0 --window"));
     assert!(!source.contains("click --window"));
     assert!(!source.contains("/dev/stdin"));
+    assert!(production_smoke.contains("bash scripts/functional/x11-xtest-input.sh"));
 }
 
 #[test]

@@ -83,13 +83,14 @@ try {
   Wait-Condition { @(Get-SessionDescendants $process.Id).Count -gt 0 } 30 "production Tauri did not start a PTY child"
 
   & "$PSScriptRoot/windows-send-input.ps1" -ProcessId $process.Id -Action focus
+  & "$PSScriptRoot/windows-send-input.ps1" -ProcessId $process.Id -Action click -ActionArgumentsJson '["80","80","left"]'
   & "$PSScriptRoot/windows-send-input.ps1" -ProcessId $process.Id -Action type -ActionArgumentsJson '["exit 7"]'
   & "$PSScriptRoot/windows-send-input.ps1" -ProcessId $process.Id -Action key -ActionArgumentsJson '["enter"]'
   Wait-Condition { @(Get-SessionDescendants $process.Id).Count -eq 0 } 15 "production Tauri PTY child did not exit after OS keyboard input"
 
   $ownedProcessIds = @(Get-Descendants $process.Id | ForEach-Object { [uint32]$_.ProcessId })
   & "$PSScriptRoot/windows-send-input.ps1" -ProcessId $process.Id -Action window -ActionArgumentsJson '["close"]'
-  Wait-Condition { $null -eq (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) } 10 "production Tauri did not exit after WM_CLOSE"
+  Wait-Condition { $null -eq (Get-Process -Id $process.Id -ErrorAction SilentlyContinue) } 10 "production Tauri did not exit after the verified close request"
   Wait-Condition { Test-ProcessesExited $ownedProcessIds } 10 "production Tauri left an owned WebView or helper process"
   $process.WaitForExit()
   if ($process.ExitCode -ne 0) {

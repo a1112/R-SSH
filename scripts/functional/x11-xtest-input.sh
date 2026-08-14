@@ -91,3 +91,7 @@ case "$action" in
     ;;
   *) echo "unsupported XTEST action: $action" >&2; exit 2 ;;
 esac
+
+# Let the target client consume the injected events before the next helper
+# process can move focus or enqueue another action.
+sleep 0.1

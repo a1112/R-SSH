@@ -746,7 +746,19 @@ fn ensure_private_socket_directory(directory: &Path) -> io::Result<()> {
             ));
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            std::fs::create_dir(directory)?;
+            match std::fs::create_dir(directory) {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    let metadata = std::fs::symlink_metadata(directory)?;
+                    if !metadata.file_type().is_dir() {
+                        return Err(io::Error::new(
+                            io::ErrorKind::AlreadyExists,
+                            "observer runtime path is not a directory",
+                        ));
+                    }
+                }
+                Err(error) => return Err(error),
+            }
         }
         Err(error) => return Err(error),
     }
@@ -857,5 +869,31 @@ mod frame_tests {
         let mut frame = BufReader::new(b"123\n".as_slice());
         assert_eq!(read_bounded_line(&mut frame, &mut line, 4).unwrap(), 4);
         assert_eq!(line, "123\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_directory_creation_tolerates_concurrent_binders() {
+        use std::sync::{Arc, Barrier};
+
+        let root = tempfile::TempDir::new().unwrap();
+        for attempt in 0..32 {
+            let directory = root.path().join(attempt.to_string());
+            let barrier = Arc::new(Barrier::new(17));
+            let workers: Vec<_> = (0..16)
+                .map(|_| {
+                    let barrier = Arc::clone(&barrier);
+                    let directory = directory.clone();
+                    std::thread::spawn(move || {
+                        barrier.wait();
+                        super::ensure_private_socket_directory(&directory)
+                    })
+                })
+                .collect();
+            barrier.wait();
+            for worker in workers {
+                worker.join().unwrap().unwrap();
+            }
+        }
     }
 }

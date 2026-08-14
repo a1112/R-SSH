@@ -18,7 +18,7 @@ fn tauri_scenario_uses_os_input_and_the_shared_observer_driver() {
         "(scenario.surface == Surface::NativeWindow).then_some(FUNCTIONAL_X11_WINDOW_CLASS)"
     ));
     assert!(scenario.contains("type = \"resize_window\""));
-    assert!(scenario.contains("text = \"exit\""));
+    assert!(scenario.contains("text = \"echo tauri-probe\""));
     assert!(!scenario.contains("sleep"));
 }
 

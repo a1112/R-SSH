@@ -21,6 +21,20 @@ fn tauri_test_build_projects_web_state_into_the_read_only_observer() {
 }
 
 #[test]
+fn closing_the_main_window_drives_backend_cleanup_and_app_exit() {
+    let backend =
+        fs::read_to_string(root().join("tauri/src-tauri/src/lib.rs")).expect("Tauri backend");
+
+    assert!(backend.contains("tauri::WindowEvent::CloseRequested"));
+    assert!(backend.contains("label == \"main\""));
+    assert!(backend.contains("api.prevent_close()"));
+    assert!(backend.contains("exit_after_final_observation_delivery"));
+    assert!(backend.contains("Duration::from_secs(2)"));
+    assert!(backend.contains("thread::sleep(Duration::from_secs(1))"));
+    assert!(backend.contains("exit_handle.exit(0)"));
+}
+
+#[test]
 fn production_tauri_build_does_not_enable_the_observer_feature() {
     let package = fs::read_to_string(root().join("tauri/package.json")).unwrap();
     assert!(package.contains("--features functional-test-observer"));

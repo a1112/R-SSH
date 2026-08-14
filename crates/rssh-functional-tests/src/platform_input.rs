@@ -317,6 +317,7 @@ impl PlatformInputDriver {
             ActionV1::FocusWindow => {}
             action => return Err(PlatformInputError::UnsupportedAction(format!("{action:?}"))),
         }
+        operations.push(command(vec!["sleep".to_owned(), "0.1".to_owned()]));
         Ok(operations)
     }
 
