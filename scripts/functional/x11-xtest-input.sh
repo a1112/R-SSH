@@ -7,6 +7,7 @@ if (($# < 2)); then
 fi
 pid="$1"
 action="$2"
+window_title="${RSSH_FUNCTIONAL_X11_WINDOW_TITLE:-}"
 shift 2
 
 process_tree() {
@@ -27,7 +28,7 @@ process_tree() {
 }
 
 find_visible_window() {
-  local process window
+  local process window actual_title
   local -a matches=()
   for _ in {1..600}; do
     matches=()
@@ -36,6 +37,13 @@ find_visible_window() {
         [[ -n "$window" ]] && matches+=("$window")
       done < <(xdotool search --onlyvisible --pid "$process" 2>/dev/null || true)
     done < <(process_tree)
+    if ((${#matches[@]} == 0)) && [[ -n "$window_title" ]]; then
+      while IFS= read -r window; do
+        [[ -n "$window" ]] || continue
+        actual_title="$(xdotool getwindowname "$window" 2>/dev/null || true)"
+        [[ "$actual_title" == "$window_title" ]] && matches+=("$window")
+      done < <(xdotool search --onlyvisible --name "$window_title" 2>/dev/null || true)
+    fi
     if ((${#matches[@]} == 1)); then
       printf '%s\n' "${matches[0]}"
       return 0

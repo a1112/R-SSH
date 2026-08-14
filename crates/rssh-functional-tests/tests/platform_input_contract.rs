@@ -175,6 +175,40 @@ fn xtest_clipboard_paste_accepts_a_surface_specific_keyboard_binding() {
 }
 
 #[test]
+fn wayland_clipboard_paste_clears_the_selection_after_the_browser_reads_it() {
+    let driver = PlatformInputDriver::from_environment(
+        InputBackend::WaylandWestonSeat,
+        &environment(&[
+            ("DISPLAY", ":99"),
+            ("WAYLAND_DISPLAY", "wayland-rssh"),
+            ("RSSH_FUNCTIONAL_WESTON_BACKEND", "x11"),
+            ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
+            ("RSSH_FUNCTIONAL_WESTON_WINDOW", "6291457"),
+            ("RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD", "1"),
+        ]),
+    )
+    .expect("nested Weston seat");
+    let operations = driver
+        .plan(&ActionV1::ClipboardPaste {
+            text: "clipboard-probe".to_owned(),
+        })
+        .expect("clipboard plan");
+
+    assert!(matches!(
+        &operations[1],
+        DriverOperation::Command { environment, .. }
+            if environment.get("RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD").map(String::as_str)
+                == Some("1")
+    ));
+    assert!(matches!(
+        operations.last(),
+        Some(DriverOperation::Command { program, arguments, .. })
+            if program == "bash"
+                && arguments == &["scripts/functional/x11-set-clipboard.sh", "--clear"]
+    ));
+}
+
+#[test]
 fn nested_wayland_can_close_tauri_through_its_visible_web_control() {
     let driver = PlatformInputDriver::from_environment(
         InputBackend::WaylandWestonSeat,
@@ -419,6 +453,7 @@ fn windows_tauri_production_smoke_passes_json_arrays_to_the_input_helper() {
 fn windows_close_uses_focused_system_input_instead_of_an_unobserved_message() {
     let script = include_str!("../../../scripts/functional/windows-send-input.ps1");
     assert!(script.contains("SendMessageTimeout"));
+    assert!(script.contains("0x2, 5000, [ref]$closeResult"));
     assert!(script.contains("SendMessageTimeout(WM_CLOSE) failed"));
     assert!(!script.contains("PostMessage(WM_CLOSE)"));
 }

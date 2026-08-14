@@ -30,6 +30,7 @@ pub struct PlatformInputDriver {
     script: Option<String>,
     target: String,
     xtest_paste_key: String,
+    xtest_wayland_clipboard: bool,
     xtest_close_key: String,
     xtest_close_confirm_key: Option<String>,
     xtest_web_close_point: Option<(i32, i32)>,
@@ -56,7 +57,7 @@ impl PlatformInputDriver {
                     detail: format!("required environment variable {name} is absent"),
                 })
         };
-        let (program, target, operation_environment) = match backend {
+        let (program, target, mut operation_environment) = match backend {
             InputBackend::WindowsSendInput => (
                 environment
                     .get("RSSH_FUNCTIONAL_POWERSHELL")
@@ -128,10 +129,9 @@ impl PlatformInputDriver {
             }
         };
         let script = input_script(backend, environment);
-        let xtest_paste_key = environment
-            .get("RSSH_FUNCTIONAL_XTEST_PASTE_KEY")
-            .cloned()
-            .unwrap_or_else(|| "ctrl+shift+v".to_owned());
+        let xtest_paste_key = xtest_paste_key(environment);
+        let xtest_wayland_clipboard =
+            configure_wayland_clipboard(backend, environment, &mut operation_environment);
         let (xtest_close_key, xtest_close_confirm_key) = xtest_close_keys(environment);
         let xtest_web_close_point = xtest_web_close_point(backend, environment)?;
         Ok(Self {
@@ -140,6 +140,7 @@ impl PlatformInputDriver {
             script,
             target,
             xtest_paste_key,
+            xtest_wayland_clipboard,
             xtest_close_key,
             xtest_close_confirm_key,
             xtest_web_close_point,
@@ -338,6 +339,7 @@ impl PlatformInputDriver {
             action => return Err(PlatformInputError::UnsupportedAction(format!("{action:?}"))),
         }
         operations.push(command(vec!["sleep".to_owned(), "0.1".to_owned()]));
+        self.append_xtest_clipboard_cleanup(action, &mut operations);
         Ok(operations)
     }
 
@@ -363,6 +365,26 @@ impl PlatformInputDriver {
                 environment: self.environment.clone(),
             },
         ]
+    }
+
+    fn append_xtest_clipboard_cleanup(
+        &self,
+        action: &ActionV1,
+        operations: &mut Vec<DriverOperation>,
+    ) {
+        if !matches!(action, ActionV1::ClipboardPaste { .. }) || !self.xtest_wayland_clipboard {
+            return;
+        }
+        operations.push(DriverOperation::Command {
+            program: "bash".to_owned(),
+            arguments: vec![
+                self.script
+                    .clone()
+                    .expect("XTEST driver has a clipboard helper"),
+                "--clear".to_owned(),
+            ],
+            environment: self.environment.clone(),
+        });
     }
 
     fn xtest_focus_command(&self) -> &'static str {
@@ -405,6 +427,32 @@ fn xtest_close_keys(environment: &BTreeMap<String, String>) -> (String, Option<S
         .get("RSSH_FUNCTIONAL_XTEST_CLOSE_CONFIRM_KEY")
         .cloned();
     (close, confirm)
+}
+
+fn xtest_paste_key(environment: &BTreeMap<String, String>) -> String {
+    environment
+        .get("RSSH_FUNCTIONAL_XTEST_PASTE_KEY")
+        .cloned()
+        .unwrap_or_else(|| "ctrl+shift+v".to_owned())
+}
+
+fn configure_wayland_clipboard(
+    backend: InputBackend,
+    environment: &BTreeMap<String, String>,
+    operation_environment: &mut BTreeMap<String, String>,
+) -> bool {
+    let enabled = backend == InputBackend::WaylandWestonSeat
+        && environment
+            .get("RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD")
+            .map(String::as_str)
+            == Some("1");
+    if enabled {
+        operation_environment.insert(
+            "RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD".to_owned(),
+            "1".to_owned(),
+        );
+    }
+    enabled
 }
 
 fn xtest_window_control_commands(

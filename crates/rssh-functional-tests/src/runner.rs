@@ -2551,6 +2551,7 @@ fn observer_closed_with_process(error: &io::Error) -> bool {
     expected_kind
         || error.raw_os_error() == Some(232)
         || message.contains("The pipe is being closed")
+        || message.contains("(os error 32)")
         || message.contains("(os error 232)")
 }
 
@@ -3884,9 +3885,11 @@ mod tests {
     fn windows_pipe_closing_is_an_expected_observer_shutdown() {
         let error = io::Error::from_raw_os_error(232);
         let wrapped = io::Error::other("The pipe is being closed. (os error 232)");
+        let wrapped_unix = io::Error::other("Broken pipe (os error 32)");
 
         assert!(observer_closed_with_process(&error));
         assert!(observer_closed_with_process(&wrapped));
+        assert!(observer_closed_with_process(&wrapped_unix));
     }
 
     #[test]

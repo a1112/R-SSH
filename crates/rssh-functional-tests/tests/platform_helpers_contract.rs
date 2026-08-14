@@ -34,6 +34,9 @@ fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
     let source = repo_file("scripts/functional/x11-xtest-input.sh");
     let production_smoke = repo_file("scripts/functional/smoke-production-tauri.sh");
     assert!(source.contains("search --onlyvisible --pid"));
+    assert!(source.contains("RSSH_FUNCTIONAL_X11_WINDOW_TITLE"));
+    assert!(source.contains("search --onlyvisible --name"));
+    assert!(source.contains("getwindowname"));
     assert!(source.contains("find_visible_window"));
     assert!(source.contains("pgrep -P"));
     assert!(source.contains("for _ in {1..600}"));
@@ -48,6 +51,7 @@ fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
     assert!(!source.contains("click --window"));
     assert!(!source.contains("/dev/stdin"));
     assert!(production_smoke.contains("bash scripts/functional/x11-xtest-input.sh"));
+    assert!(production_smoke.contains("RSSH_FUNCTIONAL_X11_WINDOW_TITLE=R-SSH"));
 }
 
 #[test]
@@ -68,11 +72,17 @@ fn production_tauri_tracks_linux_helpers_by_identity_and_ignores_zombies() {
 }
 
 #[test]
-fn x11_clipboard_helper_owns_one_real_selection_request() {
+fn clipboard_helper_bounds_selection_ownership_for_each_backend() {
     let source = repo_file("scripts/functional/x11-set-clipboard.sh");
     assert!(source.contains("xclip -selection clipboard -loops 1"));
     assert!(source.contains("RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD"));
-    assert!(source.contains("wl-copy --paste-once"));
+    assert!(
+        source
+            .lines()
+            .any(|line| line.trim() == "printf '%s' \"$1\" | wl-copy")
+    );
+    assert!(source.contains("wl-copy --clear"));
+    assert!(!source.contains("--paste-once"));
     assert!(source.contains("printf '%s' \"$1\""));
     assert!(!source.contains("eval"));
 }

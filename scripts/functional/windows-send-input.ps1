@@ -289,7 +289,7 @@ switch ($Action) {
       "close" {
         $closeResult = [UIntPtr]::Zero
         $sendResult = [RsshFunctionalInput]::SendMessageTimeout(
-          $window, 0x0010, [UIntPtr]::Zero, [IntPtr]::Zero, 0x2, 2000, [ref]$closeResult
+          $window, 0x0010, [UIntPtr]::Zero, [IntPtr]::Zero, 0x2, 5000, [ref]$closeResult
         )
         if ($sendResult -eq [IntPtr]::Zero) {
           throw "SendMessageTimeout(WM_CLOSE) failed for process=$ProcessId title=$WindowTitle handle=$window"
