@@ -722,6 +722,20 @@ fn native_window_actions_wait_for_the_fixture_ready_marker() {
 }
 
 #[test]
+fn early_native_window_failures_preserve_child_diagnostics() {
+    let runner = include_str!("../src/runner.rs");
+    let helper = runner
+        .split("fn with_window_child_diagnostics(")
+        .nth(1)
+        .expect("window child diagnostics helper");
+
+    assert!(runner.contains("with_window_child_diagnostics(&error, child, description)"));
+    assert!(helper.contains("child.terminate()"));
+    assert!(helper.contains("output.stderr"));
+    assert!(helper.contains("output.stdout"));
+}
+
+#[test]
 fn behavior_evidence_is_derived_from_executed_actions_drivers_and_checkpoints() {
     let source = include_str!("../src/runner.rs");
     assert!(!source.contains("for behavior in &scenario.behavior_ids"));

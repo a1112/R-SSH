@@ -1921,7 +1921,12 @@ fn execute_observed_window_scenario(
         "observer handshake completed for a live window",
     )?;
     if scenario.surface == Surface::NativeWindow {
-        snapshot = wait_for_native_fixture_ready(scenario, &mut client, snapshot, started)?;
+        snapshot = match wait_for_native_fixture_ready(scenario, &mut client, snapshot, started) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return Err(with_window_child_diagnostics(&error, child, description));
+            }
+        };
     }
     let x11_class =
         (scenario.surface == Surface::NativeWindow).then_some(FUNCTIONAL_X11_WINDOW_CLASS);
@@ -1961,6 +1966,25 @@ fn execute_observed_window_scenario(
         )?;
     }
     finish_window_run(context, process_id, &snapshot, &output, writer)
+}
+
+fn with_window_child_diagnostics(
+    error: &RunnerError,
+    child: ChildGuard,
+    description: &str,
+) -> RunnerError {
+    match child.terminate() {
+        Ok(output) => RunnerError::Driver(format!(
+            "{error}; {description} child status={:?}; stdout={:?}; stderr={:?}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        )),
+        Err(source) => RunnerError::child(
+            format!("{error}; collect diagnostics from {description}"),
+            source,
+        ),
+    }
 }
 
 fn run_observed_window_actions(
