@@ -26,7 +26,7 @@ pub use observer::{
     WindowObservationV1,
 };
 pub use platform_input::{DriverOperation, InputBackend, PlatformInputDriver, PlatformInputError};
-pub use pty_driver::{PtyFixtureDriver, PtyFixtureError, PtyFixtureResult};
+pub use pty_driver::{PtyFixtureDriver, PtyFixtureError, PtyFixtureResult, TRANSPORT_WRITE_MARKER};
 pub use runner::{EXIT_INFRASTRUCTURE_FAILED, run_cli};
 pub use scenario::{
     ActionV1, BehaviorId, Capability, CheckpointV1, DeadlinesV1, EvidenceKind, KeyModifier,

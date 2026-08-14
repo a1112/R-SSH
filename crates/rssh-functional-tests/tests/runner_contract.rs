@@ -785,6 +785,8 @@ fn behavior_evidence_is_derived_from_executed_actions_drivers_and_checkpoints() 
     ] {
         assert!(source.contains(seam), "missing evidence seam {seam}");
     }
+    assert!(source.contains("if result.transport_write_observed()"));
+    assert!(!source.contains("if result.terminal_query_responses > 0"));
 }
 
 #[test]

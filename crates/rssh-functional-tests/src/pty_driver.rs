@@ -14,6 +14,7 @@ use crate::hermetic_network::hermetic_pty_command;
 
 const CURSOR_QUERY: &[u8] = b"\x1b[6n";
 const CURSOR_RESPONSE: &[u8] = b"\x1b[1;1R";
+pub const TRANSPORT_WRITE_MARKER: &str = "fixture-transport-write-observed";
 
 pub struct PtyFixtureDriver {
     session: PtySession,
@@ -42,6 +43,15 @@ impl PtyFixtureResult {
     #[must_use]
     pub const fn resources_zero(&self) -> bool {
         self.child_process_reaped && self.reader_joined && self.master_closed
+    }
+
+    /// Reports whether the fixture received a terminal response written by the
+    /// application under test.
+    #[must_use]
+    pub fn transport_write_observed(&self) -> bool {
+        self.output
+            .windows(TRANSPORT_WRITE_MARKER.len())
+            .any(|window| window == TRANSPORT_WRITE_MARKER.as_bytes())
     }
 }
 

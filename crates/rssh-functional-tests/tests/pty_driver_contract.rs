@@ -22,6 +22,7 @@ fn pty_driver_round_trips_unicode_and_answers_terminal_queries_without_sleep() {
         String::from_utf8_lossy(&result.output).contains("fixture-echo:R-SSH \u{7ec8}\u{7aef}")
     );
     assert!(result.terminal_query_responses >= 1);
+    assert!(result.transport_write_observed());
     assert!(result.resources_zero());
 }
 

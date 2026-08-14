@@ -6,6 +6,8 @@ use std::{
     time::Duration,
 };
 
+use rssh_functional_tests::TRANSPORT_WRITE_MARKER;
+
 fn main() -> ExitCode {
     match run() {
         Ok(code) => ExitCode::from(code),
@@ -167,7 +169,11 @@ fn echo_query() -> Result<u8, Box<dyn std::error::Error>> {
     io::stdout().flush()?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
+    let received_len = line.len();
     let line = command_after_terminal_responses(&line);
+    if line.len() < received_len {
+        println!("{TRANSPORT_WRITE_MARKER}");
+    }
     print!("fixture-echo:{line}");
     io::stdout().flush()?;
     Ok(0)

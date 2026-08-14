@@ -2681,7 +2681,7 @@ fn execute_pty_scenario(
         "BHV-LIFECYCLE-STARTED",
         "PTY child started and accepted input",
     )?;
-    if result.terminal_query_responses > 0 {
+    if result.transport_write_observed() {
         record_driver_behavior(
             scenario,
             started,
