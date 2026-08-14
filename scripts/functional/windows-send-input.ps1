@@ -58,7 +58,6 @@ public static class RsshFunctionalInput {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int width, int height, bool repaint);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
-    [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SendMessageTimeout(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam, uint flags, uint timeout, out UIntPtr result);
 
     const uint INPUT_MOUSE = 0;
     const uint INPUT_KEYBOARD = 1;
@@ -287,12 +286,11 @@ switch ($Action) {
       "maximize" { [void][RsshFunctionalInput]::ShowWindow($window, 3) }
       "restore" { [void][RsshFunctionalInput]::ShowWindow($window, 9) }
       "close" {
-        $closeResult = [UIntPtr]::Zero
-        $sendResult = [RsshFunctionalInput]::SendMessageTimeout(
-          $window, 0x0010, [UIntPtr]::Zero, [IntPtr]::Zero, 0x2, 5000, [ref]$closeResult
-        )
-        if ($sendResult -eq [IntPtr]::Zero) {
-          throw "SendMessageTimeout(WM_CLOSE) failed for process=$ProcessId title=$WindowTitle handle=$window"
+        [RsshFunctionalInput]::VirtualKey(0x12, $true)
+        try {
+          Send-VirtualKey 0x73
+        } finally {
+          [RsshFunctionalInput]::VirtualKey(0x12, $false)
         }
       }
       default { throw "unsupported window operation $($ActionArguments[0])" }

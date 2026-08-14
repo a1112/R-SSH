@@ -61,6 +61,7 @@ wait_condition() {
     "$@" && return 0
     sleep 0.05
   done
+  "$@" && return 0
   echo "$failure" >&2
   return 1
 }

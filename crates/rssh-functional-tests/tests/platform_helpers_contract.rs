@@ -72,6 +72,22 @@ fn production_tauri_tracks_linux_helpers_by_identity_and_ignores_zombies() {
 }
 
 #[test]
+fn production_tauri_wait_rechecks_the_condition_at_the_deadline() {
+    let source = repo_file("scripts/functional/smoke-production-tauri.sh");
+    let wait_condition = source
+        .split("wait_condition() {")
+        .nth(1)
+        .and_then(|body| body.split("root_alive()").next())
+        .expect("wait_condition function");
+
+    assert_eq!(
+        wait_condition.matches("\"$@\" && return 0").count(),
+        2,
+        "the predicate must be checked once more after the deadline loop"
+    );
+}
+
+#[test]
 fn clipboard_helper_bounds_selection_ownership_for_each_backend() {
     let source = repo_file("scripts/functional/x11-set-clipboard.sh");
     assert!(source.contains("xclip -selection clipboard -loops 1"));

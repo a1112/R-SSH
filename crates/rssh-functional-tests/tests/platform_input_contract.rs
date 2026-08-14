@@ -452,9 +452,17 @@ fn windows_tauri_production_smoke_passes_json_arrays_to_the_input_helper() {
 #[test]
 fn windows_close_uses_focused_system_input_instead_of_an_unobserved_message() {
     let script = include_str!("../../../scripts/functional/windows-send-input.ps1");
-    assert!(script.contains("SendMessageTimeout"));
-    assert!(script.contains("0x2, 5000, [ref]$closeResult"));
-    assert!(script.contains("SendMessageTimeout(WM_CLOSE) failed"));
+    let close = script
+        .split("\"close\" {")
+        .nth(1)
+        .expect("close window action")
+        .split("default { throw \"unsupported window operation")
+        .next()
+        .expect("bounded close action");
+    assert!(close.contains("VirtualKey(0x12, $true)"));
+    assert!(close.contains("Send-VirtualKey 0x73"));
+    assert!(close.contains("VirtualKey(0x12, $false)"));
+    assert!(!close.contains("SendMessageTimeout"));
     assert!(!script.contains("PostMessage(WM_CLOSE)"));
 }
 
