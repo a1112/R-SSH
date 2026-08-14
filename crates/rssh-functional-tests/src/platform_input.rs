@@ -273,6 +273,14 @@ impl PlatformInputDriver {
             ])
         };
         let mut operations = vec![focus()];
+        if self.backend == InputBackend::WaylandWestonSeat
+            && !matches!(action, ActionV1::FocusWindow)
+        {
+            // XTEST focuses the X11 window that hosts nested Weston. Give the
+            // compositor one bounded dispatch interval to transfer that focus
+            // to its Wayland seat before sending the actual input event.
+            operations.push(command(vec!["sleep".to_owned(), "0.2".to_owned()]));
+        }
         match action {
             ActionV1::TypeText { text } => operations.push(command(vec![
                 "type".to_owned(),

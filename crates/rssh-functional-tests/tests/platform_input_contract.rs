@@ -88,6 +88,11 @@ fn wayland_requires_nested_weston_x11_backend_and_injects_through_its_seat() {
         DriverOperation::Command { arguments, .. }
             if arguments == &["windowfocus", "--sync", "6291457"]
     ));
+    assert!(matches!(
+        &operations[1],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["sleep", "0.2"]
+    ));
     assert!(operations.iter().all(|operation| matches!(
         operation,
         DriverOperation::Command { environment, .. }
@@ -130,13 +135,13 @@ fn xtest_clipboard_paste_uses_xclip_before_the_focused_keyboard_binding() {
         })
         .expect("clipboard plan");
     assert!(matches!(
-        &operations[1],
+        &operations[2],
         DriverOperation::Command { program, arguments, .. }
             if program == "bash"
                 && arguments == &["scripts/functional/x11-set-clipboard.sh", "clipboard-probe"]
     ));
     assert!(matches!(
-        &operations[2],
+        &operations[3],
         DriverOperation::Command { program, arguments, .. }
             if program == "/usr/bin/xdotool"
                 && arguments == &["key", "--clearmodifiers", "ctrl+shift+v"]
@@ -168,7 +173,7 @@ fn xtest_clipboard_paste_accepts_a_surface_specific_keyboard_binding() {
         })
         .expect("clipboard plan");
     assert!(matches!(
-        &operations[2],
+        &operations[3],
         DriverOperation::Command { arguments, .. }
             if arguments == &["key", "--clearmodifiers", "shift+Insert"]
     ));
@@ -195,7 +200,7 @@ fn wayland_clipboard_paste_clears_the_selection_after_the_browser_reads_it() {
         .expect("clipboard plan");
 
     assert!(matches!(
-        &operations[1],
+        &operations[2],
         DriverOperation::Command { environment, .. }
             if environment.get("RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD").map(String::as_str)
                 == Some("1")
@@ -228,12 +233,12 @@ fn nested_wayland_can_close_tauri_through_its_visible_web_control() {
         })
         .expect("Tauri close plan");
     assert!(matches!(
-        &operations[1],
+        &operations[2],
         DriverOperation::Command { arguments, .. }
             if arguments == &["mousemove", "--window", "6291457", "856", "35"]
     ));
     assert!(matches!(
-        &operations[2],
+        &operations[3],
         DriverOperation::Command { arguments, .. }
             if arguments == &["click", "1"]
     ));
@@ -260,12 +265,12 @@ fn nested_wayland_native_close_uses_the_apps_real_keyboard_binding() {
         })
         .expect("native close plan");
     assert!(matches!(
-        &operations[1],
+        &operations[2],
         DriverOperation::Command { arguments, .. }
             if arguments == &["key", "--clearmodifiers", "ctrl+shift+w"]
     ));
     assert!(matches!(
-        &operations[3],
+        &operations[4],
         DriverOperation::Command { arguments, .. }
             if arguments == &["key", "--clearmodifiers", "Return"]
     ));
