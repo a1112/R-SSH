@@ -29,6 +29,7 @@ pub struct PlatformInputDriver {
     program: String,
     script: Option<String>,
     target: String,
+    windows_client_close_button: bool,
     xtest_paste_key: String,
     xtest_wayland_clipboard: bool,
     xtest_close_key: String,
@@ -129,6 +130,7 @@ impl PlatformInputDriver {
             }
         };
         let script = input_script(backend, environment);
+        let windows_client_close_button = windows_client_close_button(environment);
         let xtest_paste_key = xtest_paste_key(environment);
         let xtest_wayland_clipboard =
             configure_wayland_clipboard(backend, environment, &mut operation_environment);
@@ -139,6 +141,7 @@ impl PlatformInputDriver {
             program,
             script,
             target,
+            windows_client_close_button,
             xtest_paste_key,
             xtest_wayland_clipboard,
             xtest_close_key,
@@ -222,7 +225,18 @@ impl PlatformInputDriver {
         } else {
             arguments.extend(["-WindowTitle".to_owned(), self.target.clone()]);
         }
-        let mut action = action_arguments(action)?.into_iter();
+        let mut planned_action = action_arguments(action)?;
+        if self.windows_client_close_button
+            && matches!(
+                action,
+                ActionV1::WindowControl {
+                    operation: WindowControl::Close
+                }
+            )
+        {
+            "close-client-button".clone_into(&mut planned_action[1]);
+        }
+        let mut action = planned_action.into_iter();
         arguments.extend([
             "-Action".to_owned(),
             action
@@ -427,6 +441,12 @@ fn xtest_close_keys(environment: &BTreeMap<String, String>) -> (String, Option<S
         .get("RSSH_FUNCTIONAL_XTEST_CLOSE_CONFIRM_KEY")
         .cloned();
     (close, confirm)
+}
+
+fn windows_client_close_button(environment: &BTreeMap<String, String>) -> bool {
+    environment
+        .get("RSSH_FUNCTIONAL_WINDOWS_CLIENT_CLOSE_BUTTON")
+        .is_some_and(|value| value == "1")
 }
 
 fn xtest_paste_key(environment: &BTreeMap<String, String>) -> String {

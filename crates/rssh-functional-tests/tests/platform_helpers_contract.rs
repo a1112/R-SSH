@@ -88,6 +88,24 @@ fn production_tauri_wait_rechecks_the_condition_at_the_deadline() {
 }
 
 #[test]
+fn windows_production_tauri_wait_rechecks_the_condition_at_the_deadline() {
+    let source = repo_file("scripts/functional/smoke-production-tauri.ps1");
+    let wait_condition = source
+        .split("function Wait-Condition")
+        .nth(1)
+        .and_then(|body| body.split("function Save-FailureScreenshot").next())
+        .expect("Windows Wait-Condition function");
+
+    assert_eq!(
+        wait_condition
+            .matches("if (& $Condition) { return }")
+            .count(),
+        2,
+        "the Windows predicate must be checked once more after the deadline loop"
+    );
+}
+
+#[test]
 fn clipboard_helper_bounds_selection_ownership_for_each_backend() {
     let source = repo_file("scripts/functional/x11-set-clipboard.sh");
     assert!(source.contains("xclip -selection clipboard -loops 1"));
@@ -178,6 +196,8 @@ fn x11_harness_owns_runtime_dbus_display_and_window_manager_lifetimes() {
         "dbus-run-session",
         "xvfb-run --auto-servernum",
         "openbox",
+        "wait_for_openbox",
+        "xprop -root _NET_SUPPORTING_WM_CHECK",
         "trap cleanup EXIT",
     ] {
         assert!(
@@ -187,4 +207,17 @@ fn x11_harness_owns_runtime_dbus_display_and_window_manager_lifetimes() {
     }
     assert!(source.contains("if ! rm -rf -- \"$runtime\""));
     assert!(!source.contains("eval"));
+
+    let workflow = repo_file(".github/workflows/functional.yml");
+    let openbox_install_steps = workflow
+        .lines()
+        .filter(|line| line.contains("apt-get install") && line.contains("openbox"))
+        .collect::<Vec<_>>();
+    assert_eq!(openbox_install_steps.len(), 4);
+    assert!(
+        openbox_install_steps
+            .iter()
+            .all(|line| line.contains("x11-utils")),
+        "every Openbox job must install xprop for the readiness gate"
+    );
 }

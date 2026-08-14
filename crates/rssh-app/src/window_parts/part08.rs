@@ -7348,6 +7348,10 @@ impl NativeWindowApp {
         })
     }
 
+    fn frame_limit_refresh_pending(&self) -> bool {
+        self.frame_limit_redraw_pending() || self.final_linkage_frame_is_reserved()
+    }
+
     fn final_linkage_frame_is_reserved(&self) -> bool {
         self.metrics.pty_linkage_enabled
             && !self.metrics.terminal_linkage_nonce_found
@@ -7372,7 +7376,7 @@ impl NativeWindowApp {
     }
 
     fn frame_limit_redraw_deadline(&self, now: Instant) -> Option<Instant> {
-        self.frame_limit_redraw_pending().then(|| {
+        self.frame_limit_refresh_pending().then(|| {
             self.last_redraw_request_at
                 .map_or(now, |last| last + self.redraw_request_interval())
         })

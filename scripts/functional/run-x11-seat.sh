@@ -31,4 +31,26 @@ trap cleanup EXIT
 
 dbus-run-session -- xvfb-run --auto-servernum \
   --server-args="-screen 0 1280x800x24 -nolisten tcp" \
-  bash -c 'openbox >"$XDG_RUNTIME_DIR/openbox.log" 2>&1 & exec "$@"' bash "$@"
+  bash -c '
+    wait_for_openbox() {
+      local openbox_pid=$1
+      for _ in {1..300}; do
+        if ! kill -0 "$openbox_pid" 2>/dev/null; then
+          wait "$openbox_pid" || true
+          echo "Openbox exited before publishing its X11 window-manager property" >&2
+          return 1
+        fi
+        if xprop -root _NET_SUPPORTING_WM_CHECK 2>/dev/null | grep -q "window id #"; then
+          return 0
+        fi
+        sleep 0.05
+      done
+      echo "Openbox did not publish its X11 window-manager property within 15 seconds" >&2
+      return 1
+    }
+
+    openbox >"$XDG_RUNTIME_DIR/openbox.log" 2>&1 &
+    openbox_pid=$!
+    wait_for_openbox "$openbox_pid"
+    exec "$@"
+  ' bash "$@"

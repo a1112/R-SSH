@@ -3179,7 +3179,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         for app in self.windows.values_mut() {
             let mut regular_redraw_needed =
                 app.frame_needs_full_repaint || !app.pending_frame_damage.is_empty();
-            regular_redraw_needed |= app.frame_limit_redraw_pending();
+            regular_redraw_needed |= app.frame_limit_refresh_pending();
             regular_redraw_needed |= app.dispatch_update_status_if_due(now);
             let cursor_animation_changed = app.update_cursor_blink_phase_if_due(now);
             let text_animation_changed = app.update_text_blink_phase_if_due(now);
@@ -3464,7 +3464,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         let now = Instant::now();
         let mut regular_redraw_needed =
             self.frame_needs_full_repaint || !self.pending_frame_damage.is_empty();
-        regular_redraw_needed |= self.frame_limit_redraw_pending();
+        regular_redraw_needed |= self.frame_limit_refresh_pending();
         regular_redraw_needed |= self.dispatch_update_status_if_due(now);
         let cursor_animation_changed = self.update_cursor_blink_phase_if_due(now);
         let text_animation_changed = self.update_text_blink_phase_if_due(now);

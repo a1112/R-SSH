@@ -4824,6 +4824,7 @@
         app.rendered_frames = 9;
 
         assert!(!app.frame_limit_redraw_pending());
+        assert!(app.frame_limit_redraw_deadline(Instant::now()).is_some());
 
         app.metrics.terminal_linkage_nonce_found = true;
 

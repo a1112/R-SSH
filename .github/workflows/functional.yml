@@ -209,7 +209,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox weston xdotool xterm xfonts-base foot imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox x11-utils weston xdotool xterm xfonts-base foot imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: cargo build --locked -p rssh-app -p rssh-functional-tests --bins
       - name: Run real host terminal OS-input smoke
         shell: bash
@@ -240,7 +240,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev libxkbcommon-x11-0 xvfb openbox xdotool xclip imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev libxkbcommon-x11-0 xvfb openbox x11-utils xdotool xclip imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: cargo build --locked -p rssh-app --features functional-test-observer -p rssh-functional-tests --bins
       - name: Run real X11 XTEST journey
         run: |
@@ -355,7 +355,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: npm, cache-dependency-path: tauri/package-lock.json }
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip wl-clipboard openbox weston imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
+        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip wl-clipboard openbox x11-utils weston imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: npm --prefix web ci && npm --prefix tauri ci
       - run: npm --prefix web run build:functional && cargo build --locked --manifest-path tauri/src-tauri/Cargo.toml --features functional-test-observer
       - if: runner.os == 'Windows'
@@ -494,7 +494,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 24, cache: npm, cache-dependency-path: tauri/package-lock.json }
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip openbox imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
+        run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip openbox x11-utils imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: npm --prefix web ci && npm --prefix tauri ci
       - run: npm --prefix tauri run build
       - name: Probe production Tauri executable for observer isolation

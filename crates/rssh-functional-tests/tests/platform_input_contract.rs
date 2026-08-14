@@ -439,7 +439,7 @@ fn windows_tauri_production_smoke_passes_json_arrays_to_the_input_helper() {
         r#"-Action click -ActionArgumentsJson '["80","80","left"]'"#,
         r#"-ActionArgumentsJson '["exit 7"]'"#,
         r#"-ActionArgumentsJson '["enter"]'"#,
-        r#"-ActionArgumentsJson '["close"]'"#,
+        r#"-ActionArgumentsJson '["close-client-button"]'"#,
     ] {
         assert!(
             script.contains(arguments),
@@ -464,6 +464,54 @@ fn windows_close_uses_focused_system_input_instead_of_an_unobserved_message() {
     assert!(close.contains("VirtualKey(0x12, $false)"));
     assert!(!close.contains("SendMessageTimeout"));
     assert!(!script.contains("PostMessage(WM_CLOSE)"));
+}
+
+#[test]
+fn windows_tauri_driver_routes_close_to_the_visible_client_button() {
+    let driver = PlatformInputDriver::from_environment(
+        InputBackend::WindowsSendInput,
+        &environment(&[
+            ("RSSH_FUNCTIONAL_APP_PID", "4660"),
+            ("RSSH_FUNCTIONAL_WINDOWS_CLIENT_CLOSE_BUTTON", "1"),
+        ]),
+    )
+    .expect("Windows Tauri target");
+    let operations = driver
+        .plan(&ActionV1::WindowControl {
+            operation: WindowControl::Close,
+        })
+        .expect("Tauri close plan");
+    let DriverOperation::Command { arguments, .. } = &operations[0];
+    let index = arguments
+        .iter()
+        .position(|argument| argument == "-ActionArgumentsJson")
+        .expect("JSON flag");
+    let decoded: Vec<String> = serde_json::from_str(&arguments[index + 1]).unwrap();
+    assert_eq!(decoded, ["close-client-button"]);
+}
+
+#[test]
+fn windows_tauri_close_clicks_its_visible_client_button_with_system_input() {
+    let helper = include_str!("../../../scripts/functional/windows-send-input.ps1");
+    let smoke = include_str!("../../../scripts/functional/smoke-production-tauri.ps1");
+    let close_button = helper
+        .split("\"close-client-button\" {")
+        .nth(1)
+        .expect("client close button action")
+        .split("default { throw \"unsupported window operation")
+        .next()
+        .expect("bounded client close button action");
+
+    assert!(helper.contains("GetClientRect"));
+    assert!(helper.contains("GetDpiForWindow"));
+    assert!(close_button.contains("28.0 * $scale"));
+    assert!(close_button.contains("19.0 * $scale"));
+    assert!(
+        close_button
+            .contains("Set-ClientCursor ($rect.Right - $closeCenterFromRight) $closeCenterY")
+    );
+    assert!(close_button.contains("[RsshFunctionalInput]::Mouse"));
+    assert!(smoke.contains("-ActionArgumentsJson '[\"close-client-button\"]'"));
 }
 
 #[test]

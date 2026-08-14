@@ -2227,6 +2227,7 @@ fn connect_observer(
 struct PlatformDriverOptions<'a> {
     window_title: Option<&'a str>,
     window_handle: Option<u64>,
+    windows_client_close_button: bool,
     x11_class: Option<&'a str>,
     xtest_paste_key: Option<&'a str>,
     xtest_wayland_clipboard: bool,
@@ -2238,6 +2239,7 @@ impl<'a> PlatformDriverOptions<'a> {
         Self {
             window_title,
             window_handle: None,
+            windows_client_close_button: false,
             x11_class: None,
             xtest_paste_key: None,
             xtest_wayland_clipboard: false,
@@ -2249,6 +2251,7 @@ impl<'a> PlatformDriverOptions<'a> {
         Self {
             window_title: None,
             window_handle: None,
+            windows_client_close_button: false,
             x11_class: Some(x11_class),
             xtest_paste_key: None,
             xtest_wayland_clipboard: false,
@@ -2287,6 +2290,12 @@ fn platform_driver(
         environment.insert(
             "RSSH_FUNCTIONAL_WINDOWS_WINDOW_HANDLE".to_owned(),
             format!("hwnd:{window_handle}"),
+        );
+    }
+    if options.windows_client_close_button {
+        environment.insert(
+            "RSSH_FUNCTIONAL_WINDOWS_CLIENT_CLOSE_BUTTON".to_owned(),
+            "1".to_owned(),
         );
     }
     if let Some(xtest_paste_key) = options.xtest_paste_key {
@@ -2353,6 +2362,8 @@ fn observed_window_platform_options<'a>(
     Ok(PlatformDriverOptions {
         window_title: None,
         window_handle: None,
+        windows_client_close_button: scenario.surface == Surface::Tauri
+            && target.contains("windows"),
         x11_class,
         xtest_paste_key: tauri_wayland.then_some("ctrl+v"),
         xtest_wayland_clipboard: tauri_wayland,
