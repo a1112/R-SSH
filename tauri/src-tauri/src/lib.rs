@@ -147,18 +147,26 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building R-SSH Tauri application")
         .run(|app_handle, event| {
-            let main_window_close_requested = if let RunEvent::WindowEvent {
-                label,
-                event: tauri::WindowEvent::CloseRequested { api, .. },
-                ..
-            } = &event
-                && label == "main"
-            {
-                api.prevent_close();
-                true
-            } else {
-                false
-            };
+            let (main_window_close_requested, defer_main_window_close) =
+                if let RunEvent::WindowEvent {
+                    label,
+                    event: tauri::WindowEvent::CloseRequested { api: _api, .. },
+                    ..
+                } = &event
+                    && label == "main"
+                {
+                    #[cfg(feature = "functional-test-observer")]
+                    let defer_main_window_close =
+                        app_handle.try_state::<FunctionalObserverState>().is_some();
+                    #[cfg(not(feature = "functional-test-observer"))]
+                    let defer_main_window_close = false;
+                    if defer_main_window_close {
+                        _api.prevent_close();
+                    }
+                    (true, defer_main_window_close)
+                } else {
+                    (false, false)
+                };
             if !main_window_close_requested && !matches!(event, RunEvent::ExitRequested { .. }) {
                 return;
             }
@@ -183,7 +191,7 @@ pub fn run() {
                 snapshot.runtime.listener_count = 0;
                 snapshot.runtime.child_process_count = 0;
                 if state.observer.publish(snapshot.clone()).is_ok() {
-                    if main_window_close_requested {
+                    if defer_main_window_close {
                         final_observation_delivery =
                             Some((state.observer.clone(), snapshot.revision));
                     } else {
@@ -193,7 +201,7 @@ pub fn run() {
                     }
                 }
             }
-            if main_window_close_requested {
+            if defer_main_window_close {
                 #[cfg(feature = "functional-test-observer")]
                 if let Some((observer, revision)) = final_observation_delivery {
                     exit_after_final_observation_delivery(app_handle.clone(), observer, revision);
