@@ -26,6 +26,7 @@ process_tree="$evidence_directory/process-tree.json"
 screenshot="$evidence_directory/failure-screenshot.png"
 root_pid=""
 owned_pids=()
+owned_start_times=()
 
 descendants() {
   local parent child
@@ -68,10 +69,28 @@ root_alive() { kill -0 "$root_pid" 2>/dev/null; }
 root_exited() { ! kill -0 "$root_pid" 2>/dev/null; }
 session_started() { [[ -n "$(session_descendants "$root_pid")" ]]; }
 session_stopped() { [[ -z "$(session_descendants "$root_pid")" ]]; }
+process_start_time() {
+  local pid="$1" stat rest state
+  [[ -r "/proc/$pid/stat" ]] || return 1
+  IFS= read -r stat <"/proc/$pid/stat" || return 1
+  rest="${stat##*) }"
+  set -- $rest
+  (($# >= 20)) || return 1
+  state="$1"
+  [[ "$state" != Z && "$state" != X ]] || return 1
+  printf '%s\n' "${20}"
+}
+
+process_is_owned_live() {
+  local index="$1" current
+  current="$(process_start_time "${owned_pids[$index]}")" || return 1
+  [[ "$current" == "${owned_start_times[$index]}" ]]
+}
+
 all_owned_exited() {
-  local pid
-  for pid in "${owned_pids[@]}"; do
-    kill -0 "$pid" 2>/dev/null && return 1
+  local index
+  for index in "${!owned_pids[@]}"; do
+    process_is_owned_live "$index" && return 1
   done
 }
 
@@ -90,12 +109,13 @@ input() {
 }
 
 save_process_tree() {
-  local remaining=0 pid separator=""
+  local remaining=0 index pid separator=""
   printf '{"schema":1,"root_process_id":%s,"owned_process_ids":[' "$root_pid" >"$process_tree"
-  for pid in "${owned_pids[@]}"; do
+  for index in "${!owned_pids[@]}"; do
+    pid="${owned_pids[$index]}"
     printf '%s%s' "$separator" "$pid" >>"$process_tree"
     separator=,
-    kill -0 "$pid" 2>/dev/null && remaining=$((remaining + 1))
+    process_is_owned_live "$index" && remaining=$((remaining + 1))
   done
   root_exited || remaining=$((remaining + 1))
   printf '],"remaining_owned_processes":%s,"reaped":%s,"pty_interaction":"exit 7"}\n' \
@@ -128,7 +148,10 @@ root_pid=$!
 wait_condition 30 "production Tauri process exited before its window became interactive" root_alive
 wait_condition 30 "production Tauri did not start a PTY child" session_started
 while IFS= read -r owned_pid; do
-  [[ -n "$owned_pid" ]] && owned_pids+=("$owned_pid")
+  [[ -n "$owned_pid" ]] || continue
+  owned_start_time="$(process_start_time "$owned_pid")" || continue
+  owned_pids+=("$owned_pid")
+  owned_start_times+=("$owned_start_time")
 done < <(descendants "$root_pid")
 
 input focus
@@ -137,5 +160,5 @@ input key enter
 wait_condition 15 "production Tauri PTY child did not exit after OS keyboard input" session_stopped
 input window close
 wait_condition 10 "production Tauri did not exit after its OS close action" root_exited
-wait_condition 10 "production Tauri left an owned helper process" all_owned_exited
 wait "$root_pid"
+wait_condition 10 "production Tauri left an owned helper process" all_owned_exited

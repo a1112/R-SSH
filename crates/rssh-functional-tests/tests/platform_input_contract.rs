@@ -149,6 +149,32 @@ fn xtest_clipboard_paste_uses_xclip_before_the_focused_keyboard_binding() {
 }
 
 #[test]
+fn xtest_clipboard_paste_accepts_a_surface_specific_keyboard_binding() {
+    let driver = PlatformInputDriver::from_environment(
+        InputBackend::WaylandWestonSeat,
+        &environment(&[
+            ("DISPLAY", ":99"),
+            ("WAYLAND_DISPLAY", "wayland-rssh"),
+            ("RSSH_FUNCTIONAL_WESTON_BACKEND", "x11"),
+            ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
+            ("RSSH_FUNCTIONAL_WESTON_WINDOW", "6291457"),
+            ("RSSH_FUNCTIONAL_XTEST_PASTE_KEY", "ctrl+v"),
+        ]),
+    )
+    .expect("nested Weston seat");
+    let operations = driver
+        .plan(&ActionV1::ClipboardPaste {
+            text: "clipboard-probe".to_owned(),
+        })
+        .expect("clipboard plan");
+    assert!(matches!(
+        &operations[2],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["key", "--clearmodifiers", "ctrl+v"]
+    ));
+}
+
+#[test]
 fn macos_accessibility_is_a_hard_capability_gate() {
     let denied = PlatformInputDriver::from_environment(
         InputBackend::MacosCgEvent,

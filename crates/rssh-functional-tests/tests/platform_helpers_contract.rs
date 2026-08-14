@@ -48,6 +48,23 @@ fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
 }
 
 #[test]
+fn production_tauri_tracks_linux_helpers_by_identity_and_ignores_zombies() {
+    let source = repo_file("scripts/functional/smoke-production-tauri.sh");
+    assert!(source.contains("owned_start_times=()"));
+    assert!(source.contains("/proc/$pid/stat"));
+    assert!(source.contains("[[ \"$state\" != Z && \"$state\" != X ]]"));
+    assert!(source.contains("process_is_owned_live"));
+
+    let root_wait = source
+        .rfind("wait \"$root_pid\"")
+        .expect("reap production Tauri root");
+    let helper_wait = source
+        .find("wait_condition 10 \"production Tauri left an owned helper process\"")
+        .expect("verify owned helpers exited");
+    assert!(root_wait < helper_wait);
+}
+
+#[test]
 fn x11_clipboard_helper_owns_one_real_selection_request() {
     let source = repo_file("scripts/functional/x11-set-clipboard.sh");
     assert!(source.contains("xclip -selection clipboard -loops 1"));
@@ -84,7 +101,8 @@ fn macos_helper_refuses_untrusted_accessibility_and_posts_cg_events() {
 fn wayland_harness_is_nested_weston_x11_not_headless_input_emulation() {
     let source = repo_file("scripts/functional/run-wayland-seat.sh");
     assert!(source.contains("--backend=x11-backend.so"));
-    assert!(source.contains("--shell=kiosk-shell.so"));
+    assert!(source.contains("RSSH_FUNCTIONAL_WESTON_SHELL:-kiosk-shell.so"));
+    assert!(source.contains("--shell=\"$weston_shell\""));
     assert!(source.contains("RSSH_FUNCTIONAL_WESTON_BACKEND=x11"));
     assert!(source.contains("Xvfb"));
     assert!(source.contains("wait_for_x11_display"));
@@ -105,6 +123,18 @@ fn wayland_harness_is_nested_weston_x11_not_headless_input_emulation() {
     assert!(weston_socket_wait.contains("for _ in {1..300}"));
     assert!(weston_window_wait.contains("for _ in {1..300}"));
     assert!(!source.contains("--backend=headless-backend.so"));
+}
+
+#[test]
+fn native_wayland_forced_close_uses_a_shell_with_close_bindings() {
+    let workflow = repo_file(".github/workflows/functional.yml");
+    let forced_close = workflow
+        .lines()
+        .find(|line| {
+            line.contains("run-wayland-seat.sh") && line.contains("window.forced-close-cleanup")
+        })
+        .expect("native Wayland forced-close command");
+    assert!(forced_close.contains("RSSH_FUNCTIONAL_WESTON_SHELL=desktop-shell.so"));
 }
 
 #[test]

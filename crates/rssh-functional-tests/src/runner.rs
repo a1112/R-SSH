@@ -902,6 +902,7 @@ fn run_config_window_actions(
         None,
         None,
         Some(FUNCTIONAL_X11_WINDOW_CLASS),
+        None,
     )?;
     for (action_index, action) in context.scenario.actions.iter().enumerate() {
         if matches!(action, ActionV1::Finish) {
@@ -1177,6 +1178,7 @@ fn execute_observer_disconnect_scenario(
         None,
         None,
         Some(FUNCTIONAL_X11_WINDOW_CLASS),
+        None,
     )?;
     for (action_index, action) in scenario.actions.iter().enumerate() {
         if matches!(action, ActionV1::Finish) {
@@ -1255,7 +1257,7 @@ fn execute_host_terminal_scenario(
     } else {
         None
     };
-    let platform = platform_driver(target, input_pid, window_title, None, None)?;
+    let platform = platform_driver(target, input_pid, window_title, None, None, None)?;
     if target.contains("macos") {
         let setup = launch
             .command_arguments
@@ -1930,7 +1932,8 @@ fn execute_observed_window_scenario(
     }
     let x11_class =
         (scenario.surface == Surface::NativeWindow).then_some(FUNCTIONAL_X11_WINDOW_CLASS);
-    let platform = platform_driver(target, process_id, None, None, x11_class)?;
+    let paste_key = (scenario.surface == Surface::Tauri).then_some("ctrl+v");
+    let platform = platform_driver(target, process_id, None, None, x11_class, paste_key)?;
     let _clipboard = ClipboardRestore::capture_if_needed(&scenario.actions, target)?;
     let context = ScenarioRunContext {
         scenario,
@@ -2239,6 +2242,7 @@ fn platform_driver(
     window_title: Option<&str>,
     window_handle: Option<u64>,
     x11_class: Option<&str>,
+    xtest_paste_key: Option<&str>,
 ) -> Result<crate::PlatformInputDriver, RunnerError> {
     let backend = if target.contains("windows") {
         crate::InputBackend::WindowsSendInput
@@ -2265,6 +2269,12 @@ fn platform_driver(
         environment.insert(
             "RSSH_FUNCTIONAL_WINDOWS_WINDOW_HANDLE".to_owned(),
             format!("hwnd:{window_handle}"),
+        );
+    }
+    if let Some(xtest_paste_key) = xtest_paste_key {
+        environment.insert(
+            "RSSH_FUNCTIONAL_XTEST_PASTE_KEY".to_owned(),
+            xtest_paste_key.to_owned(),
         );
     }
     if backend == crate::InputBackend::X11Xtest {
@@ -2453,7 +2463,8 @@ fn observer_closed_with_process(error: &io::Error) -> bool {
             | io::ErrorKind::BrokenPipe
             | io::ErrorKind::ConnectionReset
             | io::ErrorKind::ConnectionAborted
-    )
+            | io::ErrorKind::NotConnected
+    ) || error.raw_os_error() == Some(232)
 }
 
 fn observed_resources_zero(snapshot: &crate::ObserverSnapshotV1) -> bool {
@@ -3767,7 +3778,10 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use super::{RunnerError, absolute_from_current, native_window_command, phase_timeout};
+    use super::{
+        RunnerError, absolute_from_current, native_window_command, observer_closed_with_process,
+        phase_timeout,
+    };
 
     #[test]
     fn phase_timeout_is_capped_by_the_single_absolute_scenario_budget() {
@@ -3778,6 +3792,13 @@ mod tests {
 
         assert!(remaining <= Duration::from_millis(20));
         assert!(phase_timeout(started, 50, 75).is_err());
+    }
+
+    #[test]
+    fn windows_pipe_closing_is_an_expected_observer_shutdown() {
+        let error = io::Error::from_raw_os_error(232);
+
+        assert!(observer_closed_with_process(&error));
     }
 
     #[test]

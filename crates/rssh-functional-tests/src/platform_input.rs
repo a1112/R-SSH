@@ -29,6 +29,7 @@ pub struct PlatformInputDriver {
     program: String,
     script: Option<String>,
     target: String,
+    xtest_paste_key: String,
     environment: BTreeMap<String, String>,
 }
 
@@ -124,11 +125,16 @@ impl PlatformInputDriver {
             }
         };
         let script = input_script(backend, environment);
+        let xtest_paste_key = environment
+            .get("RSSH_FUNCTIONAL_XTEST_PASTE_KEY")
+            .cloned()
+            .unwrap_or_else(|| "ctrl+shift+v".to_owned());
         Ok(Self {
             backend,
             program,
             script,
             target,
+            xtest_paste_key,
             environment: operation_environment,
         })
     }
@@ -338,7 +344,7 @@ impl PlatformInputDriver {
                 arguments: vec![
                     "key".to_owned(),
                     "--clearmodifiers".to_owned(),
-                    "ctrl+shift+v".to_owned(),
+                    self.xtest_paste_key.clone(),
                 ],
                 environment: self.environment.clone(),
             },

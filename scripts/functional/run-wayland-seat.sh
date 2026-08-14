@@ -11,6 +11,7 @@ export XDG_RUNTIME_DIR="$runtime"
 export DISPLAY=:98
 export WAYLAND_DISPLAY=wayland-rssh-functional
 export RSSH_FUNCTIONAL_XDOTOOL="${RSSH_FUNCTIONAL_XDOTOOL:-$(command -v xdotool)}"
+weston_shell="${RSSH_FUNCTIONAL_WESTON_SHELL:-kiosk-shell.so}"
 
 dump_startup_logs() {
   for log in xvfb weston; do
@@ -90,7 +91,7 @@ cleanup() {
 }
 trap cleanup EXIT
 wait_for_x11_display
-weston --backend=x11-backend.so --shell=kiosk-shell.so --socket="$WAYLAND_DISPLAY" --idle-time=0 >"$runtime/weston.log" 2>&1 &
+weston --backend=x11-backend.so --shell="$weston_shell" --socket="$WAYLAND_DISPLAY" --idle-time=0 >"$runtime/weston.log" 2>&1 &
 weston_pid=$!
 wait_for_weston_socket
 export RSSH_FUNCTIONAL_WESTON_BACKEND=x11
