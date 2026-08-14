@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use rssh_functional_tests::{
-    ActionV1, DriverOperation, InputBackend, PlatformInputDriver, PlatformInputError,
+    ActionV1, DriverOperation, InputBackend, PlatformInputDriver, PlatformInputError, WindowControl,
 };
 
 fn environment(values: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -158,7 +158,7 @@ fn xtest_clipboard_paste_accepts_a_surface_specific_keyboard_binding() {
             ("RSSH_FUNCTIONAL_WESTON_BACKEND", "x11"),
             ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
             ("RSSH_FUNCTIONAL_WESTON_WINDOW", "6291457"),
-            ("RSSH_FUNCTIONAL_XTEST_PASTE_KEY", "ctrl+v"),
+            ("RSSH_FUNCTIONAL_XTEST_PASTE_KEY", "shift+Insert"),
         ]),
     )
     .expect("nested Weston seat");
@@ -170,7 +170,64 @@ fn xtest_clipboard_paste_accepts_a_surface_specific_keyboard_binding() {
     assert!(matches!(
         &operations[2],
         DriverOperation::Command { arguments, .. }
-            if arguments == &["key", "--clearmodifiers", "ctrl+v"]
+            if arguments == &["key", "--clearmodifiers", "shift+Insert"]
+    ));
+}
+
+#[test]
+fn nested_wayland_can_close_tauri_through_its_visible_web_control() {
+    let driver = PlatformInputDriver::from_environment(
+        InputBackend::WaylandWestonSeat,
+        &environment(&[
+            ("DISPLAY", ":99"),
+            ("WAYLAND_DISPLAY", "wayland-rssh"),
+            ("RSSH_FUNCTIONAL_WESTON_BACKEND", "x11"),
+            ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
+            ("RSSH_FUNCTIONAL_WESTON_WINDOW", "6291457"),
+            ("RSSH_FUNCTIONAL_XTEST_WEB_CLOSE_POINT", "856,35"),
+        ]),
+    )
+    .expect("nested Weston seat");
+    let operations = driver
+        .plan(&ActionV1::WindowControl {
+            operation: WindowControl::Close,
+        })
+        .expect("Tauri close plan");
+    assert!(matches!(
+        &operations[1],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["mousemove", "--window", "6291457", "856", "35"]
+    ));
+    assert!(matches!(
+        &operations[2],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["click", "1"]
+    ));
+}
+
+#[test]
+fn nested_wayland_native_close_uses_the_apps_real_keyboard_binding() {
+    let driver = PlatformInputDriver::from_environment(
+        InputBackend::WaylandWestonSeat,
+        &environment(&[
+            ("DISPLAY", ":99"),
+            ("WAYLAND_DISPLAY", "wayland-rssh"),
+            ("RSSH_FUNCTIONAL_WESTON_BACKEND", "x11"),
+            ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
+            ("RSSH_FUNCTIONAL_WESTON_WINDOW", "6291457"),
+            ("RSSH_FUNCTIONAL_XTEST_CLOSE_KEY", "ctrl+shift+w"),
+        ]),
+    )
+    .expect("nested Weston seat");
+    let operations = driver
+        .plan(&ActionV1::WindowControl {
+            operation: WindowControl::Close,
+        })
+        .expect("native close plan");
+    assert!(matches!(
+        &operations[1],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["key", "--clearmodifiers", "ctrl+shift+w"]
     ));
 }
 

@@ -104,6 +104,8 @@ fn windows_input_jobs_use_powershell_core_for_bounded_helper_startup() {
             .next()
             .expect("following job");
         assert!(definition.contains("RSSH_FUNCTIONAL_POWERSHELL: pwsh.exe"));
+        assert!(definition.contains("RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY"));
+        assert!(definition.contains("-CompileOnly"));
     }
 }
 

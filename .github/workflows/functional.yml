@@ -156,10 +156,16 @@ jobs:
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
       - run: cargo build --locked -p rssh-app --features functional-test-observer -p rssh-functional-tests --bins
+      - name: Precompile the Windows SendInput helper
+        shell: pwsh
+        env:
+          RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY: ${{ runner.temp }}\rssh-functional-input.dll
+        run: ./scripts/functional/windows-send-input.ps1 -CompileOnly -AssemblyPath $env:RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY
       - name: Run real Windows SendInput journey
         shell: pwsh
         env:
           RSSH_FUNCTIONAL_POWERSHELL: pwsh.exe
+          RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY: ${{ runner.temp }}\rssh-functional-input.dll
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
@@ -352,10 +358,17 @@ jobs:
         run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev xvfb xdotool xclip openbox weston imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: npm --prefix web ci && npm --prefix tauri ci
       - run: npm --prefix web run build:functional && cargo build --locked --manifest-path tauri/src-tauri/Cargo.toml --features functional-test-observer
+      - if: runner.os == 'Windows'
+        name: Precompile the Windows SendInput helper
+        shell: pwsh
+        env:
+          RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY: ${{ runner.temp }}\rssh-functional-input.dll
+        run: ./scripts/functional/windows-send-input.ps1 -CompileOnly -AssemblyPath $env:RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY
       - name: Run Tauri OS-input journey
         shell: bash
         env:
           RSSH_FUNCTIONAL_POWERSHELL: pwsh.exe
+          RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY: ${{ runner.temp }}\rssh-functional-input.dll
         run: |
           set -euo pipefail
           command=(cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario tauri.local-pty --target "${{ matrix.target }}" --evidence "evidence/tauri-${{ matrix.target }}" --app "${{ matrix.binary }}" --capability real_os_keyboard --capability real_os_pointer --capability system_clipboard)

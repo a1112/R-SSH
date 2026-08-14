@@ -6,18 +6,21 @@ param(
 
   [UInt64] $WindowHandle = 0,
 
-  [Parameter(Mandatory = $true)]
   [ValidateSet("focus", "type", "key", "click", "drag", "wheel", "paste", "resize", "window")]
   [string] $Action,
 
-  [string] $ActionArgumentsJson = "[]"
+  [string] $ActionArgumentsJson = "[]",
+
+  [string] $AssemblyPath = $env:RSSH_FUNCTIONAL_WINDOWS_SENDINPUT_ASSEMBLY,
+
+  [switch] $CompileOnly
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ActionArguments = [string[]](ConvertFrom-Json -InputObject $ActionArgumentsJson)
 
-Add-Type -TypeDefinition @'
+$typeDefinition = @'
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -148,6 +151,25 @@ public static class RsshFunctionalInput {
     }
 }
 '@
+
+if ($CompileOnly) {
+  if (-not $AssemblyPath) {
+    throw "-CompileOnly requires -AssemblyPath"
+  }
+  if (Test-Path -LiteralPath $AssemblyPath) {
+    Remove-Item -LiteralPath $AssemblyPath -Force
+  }
+  Add-Type -TypeDefinition $typeDefinition -OutputAssembly $AssemblyPath
+  return
+}
+if (-not $Action) {
+  throw "-Action is required unless -CompileOnly is used"
+}
+if ($AssemblyPath) {
+  Add-Type -Path $AssemblyPath
+} else {
+  Add-Type -TypeDefinition $typeDefinition
+}
 
 $window = if ($WindowHandle -ne 0) {
   [IntPtr]::new([Int64]$WindowHandle)

@@ -24,6 +24,9 @@ fn windows_helper_uses_send_input_and_targets_only_the_observed_process_window()
     assert!(!source.contains("Invoke-Expression"));
     assert!(source.contains("[BitConverter]::ToUInt32"));
     assert!(!source.contains("[uint32]([int]$ActionArguments[1] * 120)"));
+    assert!(source.contains("$CompileOnly"));
+    assert!(source.contains("$AssemblyPath"));
+    assert!(source.contains("-OutputAssembly $AssemblyPath"));
 }
 
 #[test]
@@ -59,7 +62,7 @@ fn production_tauri_tracks_linux_helpers_by_identity_and_ignores_zombies() {
         .rfind("wait \"$root_pid\"")
         .expect("reap production Tauri root");
     let helper_wait = source
-        .find("wait_condition 10 \"production Tauri left an owned helper process\"")
+        .find("wait_condition 15 \"production Tauri left an owned helper process\"")
         .expect("verify owned helpers exited");
     assert!(root_wait < helper_wait);
 }

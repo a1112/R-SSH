@@ -896,14 +896,8 @@ fn run_config_window_actions(
     snapshot: &mut crate::ObserverSnapshotV1,
     writer: &mut EvidenceWriter<fs::File>,
 ) -> Result<(), RunnerError> {
-    let platform = platform_driver(
-        context.target,
-        process_id,
-        None,
-        None,
-        Some(FUNCTIONAL_X11_WINDOW_CLASS),
-        None,
-    )?;
+    let options = PlatformDriverOptions::x11_class(FUNCTIONAL_X11_WINDOW_CLASS);
+    let platform = platform_driver(context.target, process_id, options)?;
     for (action_index, action) in context.scenario.actions.iter().enumerate() {
         if matches!(action, ActionV1::Finish) {
             writer
@@ -1172,14 +1166,8 @@ fn execute_observer_disconnect_scenario(
         "BHV-OBSERVER-DISCONNECT",
         "observer channel intentionally disconnected after authenticated read",
     )?;
-    let platform = platform_driver(
-        target,
-        process_id,
-        None,
-        None,
-        Some(FUNCTIONAL_X11_WINDOW_CLASS),
-        None,
-    )?;
+    let options = PlatformDriverOptions::x11_class(FUNCTIONAL_X11_WINDOW_CLASS);
+    let platform = platform_driver(target, process_id, options)?;
     for (action_index, action) in scenario.actions.iter().enumerate() {
         if matches!(action, ActionV1::Finish) {
             writer
@@ -1252,12 +1240,11 @@ fn execute_host_terminal_scenario(
     } else {
         emulator_pid
     };
-    let window_title = if target.contains("windows") {
-        Some(launch.host_title.as_str())
-    } else {
-        None
-    };
-    let platform = platform_driver(target, input_pid, window_title, None, None, None)?;
+    let window_title = target
+        .contains("windows")
+        .then_some(launch.host_title.as_str());
+    let options = PlatformDriverOptions::window_title(window_title);
+    let platform = platform_driver(target, input_pid, options)?;
     if target.contains("macos") {
         let setup = launch
             .command_arguments
@@ -1932,8 +1919,8 @@ fn execute_observed_window_scenario(
     }
     let x11_class =
         (scenario.surface == Surface::NativeWindow).then_some(FUNCTIONAL_X11_WINDOW_CLASS);
-    let paste_key = (scenario.surface == Surface::Tauri).then_some("ctrl+v");
-    let platform = platform_driver(target, process_id, None, None, x11_class, paste_key)?;
+    let options = observed_window_platform_options(scenario, target, x11_class)?;
+    let platform = platform_driver(target, process_id, options)?;
     let _clipboard = ClipboardRestore::capture_if_needed(&scenario.actions, target)?;
     let context = ScenarioRunContext {
         scenario,
@@ -2236,13 +2223,41 @@ fn connect_observer(
     )))
 }
 
+#[derive(Clone, Copy, Default)]
+struct PlatformDriverOptions<'a> {
+    window_title: Option<&'a str>,
+    window_handle: Option<u64>,
+    x11_class: Option<&'a str>,
+    xtest_paste_key: Option<&'a str>,
+    xtest_web_close_point: Option<(i32, i32)>,
+}
+
+impl<'a> PlatformDriverOptions<'a> {
+    const fn window_title(window_title: Option<&'a str>) -> Self {
+        Self {
+            window_title,
+            window_handle: None,
+            x11_class: None,
+            xtest_paste_key: None,
+            xtest_web_close_point: None,
+        }
+    }
+
+    const fn x11_class(x11_class: &'a str) -> Self {
+        Self {
+            window_title: None,
+            window_handle: None,
+            x11_class: Some(x11_class),
+            xtest_paste_key: None,
+            xtest_web_close_point: None,
+        }
+    }
+}
+
 fn platform_driver(
     target: &str,
     process_id: u32,
-    window_title: Option<&str>,
-    window_handle: Option<u64>,
-    x11_class: Option<&str>,
-    xtest_paste_key: Option<&str>,
+    options: PlatformDriverOptions<'_>,
 ) -> Result<crate::PlatformInputDriver, RunnerError> {
     let backend = if target.contains("windows") {
         crate::InputBackend::WindowsSendInput
@@ -2259,30 +2274,78 @@ fn platform_driver(
     };
     let mut environment: std::collections::BTreeMap<String, String> = std::env::vars().collect();
     environment.insert("RSSH_FUNCTIONAL_APP_PID".to_owned(), process_id.to_string());
-    if let Some(window_title) = window_title {
+    if let Some(window_title) = options.window_title {
         environment.insert(
             "RSSH_FUNCTIONAL_WINDOWS_WINDOW_TITLE".to_owned(),
             window_title.to_owned(),
         );
     }
-    if let Some(window_handle) = window_handle {
+    if let Some(window_handle) = options.window_handle {
         environment.insert(
             "RSSH_FUNCTIONAL_WINDOWS_WINDOW_HANDLE".to_owned(),
             format!("hwnd:{window_handle}"),
         );
     }
-    if let Some(xtest_paste_key) = xtest_paste_key {
+    if let Some(xtest_paste_key) = options.xtest_paste_key {
         environment.insert(
             "RSSH_FUNCTIONAL_XTEST_PASTE_KEY".to_owned(),
             xtest_paste_key.to_owned(),
         );
     }
+    if backend == crate::InputBackend::WaylandWestonSeat && options.x11_class.is_some() {
+        environment.insert(
+            "RSSH_FUNCTIONAL_XTEST_CLOSE_KEY".to_owned(),
+            "ctrl+shift+w".to_owned(),
+        );
+    }
+    if let Some((x, y)) = options.xtest_web_close_point {
+        environment.insert(
+            "RSSH_FUNCTIONAL_XTEST_WEB_CLOSE_POINT".to_owned(),
+            format!("{x},{y}"),
+        );
+    }
     if backend == crate::InputBackend::X11Xtest {
-        let window = discover_x11_window(process_id, x11_class, &environment)?;
+        let window = discover_x11_window(process_id, options.x11_class, &environment)?;
         environment.insert("RSSH_FUNCTIONAL_X11_WINDOW".to_owned(), window);
     }
     crate::PlatformInputDriver::from_environment(backend, &environment)
         .map_err(|source| RunnerError::Driver(source.to_string()))
+}
+
+fn tauri_web_close_point(actions: &[ActionV1]) -> Result<(i32, i32), RunnerError> {
+    let width = actions
+        .iter()
+        .rev()
+        .find_map(|action| match action {
+            ActionV1::ResizeWindow { width, .. } => Some(*width),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            RunnerError::Driver("Tauri Wayland close requires a resize action".to_owned())
+        })?;
+    let x = i32::try_from(width)
+        .ok()
+        .and_then(|width| width.checked_sub(44))
+        .filter(|x| *x > 0)
+        .ok_or_else(|| RunnerError::Driver("Tauri Wayland close width is invalid".to_owned()))?;
+    Ok((x, 35))
+}
+
+fn observed_window_platform_options<'a>(
+    scenario: &ScenarioV1,
+    target: &str,
+    x11_class: Option<&'a str>,
+) -> Result<PlatformDriverOptions<'a>, RunnerError> {
+    let tauri_wayland = scenario.surface == Surface::Tauri && target.contains("wayland");
+    Ok(PlatformDriverOptions {
+        window_title: None,
+        window_handle: None,
+        x11_class,
+        xtest_paste_key: tauri_wayland.then_some("shift+Insert"),
+        xtest_web_close_point: tauri_wayland
+            .then(|| tauri_web_close_point(&scenario.actions))
+            .transpose()?,
+    })
 }
 
 fn discover_x11_window(
@@ -2389,7 +2452,12 @@ fn wait_for_native_fixture_ready(
     } else {
         "fixture-ready"
     };
-    wait_for_terminal_text(client, snapshot, marker, action_timeout(scenario, started)?)
+    wait_for_terminal_text(
+        client,
+        snapshot,
+        marker,
+        startup_timeout(scenario, started)?,
+    )
 }
 
 fn wait_for_observer_change(
@@ -2678,7 +2746,6 @@ fn execute_pty_stress_scenario(
             driver
         };
         driver
-            .cap_remaining_timeout(cleanup_timeout(scenario, started)?)
             .finish()
             .map_err(|source| RunnerError::Driver(source.to_string()))
     };

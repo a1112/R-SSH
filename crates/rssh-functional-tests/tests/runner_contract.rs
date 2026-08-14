@@ -615,7 +615,8 @@ fn host_terminal_driver_requires_a_real_emulator_and_os_input_marker() {
         "every failure path must reap the host and its descendants",
     );
     assert!(
-        source.contains("Some(launch.host_title.as_str())"),
+        source.contains(".then_some(launch.host_title.as_str())")
+            && source.contains("PlatformDriverOptions::window_title(window_title)"),
         "OS input must target the fixture's unique OSC title",
     );
     assert!(
@@ -660,6 +661,25 @@ fn native_resource_gate_is_observer_backed_not_hard_coded_after_root_exit() {
         cleanup < publish,
         "cleanup must precede the final observer snapshot"
     );
+}
+
+#[test]
+fn native_fixture_startup_and_stress_work_use_execution_not_cleanup_budgets() {
+    let source = include_str!("../src/runner.rs");
+    let ready = source
+        .split("fn wait_for_native_fixture_ready(")
+        .nth(1)
+        .and_then(|body| body.split("fn wait_for_observer_change(").next())
+        .expect("native readiness helper");
+    assert!(ready.contains("startup_timeout(scenario, started)?"));
+    assert!(!ready.contains("action_timeout(scenario, started)?"));
+
+    let stress = source
+        .split("fn execute_pty_stress_scenario(")
+        .nth(1)
+        .and_then(|body| body.split("struct PtyStressEvidence").next())
+        .expect("PTY stress driver");
+    assert!(!stress.contains("cap_remaining_timeout(cleanup_timeout"));
 }
 
 #[test]
