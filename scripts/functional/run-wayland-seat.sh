@@ -45,7 +45,7 @@ wait_for_x11_display() {
 }
 
 wait_for_weston_socket() {
-  for _ in {1..100}; do
+  for _ in {1..300}; do
     if [[ -S "$runtime/$WAYLAND_DISPLAY" ]]; then
       return 0
     fi
@@ -59,7 +59,7 @@ wait_for_weston_socket() {
 
 wait_for_weston_window() {
   local window
-  for _ in {1..100}; do
+  for _ in {1..300}; do
     window="$(xdotool search --onlyvisible --class weston 2>/dev/null | head -n1 || true)"
     if [[ -n "$window" ]]; then
       export RSSH_FUNCTIONAL_WESTON_WINDOW="$window"
@@ -90,7 +90,7 @@ cleanup() {
 }
 trap cleanup EXIT
 wait_for_x11_display
-weston --backend=x11-backend.so --socket="$WAYLAND_DISPLAY" --idle-time=0 >"$runtime/weston.log" 2>&1 &
+weston --backend=x11-backend.so --shell=kiosk-shell.so --socket="$WAYLAND_DISPLAY" --idle-time=0 >"$runtime/weston.log" 2>&1 &
 weston_pid=$!
 wait_for_weston_socket
 export RSSH_FUNCTIONAL_WESTON_BACKEND=x11

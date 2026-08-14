@@ -22,7 +22,9 @@ cleanup() {
     echo "--- openbox startup log ---" >&2
     sed -n '1,200p' "$runtime/openbox.log" >&2
   fi
-  rm -rf -- "$runtime"
+  if ! rm -rf -- "$runtime"; then
+    echo "warning: could not remove every private X11 runtime entry" >&2
+  fi
   exit "$status"
 }
 trap cleanup EXIT

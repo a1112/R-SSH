@@ -57,7 +57,13 @@ xdotool windowactivate --sync "$window"
 case "$action" in
   focus) ;;
   type) xdotool type --clearmodifiers --delay 0 -- "$*" ;;
-  key) xdotool key --clearmodifiers "$*" ;;
+  key)
+    case "$*" in
+      Enter|enter) key=Return ;;
+      *) key="$*" ;;
+    esac
+    xdotool key --clearmodifiers "$key"
+    ;;
   click)
     xdotool mousemove --window "$window" "$1" "$2"
     case "$3" in left) button=1;; middle) button=2;; right) button=3;; *) exit 2;; esac

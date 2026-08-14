@@ -81,11 +81,30 @@ fn native_x11_job_runs_with_an_ewmh_window_manager() {
         .next()
         .expect("following native Wayland job");
     assert!(job.contains("scripts/functional/run-x11-seat.sh"));
+    assert!(job.contains("libxkbcommon-x11-0"));
     assert!(
         fs::read_to_string(root().join("scripts/functional/run-x11-seat.sh"))
             .unwrap()
             .contains("openbox")
     );
+}
+
+#[test]
+fn windows_input_jobs_use_powershell_core_for_bounded_helper_startup() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    for (job, next_job) in [
+        ("  native-windows:", "  host-terminal-windows:"),
+        ("  tauri-platform:", "  tauri-platform-macos:"),
+    ] {
+        let definition = workflow
+            .split(job)
+            .nth(1)
+            .expect("Windows input job")
+            .split(next_job)
+            .next()
+            .expect("following job");
+        assert!(definition.contains("RSSH_FUNCTIONAL_POWERSHELL: pwsh.exe"));
+    }
 }
 
 #[test]

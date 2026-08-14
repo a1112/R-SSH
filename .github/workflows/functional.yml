@@ -158,6 +158,8 @@ jobs:
       - run: cargo build --locked -p rssh-app --features functional-test-observer -p rssh-functional-tests --bins
       - name: Run real Windows SendInput journey
         shell: pwsh
+        env:
+          RSSH_FUNCTIONAL_POWERSHELL: pwsh.exe
         run: |
           $ErrorActionPreference = "Stop"
           $PSNativeCommandUseErrorActionPreference = $true
@@ -232,7 +234,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox xdotool xclip imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev libxkbcommon-x11-0 xvfb openbox xdotool xclip imagemagick dbus-x11 mesa-vulkan-drivers libvulkan1 libgl1-mesa-dri
       - run: cargo build --locked -p rssh-app --features functional-test-observer -p rssh-functional-tests --bins
       - name: Run real X11 XTEST journey
         run: |
@@ -352,6 +354,8 @@ jobs:
       - run: npm --prefix web run build:functional && cargo build --locked --manifest-path tauri/src-tauri/Cargo.toml --features functional-test-observer
       - name: Run Tauri OS-input journey
         shell: bash
+        env:
+          RSSH_FUNCTIONAL_POWERSHELL: pwsh.exe
         run: |
           set -euo pipefail
           command=(cargo run --locked -p rssh-functional-tests --bin rssh-functional -- run --suite functional-tests --scenario tauri.local-pty --target "${{ matrix.target }}" --evidence "evidence/tauri-${{ matrix.target }}" --app "${{ matrix.binary }}" --capability real_os_keyboard --capability real_os_pointer --capability system_clipboard)
