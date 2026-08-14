@@ -274,7 +274,7 @@ jobs:
       - run: cargo test --locked -p rssh-app --test native_window_e2e native_window_e2e_presents_ten_frames_from_a_real_pty -- --exact --nocapture
 
   native-macos-accessibility:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, macOS, X64, rssh-accessibility]
     timeout-minutes: 18
     steps:
@@ -367,7 +367,7 @@ jobs:
           retention-days: 7
 
   tauri-platform-macos:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, macOS, X64, rssh-accessibility]
     timeout-minutes: 18
     steps:
@@ -448,7 +448,7 @@ jobs:
       - run: cargo build --locked --release -p rssh-web
       - run: python scripts/ci/check-functional-observer-isolation.py --binary target/release/rssh-web --package rssh-web --startup-probe web-server --web-dist web/dist
       - name: Black-box production Web PTY interaction and cleanup
-        run: mkdir -p evidence/production-web && npx --prefix web playwright test --config playwright.production.config.ts
+        run: mkdir -p evidence/production-web && npx --prefix web playwright test --config web/playwright.production.config.ts
         env:
           RSSH_PRODUCTION_WEB_BINARY: ../target/release/rssh-web
       - if: ${{ always() }}
@@ -502,7 +502,7 @@ jobs:
           retention-days: 7
 
   production-tauri-bundle-smoke-macos:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, macOS, X64, rssh-accessibility]
     timeout-minutes: 18
     steps:
@@ -531,8 +531,26 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  aggregate-evidence-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    needs: [contract-catalog, cli-transport, native-windows, host-terminal-windows, host-terminal-linux, native-x11, native-wayland, native-macos-hosted, web-browser, tauri-platform, production-package-smoke, production-web-smoke, production-tauri-bundle-smoke]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: { persist-credentials: false }
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: { path: all-functional-evidence, pattern: functional-*, merge-multiple: true }
+      - name: Enforce the versioned hosted PR execution matrix
+        run: >-
+          python scripts/ci/check-functional-matrix.py --suite functional-tests --matrix functional-tests/hosted-matrix.toml --evidence-root all-functional-evidence
+      - name: Enforce hosted PR behavior evidence with no declarations-only coverage
+        run: >-
+          cargo run --locked -p rssh-functional-tests --bin rssh-functional -- coverage --suite functional-tests --map functional-tests/evidence-map.toml --evidence-root all-functional-evidence
+
   aggregate-evidence:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 18
     needs: [contract-catalog, cli-transport, native-windows, host-terminal-windows, host-terminal-linux, native-x11, native-wayland, native-macos-hosted, native-macos-accessibility, web-browser, tauri-platform, tauri-platform-macos, production-package-smoke, production-web-smoke, production-tauri-bundle-smoke, production-tauri-bundle-smoke-macos]
@@ -546,23 +564,5 @@ jobs:
         run: >-
           python scripts/ci/check-functional-matrix.py --suite functional-tests --matrix functional-tests/matrix.toml --evidence-root all-functional-evidence
       - name: Enforce behavior evidence with no orphans or declarations-only coverage
-        run: >-
-          cargo run --locked -p rssh-functional-tests --bin rssh-functional -- coverage --suite functional-tests --map functional-tests/evidence-map.toml --evidence-root all-functional-evidence
-
-  aggregate-evidence-fork:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
-    runs-on: ubuntu-24.04
-    timeout-minutes: 18
-    needs: [contract-catalog, cli-transport, native-windows, host-terminal-windows, host-terminal-linux, native-x11, native-wayland, native-macos-hosted, web-browser, tauri-platform, production-package-smoke, production-web-smoke, production-tauri-bundle-smoke]
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with: { persist-credentials: false }
-      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with: { path: all-functional-evidence, pattern: functional-*, merge-multiple: true }
-      - name: Enforce the versioned fork-safe execution matrix
-        run: >-
-          python scripts/ci/check-functional-matrix.py --suite functional-tests --matrix functional-tests/fork-matrix.toml --evidence-root all-functional-evidence
-      - name: Enforce fork-safe behavior evidence with no declarations-only coverage
         run: >-
           cargo run --locked -p rssh-functional-tests --bin rssh-functional -- coverage --suite functional-tests --map functional-tests/evidence-map.toml --evidence-root all-functional-evidence

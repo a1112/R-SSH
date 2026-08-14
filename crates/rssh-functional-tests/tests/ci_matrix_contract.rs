@@ -82,9 +82,8 @@ fn functional_workflow_has_no_expression_inside_an_inline_yaml_map() {
 }
 
 #[test]
-fn privileged_self_hosted_jobs_reject_untrusted_fork_pull_requests() {
+fn privileged_self_hosted_jobs_run_only_on_manual_dispatch() {
     let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
-    let trusted_source = "github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository";
     for (job, next_job) in [
         ("  native-macos-accessibility:", "  web-browser:"),
         ("  tauri-platform-macos:", "  production-package-smoke:"),
@@ -99,16 +98,57 @@ fn privileged_self_hosted_jobs_reject_untrusted_fork_pull_requests() {
             .map_or(workflow.len(), |offset| start + offset);
         let definition = &workflow[start..end];
         assert!(
-            definition.contains("self-hosted") && definition.contains(trusted_source),
-            "privileged job {job} must reject code from untrusted fork pull requests"
+            definition.contains("self-hosted")
+                && definition.contains("if: github.event_name == 'workflow_dispatch'")
+                && !definition.contains("github.event.pull_request"),
+            "privileged job {job} must run only on explicit manual dispatch"
         );
     }
 }
 
 #[test]
-fn fork_pull_requests_keep_hosted_tauri_rows_and_an_exact_safe_aggregate() {
+fn pull_requests_never_wait_for_privileged_self_hosted_macos_jobs() {
     let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
-    let trusted_source = "github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository";
+    for (job, next_job) in [
+        ("  native-macos-accessibility:", "  web-browser:"),
+        ("  tauri-platform-macos:", "  production-package-smoke:"),
+        (
+            "  production-tauri-bundle-smoke-macos:",
+            "  aggregate-evidence:",
+        ),
+    ] {
+        let start = workflow.find(job).expect("privileged job is present");
+        let end = start
+            + workflow[start..]
+                .find(next_job)
+                .expect("following job is present");
+        let definition = &workflow[start..end];
+        assert!(definition.contains("if: github.event_name == 'workflow_dispatch'"));
+        assert!(!definition.contains("github.event.pull_request"));
+    }
+
+    let pr_aggregate = workflow
+        .split("  aggregate-evidence-pr:")
+        .nth(1)
+        .expect("hosted PR aggregate must be present");
+    assert!(pr_aggregate.contains("if: github.event_name == 'pull_request'"));
+    assert!(pr_aggregate.contains("functional-tests/hosted-matrix.toml"));
+    let definition = pr_aggregate.split("  aggregate-evidence:").next().unwrap();
+    assert!(!definition.contains("native-macos-accessibility"));
+    assert!(!definition.contains("tauri-platform-macos"));
+    assert!(!definition.contains("production-tauri-bundle-smoke-macos"));
+
+    let full_aggregate = workflow
+        .split("  aggregate-evidence:")
+        .nth(1)
+        .expect("manual full aggregate must be present");
+    assert!(full_aggregate.contains("if: github.event_name == 'workflow_dispatch'"));
+    assert!(full_aggregate.contains("functional-tests/matrix.toml"));
+}
+
+#[test]
+fn pull_requests_keep_hosted_tauri_rows_and_an_exact_hosted_aggregate() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
     for (job, next_job) in [
         ("  tauri-platform:", "  tauri-platform-macos:"),
         (
@@ -123,19 +163,17 @@ fn fork_pull_requests_keep_hosted_tauri_rows_and_an_exact_safe_aggregate() {
                 .expect("next job is present");
         let definition = &workflow[start..end];
         assert!(!definition.contains("self-hosted"));
-        assert!(!definition.contains(trusted_source));
+        assert!(!definition.contains("github.event.pull_request.head.repo.full_name"));
         assert!(definition.contains("windows-2025"));
         assert!(definition.contains("ubuntu-24.04"));
     }
-    assert!(workflow.contains("  aggregate-evidence-fork:"));
-    assert!(workflow.contains("functional-tests/fork-matrix.toml"));
-    assert!(workflow.contains(
-        "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
-    ));
+    assert!(workflow.contains("  aggregate-evidence-pr:"));
+    assert!(workflow.contains("functional-tests/hosted-matrix.toml"));
+    assert!(workflow.contains("if: github.event_name == 'pull_request'"));
 }
 
 #[test]
-fn fork_matrix_is_the_full_matrix_without_privileged_macos_targets() {
+fn hosted_matrix_is_the_full_matrix_without_privileged_macos_targets() {
     fn scenario_targets(document: &toml::Value) -> BTreeMap<String, Vec<String>> {
         document["scenario_runs"]
             .as_array()
@@ -157,17 +195,17 @@ fn fork_matrix_is_the_full_matrix_without_privileged_macos_targets() {
     let full: toml::Value =
         toml::from_str(&fs::read_to_string(root().join("functional-tests/matrix.toml")).unwrap())
             .unwrap();
-    let fork: toml::Value = toml::from_str(
-        &fs::read_to_string(root().join("functional-tests/fork-matrix.toml")).unwrap(),
+    let hosted: toml::Value = toml::from_str(
+        &fs::read_to_string(root().join("functional-tests/hosted-matrix.toml")).unwrap(),
     )
     .unwrap();
     let full_targets = scenario_targets(&full);
-    let fork_targets = scenario_targets(&fork);
+    let hosted_targets = scenario_targets(&hosted);
     assert_eq!(
         full_targets.keys().collect::<Vec<_>>(),
-        fork_targets.keys().collect::<Vec<_>>()
+        hosted_targets.keys().collect::<Vec<_>>()
     );
-    for (scenario, targets) in &fork_targets {
+    for (scenario, targets) in &hosted_targets {
         assert!(
             targets
                 .iter()
@@ -179,5 +217,5 @@ fn fork_matrix_is_the_full_matrix_without_privileged_macos_targets() {
                 .all(|target| full_targets[scenario].contains(target))
         );
     }
-    assert_eq!(full["playwright_runs"], fork["playwright_runs"]);
+    assert_eq!(full["playwright_runs"], hosted["playwright_runs"]);
 }

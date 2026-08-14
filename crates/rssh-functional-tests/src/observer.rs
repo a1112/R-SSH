@@ -433,6 +433,8 @@ impl ObserverSession {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObserverEndpoint {
     requested_path: PathBuf,
+    #[cfg(unix)]
+    socket_path: PathBuf,
     #[cfg(windows)]
     pipe_name: String,
 }
@@ -450,6 +452,12 @@ impl ObserverEndpoint {
     #[must_use]
     pub fn requested_path(&self) -> &Path {
         &self.requested_path
+    }
+
+    #[cfg(unix)]
+    #[must_use]
+    pub fn transport_path(&self) -> &Path {
+        &self.socket_path
     }
 }
 
@@ -629,18 +637,16 @@ fn create_listener(endpoint: &ObserverEndpoint) -> io::Result<Listener> {
     #[cfg(unix)]
     {
         use interprocess::os::unix::local_socket::ListenerOptionsExt;
-        use std::os::unix::fs::PermissionsExt;
 
-        let parent = endpoint.requested_path.parent().ok_or_else(|| {
+        let parent = endpoint.socket_path.parent().ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "observer endpoint has no parent",
             )
         })?;
-        std::fs::create_dir_all(parent)?;
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        ensure_private_socket_directory(parent)?;
         let name = endpoint
-            .requested_path
+            .socket_path
             .as_path()
             .to_fs_name::<GenericFilePath>()?;
         ListenerOptions::new().name(name).mode(0o600).create_sync()
@@ -670,7 +676,7 @@ fn socket_name(endpoint: &ObserverEndpoint) -> io::Result<interprocess::local_so
     #[cfg(unix)]
     {
         endpoint
-            .requested_path
+            .socket_path
             .as_path()
             .to_fs_name::<GenericFilePath>()
     }
@@ -692,6 +698,8 @@ fn make_endpoint(requested_path: &Path) -> io::Result<ObserverEndpoint> {
     }
     Ok(ObserverEndpoint {
         requested_path: requested_path.to_owned(),
+        #[cfg(unix)]
+        socket_path: unix_socket_path(requested_path),
         #[cfg(windows)]
         pipe_name: format!(
             "rssh-functional-{:016x}",
@@ -700,7 +708,6 @@ fn make_endpoint(requested_path: &Path) -> io::Result<ObserverEndpoint> {
     })
 }
 
-#[cfg(windows)]
 fn endpoint_path_hash(path: &Path) -> u64 {
     const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -710,6 +717,40 @@ fn endpoint_path_hash(path: &Path) -> u64 {
         .fold(FNV_OFFSET_BASIS, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(FNV_PRIME)
         })
+}
+
+#[cfg(unix)]
+fn unix_socket_path(requested_path: &Path) -> PathBuf {
+    let owner_identity = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USER"))
+        .unwrap_or_else(|| "unknown-owner".into());
+    let owner_hash = endpoint_path_hash(Path::new(&owner_identity));
+    Path::new("/tmp")
+        .join(format!("rssh-f-{owner_hash:016x}"))
+        .join(format!(
+            "o-{:016x}.sock",
+            endpoint_path_hash(requested_path)
+        ))
+}
+
+#[cfg(unix)]
+fn ensure_private_socket_directory(directory: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    match std::fs::symlink_metadata(directory) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "observer runtime path is not a directory",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            std::fs::create_dir(directory)?;
+        }
+        Err(error) => return Err(error),
+    }
+    std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
 }
 
 fn write_json_line<T: Serialize>(writer: &mut impl Write, value: &T) -> io::Result<()> {

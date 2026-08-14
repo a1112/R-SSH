@@ -5,6 +5,9 @@ use std::{
     time::Duration,
 };
 
+#[cfg(unix)]
+use std::path::PathBuf;
+
 use rssh_functional_tests::{
     HostEffectObservationV1, ObserverClient, ObserverEndpoint, ObserverRequestV1,
     ObserverResponseV1, ObserverServer, ObserverSnapshotV1, ObserverState, ObserverToken,
@@ -142,6 +145,51 @@ fn real_local_transport_round_trips_and_removes_its_endpoint() {
 
     #[cfg(unix)]
     assert!(!endpoint.exists(), "UDS path survived server drop");
+}
+
+#[test]
+fn unix_observer_transport_uses_a_bounded_hashed_socket_path() {
+    let source = include_str!("../src/observer.rs");
+    assert!(source.contains("socket_path: PathBuf"));
+    assert!(source.contains("fn unix_socket_path("));
+    assert!(source.contains("endpoint_path_hash(requested_path)"));
+    assert!(!source.contains(
+        "endpoint\n            .requested_path\n            .as_path()\n            .to_fs_name::<GenericFilePath>()"
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn long_requested_path_round_trips_through_a_short_private_unix_socket() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let requested = PathBuf::from("/an/intentionally/long/runner/checkout/root")
+        .join("evidence/tauri-macos-accessibility")
+        .join("tauri.local-pty.macos-accessibility.observer");
+    let token = ObserverToken::generate();
+    let state = ObserverState::new(snapshot(1, "long-path-ready")).unwrap();
+    let mut server = ObserverServer::bind(&requested, token.clone(), state).unwrap();
+    let transport_path = server.endpoint().transport_path().to_owned();
+    assert!(transport_path.as_os_str().len() < 90);
+    assert_ne!(transport_path, requested);
+    assert_eq!(
+        transport_path
+            .parent()
+            .unwrap()
+            .metadata()
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    let handle = thread::spawn(move || server.serve_one().unwrap());
+    let mut client = ObserverClient::connect_path(&requested).unwrap();
+    client.hello(token).unwrap();
+    assert_eq!(client.snapshot().unwrap().terminal.text, "long-path-ready");
+    drop(client);
+    handle.join().unwrap();
+    assert!(!transport_path.exists());
 }
 
 #[test]

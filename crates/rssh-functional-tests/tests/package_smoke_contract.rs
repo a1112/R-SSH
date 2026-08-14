@@ -33,7 +33,11 @@ fn production_web_and_tauri_artifacts_have_black_box_smoke_jobs() {
     assert!(workflow.contains("production-tauri-bundle-smoke"));
     assert!(workflow.contains("npm --prefix web run build"));
     assert!(workflow.contains("cargo build --locked --release -p rssh-web"));
-    assert!(workflow.contains("playwright.production.config.ts"));
+    assert!(
+        workflow.contains(
+            "npx --prefix web playwright test --config web/playwright.production.config.ts"
+        )
+    );
     assert!(workflow.contains("Black-box production Web PTY interaction and cleanup"));
     assert!(workflow.contains("npm --prefix tauri run build"));
     assert!(workflow.contains("smoke-production-tauri.ps1"));
@@ -41,6 +45,19 @@ fn production_web_and_tauri_artifacts_have_black_box_smoke_jobs() {
     assert!(tauri_smoke.contains("Get-SessionDescendants"));
     assert!(tauri_smoke.contains("msedgewebview2.exe"));
     assert!(tauri_smoke.contains("owned_process_ids"));
+}
+
+#[test]
+fn functional_local_socket_dependencies_use_an_explicitly_allowed_license() {
+    let deny = fs::read_to_string(root().join("deny.toml")).unwrap();
+    let allowed = deny
+        .split("[licenses]")
+        .nth(1)
+        .expect("licenses policy")
+        .split("exceptions =")
+        .next()
+        .expect("license allowlist");
+    assert!(allowed.contains("\"0BSD\""));
 }
 
 #[test]

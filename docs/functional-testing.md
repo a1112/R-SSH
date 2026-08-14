@@ -12,8 +12,9 @@ R-SSH's functional gate is a versioned, deterministic test system. The non-publi
 user actions, host effects, lifecycle results, and subsystem journeys. Scenario
 intent is stored in `functional-tests/scenarios/*.toml` as `ScenarioV1`; actions and
 checkpoints are closed Rust enums, so scenarios cannot execute arbitrary scripts or
-sleep for fixed intervals. `functional-tests/matrix.toml` is the complete approved
-PR execution matrix. `functional-tests/evidence-map.toml` maps protocol-level
+sleep for fixed intervals. `functional-tests/hosted-matrix.toml` is the approved
+PR execution matrix; `functional-tests/matrix.toml` adds privileged macOS targets
+for manual full-matrix validation. `functional-tests/evidence-map.toml` maps protocol-level
 libtests and Playwright tests to behavior IDs.
 
 Useful local commands:
@@ -55,10 +56,11 @@ contents are restored by RAII cleanup. Final checkpoints require owned children,
 workers, readers, listeners, ports, and temporary endpoints to be gone.
 
 `.github/workflows/functional.yml` runs fixed shards for CLI/transport on three
-platforms; native Windows, X11, nested Weston/Wayland, and authorized macOS input;
-three Playwright engines; Tauri; and unsigned production packages. Every job has an
-18-minute hard timeout. The final job downloads all artifacts, enforces the exact
-matrix, and rejects orphaned or declarations-only behavior coverage.
+platforms; native Windows, X11, nested Weston/Wayland, and hosted macOS; three
+Playwright engines; Tauri; and unsigned production packages. Every job has an
+18-minute hard timeout. PR aggregation enforces the exact hosted matrix. Manual
+dispatch additionally runs authorized self-hosted macOS input jobs and enforces the
+full matrix. Both aggregates reject orphaned or declarations-only behavior coverage.
 
 ## Adding a behavior
 
