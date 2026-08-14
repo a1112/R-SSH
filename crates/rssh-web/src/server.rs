@@ -1084,28 +1084,52 @@ mod tests {
             .unwrap();
         assert!(matches!(opened, Message::Text(text) if text.contains("\"opened\"")));
 
-        let payload = vec![b'x'; crate::protocol::MAX_INPUT_FRAME_BYTES];
-        for _ in 0..(crate::session::INPUT_QUEUE_CAPACITY * 2) {
-            socket
-                .send(Message::Binary(payload.clone().into()))
-                .await
-                .unwrap();
-        }
-
-        let mut saw_backpressure = false;
-        while let Ok(Some(Ok(message))) = time::timeout(Duration::from_secs(3), socket.next()).await
-        {
-            if matches!(message, Message::Text(ref text) if text.contains("\"code\":\"INPUT_BACKPRESSURE\""))
-            {
-                saw_backpressure = true;
-                break;
+        let saw_backpressure = {
+            let (mut sender, mut receiver) = socket.split();
+            let payload = vec![b'x'; crate::protocol::MAX_INPUT_FRAME_BYTES];
+            let send_frames = async {
+                for _ in 0..(crate::session::INPUT_QUEUE_CAPACITY * 2) {
+                    sender.send(Message::Binary(payload.clone().into())).await?;
+                    tokio::task::yield_now().await;
+                }
+                Ok::<(), tokio_tungstenite::tungstenite::Error>(())
+            };
+            let observe_backpressure = async {
+                loop {
+                    match time::timeout(Duration::from_secs(3), receiver.next()).await {
+                        Ok(Some(Ok(Message::Text(text))))
+                            if text.contains("\"code\":\"INPUT_BACKPRESSURE\"") =>
+                        {
+                            return true;
+                        }
+                        Ok(Some(Ok(_))) => {}
+                        Ok(Some(Err(error))) => {
+                            panic!("WebSocket failed before reporting input pressure: {error}")
+                        }
+                        Ok(None) | Err(_) => return false,
+                    }
+                }
+            };
+            tokio::pin!(send_frames);
+            tokio::pin!(observe_backpressure);
+            tokio::select! {
+                biased;
+                observed = &mut observe_backpressure => observed,
+                sent = &mut send_frames => {
+                    if let Err(error) = sent {
+                        let observed = observe_backpressure.await;
+                        assert!(observed, "WebSocket send failed before input pressure was observable: {error}");
+                        observed
+                    } else {
+                        observe_backpressure.await
+                    }
+                }
             }
-        }
+        };
         assert!(
             saw_backpressure,
             "real authenticated WebSocket never reported bounded PTY input pressure"
         );
-        drop(socket);
 
         let _ = shutdown_tx.send(());
         time::timeout(Duration::from_secs(3), server_task)
