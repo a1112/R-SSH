@@ -6,4 +6,8 @@ if (($# != 1)); then
   exit 2
 fi
 
-printf '%s' "$1" | xclip -selection clipboard -loops 1
+if [[ "${RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD:-0}" == 1 ]]; then
+  printf '%s' "$1" | wl-copy --paste-once --type 'text/plain;charset=utf-8'
+else
+  printf '%s' "$1" | xclip -selection clipboard -loops 1
+fi

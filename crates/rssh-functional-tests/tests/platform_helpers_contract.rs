@@ -36,7 +36,7 @@ fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
     assert!(source.contains("search --onlyvisible --pid"));
     assert!(source.contains("find_visible_window"));
     assert!(source.contains("pgrep -P"));
-    assert!(source.contains("for _ in {1..100}"));
+    assert!(source.contains("for _ in {1..600}"));
     assert!(source.contains("windowactivate --sync"));
     assert!(source.contains("xdotool"));
     assert!(source.contains("type --clearmodifiers --delay 0 -- \"$*\""));
@@ -71,6 +71,8 @@ fn production_tauri_tracks_linux_helpers_by_identity_and_ignores_zombies() {
 fn x11_clipboard_helper_owns_one_real_selection_request() {
     let source = repo_file("scripts/functional/x11-set-clipboard.sh");
     assert!(source.contains("xclip -selection clipboard -loops 1"));
+    assert!(source.contains("RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD"));
+    assert!(source.contains("wl-copy --paste-once"));
     assert!(source.contains("printf '%s' \"$1\""));
     assert!(!source.contains("eval"));
 }

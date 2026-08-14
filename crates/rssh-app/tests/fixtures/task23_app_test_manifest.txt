@@ -208,6 +208,7 @@ T23-COMPATIBILITY-fb3bdd683cd1|crates/rssh-app/src/config_lifecycle.rs|every_att
 T23-COMPATIBILITY-7b3074328257|crates/rssh-app/src/config_lifecycle.rs|loader_removes_exactly_one_utf8_bom|1|rssh-app|config_lifecycle::tests|compatibility
 T23-COMPATIBILITY-62d36267d260|crates/rssh-app/src/config_lifecycle.rs|invalid_utf8_and_parser_errors_carry_preferred_path_diagnostic|1|rssh-app|config_lifecycle::tests|compatibility
 T23-RUNTIME-68f8b1a42f80|crates/rssh-app/src/config_lifecycle.rs|successful_initial_file_install_advances_generation_and_publishes_source|1|rssh-app|config_lifecycle::tests|runtime
+T23-TABS-1f21fcd2b386|crates/rssh-app/src/config_lifecycle.rs|duplicate_valid_runtime_notification_keeps_generation_stable|1|rssh-app|config_lifecycle::tests|tabs
 T23-COMPATIBILITY-8af763b49184|crates/rssh-app/src/config_lifecycle.rs|non_utf8_source_path_is_diagnostic_and_never_installed|1|rssh-app|config_lifecycle::tests|compatibility
 T23-COMPATIBILITY-aeeafa0c9af9|crates/rssh-app/src/config_lifecycle.rs|missing_optional_non_utf8_path_still_falls_through|1|rssh-app|config_lifecycle::tests|compatibility
 T23-OVERLAYS-43e29631baf0|crates/rssh-app/src/diagnostics.rs|diagnoses_required_console_tools_from_search_paths|1|rssh-app|diagnostics::tests|overlays

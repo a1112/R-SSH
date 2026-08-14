@@ -2229,6 +2229,7 @@ struct PlatformDriverOptions<'a> {
     window_handle: Option<u64>,
     x11_class: Option<&'a str>,
     xtest_paste_key: Option<&'a str>,
+    xtest_wayland_clipboard: bool,
     xtest_web_close_point: Option<(i32, i32)>,
 }
 
@@ -2239,6 +2240,7 @@ impl<'a> PlatformDriverOptions<'a> {
             window_handle: None,
             x11_class: None,
             xtest_paste_key: None,
+            xtest_wayland_clipboard: false,
             xtest_web_close_point: None,
         }
     }
@@ -2249,6 +2251,7 @@ impl<'a> PlatformDriverOptions<'a> {
             window_handle: None,
             x11_class: Some(x11_class),
             xtest_paste_key: None,
+            xtest_wayland_clipboard: false,
             xtest_web_close_point: None,
         }
     }
@@ -2297,6 +2300,16 @@ fn platform_driver(
             "RSSH_FUNCTIONAL_XTEST_CLOSE_KEY".to_owned(),
             "ctrl+shift+w".to_owned(),
         );
+        environment.insert(
+            "RSSH_FUNCTIONAL_XTEST_CLOSE_CONFIRM_KEY".to_owned(),
+            "Return".to_owned(),
+        );
+    }
+    if options.xtest_wayland_clipboard {
+        environment.insert(
+            "RSSH_FUNCTIONAL_WAYLAND_CLIPBOARD".to_owned(),
+            "1".to_owned(),
+        );
     }
     if let Some((x, y)) = options.xtest_web_close_point {
         environment.insert(
@@ -2341,7 +2354,8 @@ fn observed_window_platform_options<'a>(
         window_title: None,
         window_handle: None,
         x11_class,
-        xtest_paste_key: tauri_wayland.then_some("shift+Insert"),
+        xtest_paste_key: tauri_wayland.then_some("ctrl+v"),
+        xtest_wayland_clipboard: tauri_wayland,
         xtest_web_close_point: tauri_wayland
             .then(|| tauri_web_close_point(&scenario.actions))
             .transpose()?,
@@ -2525,14 +2539,19 @@ fn wait_for_live_checkpoints(
 }
 
 fn observer_closed_with_process(error: &io::Error) -> bool {
-    matches!(
+    let expected_kind = matches!(
         error.kind(),
         io::ErrorKind::UnexpectedEof
             | io::ErrorKind::BrokenPipe
             | io::ErrorKind::ConnectionReset
             | io::ErrorKind::ConnectionAborted
             | io::ErrorKind::NotConnected
-    ) || error.raw_os_error() == Some(232)
+    );
+    let message = error.to_string();
+    expected_kind
+        || error.raw_os_error() == Some(232)
+        || message.contains("The pipe is being closed")
+        || message.contains("(os error 232)")
 }
 
 fn observed_resources_zero(snapshot: &crate::ObserverSnapshotV1) -> bool {
@@ -3864,8 +3883,10 @@ mod tests {
     #[test]
     fn windows_pipe_closing_is_an_expected_observer_shutdown() {
         let error = io::Error::from_raw_os_error(232);
+        let wrapped = io::Error::other("The pipe is being closed. (os error 232)");
 
         assert!(observer_closed_with_process(&error));
+        assert!(observer_closed_with_process(&wrapped));
     }
 
     #[test]

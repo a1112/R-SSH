@@ -216,6 +216,7 @@ fn nested_wayland_native_close_uses_the_apps_real_keyboard_binding() {
             ("RSSH_FUNCTIONAL_XDOTOOL", "/usr/bin/xdotool"),
             ("RSSH_FUNCTIONAL_WESTON_WINDOW", "6291457"),
             ("RSSH_FUNCTIONAL_XTEST_CLOSE_KEY", "ctrl+shift+w"),
+            ("RSSH_FUNCTIONAL_XTEST_CLOSE_CONFIRM_KEY", "Return"),
         ]),
     )
     .expect("nested Weston seat");
@@ -228,6 +229,11 @@ fn nested_wayland_native_close_uses_the_apps_real_keyboard_binding() {
         &operations[1],
         DriverOperation::Command { arguments, .. }
             if arguments == &["key", "--clearmodifiers", "ctrl+shift+w"]
+    ));
+    assert!(matches!(
+        &operations[3],
+        DriverOperation::Command { arguments, .. }
+            if arguments == &["key", "--clearmodifiers", "Return"]
     ));
 }
 

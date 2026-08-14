@@ -67,6 +67,7 @@ fn wayland_job_routes_xtest_through_a_nested_weston_x11_seat() {
     assert!(workflow.contains("scripts/functional/run-wayland-seat.sh"));
     assert!(workflow.contains("RSSH_FUNCTIONAL_WESTON_BACKEND"));
     assert!(workflow.contains("weston"));
+    assert!(workflow.contains("wl-clipboard"));
     assert!(workflow.contains("xvfb"));
 }
 

@@ -29,7 +29,7 @@ process_tree() {
 find_visible_window() {
   local process window
   local -a matches=()
-  for _ in {1..100}; do
+  for _ in {1..600}; do
     matches=()
     while IFS= read -r process; do
       while IFS= read -r window; do

@@ -2031,7 +2031,7 @@ impl NativeWindowManager {
             {
                 crate::functional_observer::publish(app.functional_observer_snapshot());
                 let _ = crate::functional_observer::wait_until_current_revision_delivered(
-                    Duration::from_millis(250),
+                    Duration::from_secs(2),
                 );
             }
             (

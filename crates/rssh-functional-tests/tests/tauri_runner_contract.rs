@@ -18,7 +18,8 @@ fn tauri_scenario_uses_os_input_and_the_shared_observer_driver() {
     assert!(runner.contains(
         "(scenario.surface == Surface::NativeWindow).then_some(FUNCTIONAL_X11_WINDOW_CLASS)"
     ));
-    assert!(runner.contains("xtest_paste_key: tauri_wayland.then_some(\"shift+Insert\")"));
+    assert!(runner.contains("xtest_paste_key: tauri_wayland.then_some(\"ctrl+v\")"));
+    assert!(runner.contains("xtest_wayland_clipboard: tauri_wayland"));
     assert!(runner.contains("tauri_web_close_point(&scenario.actions)"));
     assert!(scenario.contains("type = \"resize_window\""));
     assert!(scenario.contains("text = \"echo tauri-probe\""));

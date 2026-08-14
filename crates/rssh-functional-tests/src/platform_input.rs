@@ -31,6 +31,7 @@ pub struct PlatformInputDriver {
     target: String,
     xtest_paste_key: String,
     xtest_close_key: String,
+    xtest_close_confirm_key: Option<String>,
     xtest_web_close_point: Option<(i32, i32)>,
     environment: BTreeMap<String, String>,
 }
@@ -131,10 +132,7 @@ impl PlatformInputDriver {
             .get("RSSH_FUNCTIONAL_XTEST_PASTE_KEY")
             .cloned()
             .unwrap_or_else(|| "ctrl+shift+v".to_owned());
-        let xtest_close_key = environment
-            .get("RSSH_FUNCTIONAL_XTEST_CLOSE_KEY")
-            .cloned()
-            .unwrap_or_else(|| "alt+F4".to_owned());
+        let (xtest_close_key, xtest_close_confirm_key) = xtest_close_keys(environment);
         let xtest_web_close_point = xtest_web_close_point(backend, environment)?;
         Ok(Self {
             backend,
@@ -143,6 +141,7 @@ impl PlatformInputDriver {
             target,
             xtest_paste_key,
             xtest_close_key,
+            xtest_close_confirm_key,
             xtest_web_close_point,
             environment: operation_environment,
         })
@@ -326,15 +325,15 @@ impl PlatformInputDriver {
                 operations.push(command(mouse_move_arguments(&self.target, x, y)));
                 operations.push(command(vec!["click".to_owned(), "1".to_owned()]));
             }
-            ActionV1::WindowControl { operation } => operations.push(command(vec![
-                "key".to_owned(),
-                "--clearmodifiers".to_owned(),
-                match operation {
-                    WindowControl::Minimize => "alt+F9".to_owned(),
-                    WindowControl::Maximize | WindowControl::Restore => "alt+F10".to_owned(),
-                    WindowControl::Close => self.xtest_close_key.clone(),
-                },
-            ])),
+            ActionV1::WindowControl { operation } => {
+                for arguments in xtest_window_control_commands(
+                    *operation,
+                    &self.xtest_close_key,
+                    self.xtest_close_confirm_key.as_deref(),
+                ) {
+                    operations.push(command(arguments));
+                }
+            }
             ActionV1::FocusWindow => {}
             action => return Err(PlatformInputError::UnsupportedAction(format!("{action:?}"))),
         }
@@ -395,6 +394,45 @@ impl PlatformInputDriver {
             environment: self.environment.clone(),
         }])
     }
+}
+
+fn xtest_close_keys(environment: &BTreeMap<String, String>) -> (String, Option<String>) {
+    let close = environment
+        .get("RSSH_FUNCTIONAL_XTEST_CLOSE_KEY")
+        .cloned()
+        .unwrap_or_else(|| "alt+F4".to_owned());
+    let confirm = environment
+        .get("RSSH_FUNCTIONAL_XTEST_CLOSE_CONFIRM_KEY")
+        .cloned();
+    (close, confirm)
+}
+
+fn xtest_window_control_commands(
+    operation: WindowControl,
+    close_key: &str,
+    close_confirm_key: Option<&str>,
+) -> Vec<Vec<String>> {
+    let key = match operation {
+        WindowControl::Minimize => "alt+F9",
+        WindowControl::Maximize | WindowControl::Restore => "alt+F10",
+        WindowControl::Close => close_key,
+    };
+    let mut commands = vec![vec![
+        "key".to_owned(),
+        "--clearmodifiers".to_owned(),
+        key.to_owned(),
+    ]];
+    if matches!(operation, WindowControl::Close)
+        && let Some(confirm_key) = close_confirm_key
+    {
+        commands.push(vec!["sleep".to_owned(), "0.1".to_owned()]);
+        commands.push(vec![
+            "key".to_owned(),
+            "--clearmodifiers".to_owned(),
+            confirm_key.to_owned(),
+        ]);
+    }
+    commands
 }
 
 fn xtest_web_close_point(

@@ -661,6 +661,7 @@ fn native_resource_gate_is_observer_backed_not_hard_coded_after_root_exit() {
         cleanup < publish,
         "cleanup must precede the final observer snapshot"
     );
+    assert!(close.contains("Duration::from_secs(2)"));
 }
 
 #[test]
