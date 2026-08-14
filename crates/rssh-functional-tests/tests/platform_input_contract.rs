@@ -510,6 +510,10 @@ fn windows_tauri_close_clicks_its_visible_client_button_with_system_input() {
         close_button
             .contains("Set-ClientCursor ($rect.Right - $closeCenterFromRight) $closeCenterY")
     );
+    assert!(close_button.contains("for ($attempt = 1; $attempt -le 12; $attempt++)"));
+    assert!(close_button.contains("for ($poll = 1; $poll -le 20; $poll++)"));
+    assert!(close_button.contains("IsWindowVisible($window)"));
+    assert!(close_button.contains("Start-Sleep -Milliseconds 25"));
     assert!(close_button.contains("[RsshFunctionalInput]::Mouse"));
     assert!(smoke.contains("-ActionArgumentsJson '[\"close-client-button\"]'"));
 }

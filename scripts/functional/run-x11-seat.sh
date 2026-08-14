@@ -29,9 +29,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-dbus-run-session -- xvfb-run --auto-servernum \
+xvfb-run --auto-servernum \
   --server-args="-screen 0 1280x800x24 -nolisten tcp" \
-  bash -c '
+  dbus-run-session -- bash -c '
     wait_for_openbox() {
       local openbox_pid=$1
       for _ in {1..300}; do

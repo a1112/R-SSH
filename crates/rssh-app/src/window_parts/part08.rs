@@ -7,6 +7,20 @@ fn has_redundant_trailing_path_separator(path: &str) -> bool {
     !trimmed.is_empty() && !trimmed.ends_with(':')
 }
 
+fn effective_force_fallback_adapter(configured: bool, software_front_end: bool) -> bool {
+    let configured = configured || software_front_end;
+    #[cfg(debug_assertions)]
+    {
+        configured
+            || std::env::var_os("RSSH_TEST_FORCE_FALLBACK_ADAPTER").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        configured
+    }
+}
+
 fn terminal_runtime_snapshot(
     runtime: &TerminalRuntime,
     stable_viewport: PaneStableViewport,
@@ -7039,8 +7053,10 @@ impl NativeWindowApp {
             self.webgpu_power_preference,
             NativeWebGpuPowerPreference::HighPerformance
         );
-        let force_fallback_adapter = self.webgpu_force_fallback_adapter
-            || matches!(self.front_end, NativeRenderFrontEnd::Software);
+        let force_fallback_adapter = effective_force_fallback_adapter(
+            self.webgpu_force_fallback_adapter,
+            matches!(self.front_end, NativeRenderFrontEnd::Software),
+        );
         let gpu = pollster::block_on(WindowGpu::new(
             event_loop,
             Arc::clone(&window),

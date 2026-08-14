@@ -73,6 +73,11 @@ fn run_ten_frame_native_window_with_command(
             "RSSH_TEST_WINDOW_SCALE_FACTOR",
             format!("{scale_factor:.2}"),
         );
+        #[cfg(target_os = "windows")]
+        // The baseline probe still exercises the hosted runner's primary
+        // adapter. Repeated DPI probes use the software fallback so a transient
+        // hosted DX12 driver teardown cannot poison later scenarios on the VM.
+        command.env("RSSH_TEST_FORCE_FALLBACK_ADAPTER", "1");
     }
     for (name, value) in marker_command.get_envs() {
         if let Some(value) = value {

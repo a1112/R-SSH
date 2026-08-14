@@ -549,6 +549,7 @@ T23-INPUT-86c6539f8ab2|crates/rssh-app/src/terminal_input.rs|encodes_navigation_
 T23-INPUT-affbc6cf3eaf|crates/rssh-app/src/terminal_input.rs|encodes_extended_control_keys|1|rssh-app|terminal_input::tests|input
 T23-TABS-3a54b56727ff|crates/rssh-app/src/terminal_input.rs|encodes_backtab_and_function_keys|1|rssh-app|terminal_input::tests|tabs
 T23-COMPATIBILITY-5c9a9bab25ed|crates/rssh-app/src/terminal_runtime.rs|process_cwd_probe_is_throttled_and_invalidated_by_process_id|1|rssh-app|terminal_runtime::tests|compatibility
+T23-PERFORMANCE-3574b431cac1|crates/rssh-app/src/terminal_runtime.rs|process_cwd_probe_interval_starts_after_the_probe_completes|1|rssh-app|terminal_runtime::tests|performance
 T23-PRESENTATION-7a4ec5031d8b|crates/rssh-app/src/terminal_runtime.rs|presentation_snapshot_reuses_the_worker_terminal_arc|1|rssh-app|terminal_runtime::tests|presentation
 T23-COMPATIBILITY-a0657d07b2d7|crates/rssh-app/src/version.rs|version_report_json_includes_console_release_identity|1|rssh-app|version::tests|compatibility
 T23-COMPATIBILITY-440e76c3c3a9|crates/rssh-app/src/version.rs|version_text_includes_version_and_backends|1|rssh-app|version::tests|compatibility

@@ -310,9 +310,17 @@ switch ($Action) {
         if ($rect.Right -le $closeCenterFromRight -or $rect.Bottom -le $closeCenterY) {
           throw "window client area is too small for its visible close button"
         }
-        Set-ClientCursor ($rect.Right - $closeCenterFromRight) $closeCenterY
-        [RsshFunctionalInput]::Mouse(0x0002, 0)
-        [RsshFunctionalInput]::Mouse(0x0004, 0)
+        for ($attempt = 1; $attempt -le 12; $attempt++) {
+          if (-not [RsshFunctionalInput]::IsWindowVisible($window)) { return }
+          Set-ClientCursor ($rect.Right - $closeCenterFromRight) $closeCenterY
+          [RsshFunctionalInput]::Mouse(0x0002, 0)
+          Start-Sleep -Milliseconds 25
+          [RsshFunctionalInput]::Mouse(0x0004, 0)
+          for ($poll = 1; $poll -le 20; $poll++) {
+            Start-Sleep -Milliseconds 25
+            if (-not [RsshFunctionalInput]::IsWindowVisible($window)) { return }
+          }
+        }
       }
       default { throw "unsupported window operation $($ActionArguments[0])" }
     }

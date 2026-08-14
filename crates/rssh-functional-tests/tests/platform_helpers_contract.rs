@@ -207,6 +207,16 @@ fn x11_harness_owns_runtime_dbus_display_and_window_manager_lifetimes() {
     }
     assert!(source.contains("if ! rm -rf -- \"$runtime\""));
     assert!(!source.contains("eval"));
+    let display = source
+        .find("xvfb-run --auto-servernum")
+        .expect("Xvfb harness");
+    let session_bus = source
+        .find("dbus-run-session")
+        .expect("D-Bus session harness");
+    assert!(
+        display < session_bus,
+        "Xvfb must publish DISPLAY before D-Bus captures the activation environment"
+    );
 
     let workflow = repo_file(".github/workflows/functional.yml");
     let openbox_install_steps = workflow

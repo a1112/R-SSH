@@ -4167,7 +4167,9 @@ fn pane_runtime_current_working_dir_if_due(
         return PaneRuntimeCwdUpdate::Skipped;
     }
 
-    PaneRuntimeCwdUpdate::Resolved(process_current_working_dir(process_id))
+    let cwd = process_current_working_dir(process_id);
+    runtime.complete_process_cwd_probe(process_id, Instant::now());
+    PaneRuntimeCwdUpdate::Resolved(cwd)
 }
 
 fn process_current_working_dir(process_id: u32) -> Option<String> {
