@@ -20,7 +20,7 @@ fn tauri_scenario_uses_os_input_and_the_shared_observer_driver() {
 }
 
 #[test]
-fn tauri_fixed_matrix_routes_macos_accessibility_through_a_guarded_self_hosted_job() {
+fn tauri_full_matrix_routes_macos_accessibility_through_a_manual_self_hosted_job() {
     let root = root();
     let matrix = fs::read_to_string(root.join("functional-tests/matrix.toml")).unwrap();
     let workflow = fs::read_to_string(root.join(".github/workflows/functional.yml")).unwrap();
@@ -39,9 +39,8 @@ fn tauri_fixed_matrix_routes_macos_accessibility_through_a_guarded_self_hosted_j
             .find("  production-package-smoke:")
             .expect("job following privileged Tauri macOS must be present");
     let job = &workflow[start..end];
-    assert!(job.contains(
-        "if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository"
-    ));
+    assert!(job.contains("if: github.event_name == 'workflow_dispatch'"));
+    assert!(!job.contains("github.event.pull_request"));
     assert!(job.contains("runs-on: [self-hosted, macOS, X64, rssh-accessibility]"));
     assert!(job.contains("--target macos-accessibility"));
     assert!(job.contains("--capability macos_accessibility"));

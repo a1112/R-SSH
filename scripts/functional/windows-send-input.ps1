@@ -47,6 +47,7 @@ public static class RsshFunctionalInput {
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint count, INPUT[] inputs, int size);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int width, int height, bool repaint);
@@ -57,6 +58,9 @@ public static class RsshFunctionalInput {
     const uint INPUT_KEYBOARD = 1;
     const uint KEYEVENTF_KEYUP = 0x0002;
     const uint KEYEVENTF_UNICODE = 0x0004;
+    const uint MOUSEEVENTF_MOVE = 0x0001;
+    const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
+    const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
 
     public static IntPtr FindWindow(uint expectedProcessId) {
         IntPtr found = IntPtr.Zero;
@@ -106,6 +110,29 @@ public static class RsshFunctionalInput {
         SendChecked(new [] { input });
     }
 
+    public static void MovePointer(int x, int y) {
+        if (SetCursorPos(x, y)) return;
+        int left = GetSystemMetrics(76);
+        int top = GetSystemMetrics(77);
+        int width = GetSystemMetrics(78);
+        int height = GetSystemMetrics(79);
+        if (width <= 1 || height <= 1) {
+            throw new System.ComponentModel.Win32Exception("invalid virtual desktop bounds");
+        }
+        INPUT input = new INPUT { type = INPUT_MOUSE };
+        input.u.mi.dx = NormalizePointerCoordinate(x, left, width);
+        input.u.mi.dy = NormalizePointerCoordinate(y, top, height);
+        input.u.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        SendChecked(new [] { input });
+    }
+
+    static int NormalizePointerCoordinate(int coordinate, int origin, int extent) {
+        long normalized = ((long)(coordinate - origin) * 65535L) / (extent - 1);
+        if (normalized < 0L) return 0;
+        if (normalized > 65535L) return 65535;
+        return (int)normalized;
+    }
+
     static void SendChecked(INPUT[] inputs) {
         if (SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) != inputs.Length) {
             throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "SendInput failed");
@@ -142,9 +169,7 @@ function Set-ClientCursor([int] $X, [int] $Y) {
   if (-not [RsshFunctionalInput]::ClientToScreen($window, [ref]$point)) {
     throw "ClientToScreen failed"
   }
-  if (-not [RsshFunctionalInput]::SetCursorPos($point.X, $point.Y)) {
-    throw "SetCursorPos failed"
-  }
+  [RsshFunctionalInput]::MovePointer($point.X, $point.Y)
 }
 
 function Convert-WheelData([int] $Delta) {

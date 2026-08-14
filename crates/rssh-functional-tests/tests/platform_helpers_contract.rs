@@ -14,6 +14,10 @@ fn windows_helper_uses_send_input_and_targets_only_the_observed_process_window()
         "GetWindowThreadProcessId",
         "SetForegroundWindow",
         "ClientToScreen",
+        "MovePointer",
+        "MOUSEEVENTF_ABSOLUTE",
+        "MOUSEEVENTF_VIRTUALDESK",
+        "GetSystemMetrics",
     ] {
         assert!(source.contains(contract), "missing {contract}");
     }

@@ -1,6 +1,6 @@
 use rssh_functional_tests::{
     ActionV1, BehaviorCatalogV1, Capability, CheckpointV1, EvidenceKind, ScenarioV1,
-    ScenarioValidationError, Surface, assign_lpt_shards, validate_catalog,
+    ScenarioValidationError, Surface, WindowControl, assign_lpt_shards, validate_catalog,
 };
 
 const COMPLETE_SCENARIO: &str = r#"
@@ -264,6 +264,33 @@ fn every_closed_action_has_an_approved_executable_driver_path() {
     assert!(runner.contains("execute_pty_disconnect_reconnect_scenario"));
     assert!(runner.contains("ActionV1::FixtureDisconnect"));
     assert!(runner.contains("ActionV1::FixtureReconnect"));
+}
+
+#[test]
+fn tauri_window_scenario_refocuses_after_window_state_transitions() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let source =
+        std::fs::read_to_string(root.join("functional-tests/scenarios/tauri.local-pty.toml"))
+            .unwrap();
+    let scenario = ScenarioV1::from_toml(&source).unwrap();
+    let last_restore = scenario
+        .actions
+        .iter()
+        .rposition(|action| {
+            matches!(
+                action,
+                ActionV1::WindowControl { operation }
+                    if *operation == WindowControl::Restore
+            )
+        })
+        .expect("Tauri scenario exercises window restore");
+    assert!(
+        matches!(
+            scenario.actions.get(last_restore + 1),
+            Some(ActionV1::FocusWindow)
+        ),
+        "the Tauri window must be focused again before terminal exit input"
+    );
 }
 
 #[test]
