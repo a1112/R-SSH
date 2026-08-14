@@ -165,7 +165,7 @@ fn local_entrypoint_proxy(
 }
 
 fn echo_query() -> Result<u8, Box<dyn std::error::Error>> {
-    print!("fixture-ready\r\n\x1b[6n");
+    print!("\x1b[6nfixture-ready\r\n");
     io::stdout().flush()?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
