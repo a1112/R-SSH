@@ -42,6 +42,35 @@ fn web_and_tauri_production_jobs_use_real_startup_probes_for_their_binary_shape(
 }
 
 #[test]
+fn linux_tauri_isolation_probe_runs_inside_the_private_x11_seat() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    let job = workflow
+        .split("  production-tauri-bundle-smoke:")
+        .nth(1)
+        .unwrap()
+        .split("  production-tauri-bundle-smoke-macos:")
+        .next()
+        .unwrap();
+    let linux_probe = job
+        .split("      - name: Probe production Tauri executable on X11")
+        .nth(1)
+        .unwrap()
+        .split("      - if: ${{ always() }}")
+        .next()
+        .unwrap();
+
+    assert!(linux_probe.contains("check-functional-observer-isolation.py"));
+    assert!(linux_probe.contains("--startup-probe gui"));
+    assert_eq!(
+        linux_probe
+            .matches("bash scripts/functional/run-x11-seat.sh")
+            .count(),
+        2,
+        "the smoke and isolation probe must each run in a private X11 seat"
+    );
+}
+
+#[test]
 fn ci_runs_production_isolation_for_prs_and_release_packages() {
     let ci = fs::read_to_string(root().join(".github/workflows/ci.yml")).unwrap();
     let release = fs::read_to_string(root().join(".github/workflows/release.yml")).unwrap();

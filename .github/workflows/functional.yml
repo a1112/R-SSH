@@ -514,7 +514,10 @@ jobs:
           bash scripts/functional/run-x11-seat.sh \
             bash scripts/functional/smoke-production-tauri.sh --binary target/release/rssh-tauri \
             --evidence-directory evidence/production-tauri --input-backend x11
-          python scripts/ci/check-functional-observer-isolation.py --binary target/release/rssh-tauri --package rssh-tauri --web-dist web/dist
+          bash scripts/functional/run-x11-seat.sh \
+            python scripts/ci/check-functional-observer-isolation.py \
+            --binary target/release/rssh-tauri --package rssh-tauri \
+            --startup-probe gui --web-dist web/dist
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
