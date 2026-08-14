@@ -13,7 +13,10 @@ fn tauri_scenario_uses_os_input_and_the_shared_observer_driver() {
     assert!(runner.contains("Surface::Tauri"));
     assert!(runner.contains("execute_tauri_window_scenario("));
     assert!(runner.contains("execute_observed_window_scenario"));
-    assert!(runner.contains("platform_driver(target, process_id, None, None)"));
+    assert!(runner.contains("platform_driver(target, process_id, None, None, x11_class)"));
+    assert!(runner.contains(
+        "(scenario.surface == Surface::NativeWindow).then_some(FUNCTIONAL_X11_WINDOW_CLASS)"
+    ));
     assert!(scenario.contains("type = \"resize_window\""));
     assert!(scenario.contains("text = \"exit\""));
     assert!(!scenario.contains("sleep"));

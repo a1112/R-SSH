@@ -35,7 +35,27 @@ fn x11_helper_discovers_the_pid_window_and_calls_xdotool_xtest_actions() {
     assert!(source.contains("for _ in {1..100}"));
     assert!(source.contains("windowactivate --sync"));
     assert!(source.contains("xdotool"));
+    assert!(source.contains("type --clearmodifiers --delay 0 -- \"$*\""));
+    assert!(source.contains("click \"$button\""));
+    assert!(!source.contains("type --clearmodifiers --delay 0 --window"));
+    assert!(!source.contains("click --window"));
     assert!(!source.contains("/dev/stdin"));
+}
+
+#[test]
+fn windows_helper_restores_before_focusing_and_verifies_foreground_ownership() {
+    let source = repo_file("scripts/functional/windows-send-input.ps1");
+    assert!(source.contains("GetForegroundWindow"));
+    assert!(source.contains("IsIconic"));
+    let restore = source
+        .find("ShowWindow($window, 9)")
+        .expect("restore before focus");
+    let focus = source[restore..]
+        .find("SetForegroundWindow($window)")
+        .map(|offset| restore + offset)
+        .expect("focus after restore");
+    assert!(restore < focus);
+    assert!(source.contains("GetForegroundWindow() -eq $window"));
 }
 
 #[test]

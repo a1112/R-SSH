@@ -661,6 +661,23 @@ fn x11_window_discovery_waits_for_the_window_to_be_mapped() {
 
     assert!(discovery.contains("for _ in 0..100"));
     assert!(discovery.contains("Duration::from_millis(50)"));
+    assert!(discovery.contains("--class"));
+    assert!(source.contains("const FUNCTIONAL_X11_WINDOW_CLASS: &str = \"rssh-functional\""));
+}
+
+#[test]
+fn native_window_actions_wait_for_the_fixture_ready_marker() {
+    let source = include_str!("../src/runner.rs");
+    let start = source
+        .find("fn execute_observed_window_scenario(")
+        .expect("observed-window executor");
+    let end = source[start..]
+        .find("\nfn run_observed_window_actions(")
+        .map(|offset| start + offset)
+        .expect("action executor");
+    assert!(source[start..end].contains("wait_for_native_fixture_ready"));
+    assert!(source.matches("wait_for_native_fixture_ready(").count() >= 4);
+    assert!(source.matches("FUNCTIONAL_X11_WINDOW_CLASS").count() >= 7);
 }
 
 #[test]

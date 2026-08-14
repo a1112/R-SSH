@@ -200,7 +200,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { persist-credentials: false }
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
-      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox weston xdotool xterm foot imagemagick
+      - run: sudo apt-get update && sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes libx11-dev libxkbcommon-dev xvfb openbox weston xdotool xterm xfonts-base foot imagemagick
       - run: cargo build --locked -p rssh-app -p rssh-functional-tests --bins
       - name: Run real host terminal OS-input smoke
         shell: bash
@@ -358,7 +358,7 @@ jobs:
             command+=(--capability wayland)
             bash scripts/functional/run-wayland-seat.sh "${command[@]}"
           elif [[ "${RUNNER_OS}" == Linux ]]; then
-            WEBKIT_DISABLE_DMABUF_RENDERER=1 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "${command[@]}"
+            WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=x11 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash "${command[@]}"
           else
             "${command[@]}"
           fi
@@ -452,7 +452,7 @@ jobs:
       - run: cargo build --locked --release -p rssh-web
       - run: python scripts/ci/check-functional-observer-isolation.py --binary target/release/rssh-web --package rssh-web --startup-probe web-server --web-dist web/dist
       - name: Black-box production Web PTY interaction and cleanup
-        run: mkdir -p evidence/production-web && npx --prefix web playwright test --config web/playwright.production.config.ts
+        run: mkdir -p evidence/production-web && cd web && npx playwright test --config playwright.production.config.ts
         env:
           RSSH_PRODUCTION_WEB_BINARY: ../target/release/rssh-web
       - if: ${{ always() }}
@@ -493,7 +493,7 @@ jobs:
         if: matrix.input == 'x11'
         run: |
           test -n "$(find target/release/bundle -type f -print -quit)"
-          WEBKIT_DISABLE_DMABUF_RENDERER=1 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash \
+          WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1 GDK_BACKEND=x11 xvfb-run --auto-servernum bash -c 'openbox >/tmp/rssh-openbox.log 2>&1 & exec "$@"' bash \
             bash scripts/functional/smoke-production-tauri.sh --binary target/release/rssh-tauri \
             --evidence-directory evidence/production-tauri --input-backend x11
           python scripts/ci/check-functional-observer-isolation.py --binary target/release/rssh-tauri --package rssh-tauri --web-dist web/dist

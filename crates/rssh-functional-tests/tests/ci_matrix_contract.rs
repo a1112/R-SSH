@@ -124,7 +124,24 @@ fn linux_tauri_x11_probes_disable_the_webkit_dmabuf_path() {
             definition.contains("WEBKIT_DISABLE_DMABUF_RENDERER=1"),
             "Linux X11 path in {job} must use the Xvfb-safe WebKit renderer"
         );
+        assert!(
+            definition.contains("WEBKIT_DISABLE_COMPOSITING_MODE=1"),
+            "Linux X11 path in {job} must disable WebKit compositing under Xvfb"
+        );
     }
+}
+
+#[test]
+fn xterm_host_smoke_installs_its_bitmap_font_dependency() {
+    let workflow = fs::read_to_string(root().join(".github/workflows/functional.yml")).unwrap();
+    let job = workflow
+        .split("  host-terminal-linux:")
+        .nth(1)
+        .expect("Linux host terminal job")
+        .split("  native-x11:")
+        .next()
+        .expect("following native X11 job");
+    assert!(job.contains("xfonts-base"));
 }
 
 #[test]

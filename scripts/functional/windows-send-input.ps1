@@ -45,6 +45,9 @@ public static class RsshFunctionalInput {
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int length);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
@@ -158,9 +161,25 @@ if ($window -eq [IntPtr]::Zero) {
   $titles = Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "$($_.Id):$($_.ProcessName):$($_.MainWindowTitle)" }
   throw "no visible top-level window matches process=$ProcessId title=$WindowTitle; visible=$($titles -join '|')"
 }
-if (-not [RsshFunctionalInput]::SetForegroundWindow($window)) {
-  throw "SetForegroundWindow failed for process=$ProcessId title=$WindowTitle"
+
+function Focus-Window {
+  if ([RsshFunctionalInput]::IsIconic($window)) {
+    [void][RsshFunctionalInput]::ShowWindow($window, 9)
+  }
+  [void][RsshFunctionalInput]::BringWindowToTop($window)
+  $deadline = [DateTime]::UtcNow.AddSeconds(2)
+  do {
+    [void][RsshFunctionalInput]::SetForegroundWindow($window)
+    if ([RsshFunctionalInput]::GetForegroundWindow() -eq $window) { return }
+    Start-Sleep -Milliseconds 10
+  } while ([DateTime]::UtcNow -lt $deadline)
+  throw "GetForegroundWindow() -ne `$window after SetForegroundWindow for process=$ProcessId title=$WindowTitle"
 }
+
+if ($Action -eq "window" -and $ActionArguments[0] -eq "restore") {
+  [void][RsshFunctionalInput]::ShowWindow($window, 9)
+}
+Focus-Window
 
 function Set-ClientCursor([int] $X, [int] $Y) {
   $point = [RsshFunctionalInput+POINT]::new()

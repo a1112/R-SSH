@@ -255,23 +255,17 @@ impl PlatformInputDriver {
                 "--clearmodifiers".to_owned(),
                 "--delay".to_owned(),
                 "0".to_owned(),
-                "--window".to_owned(),
-                self.target.clone(),
                 text.clone(),
             ])),
             ActionV1::Key { key, modifiers } => operations.push(command(vec![
                 "key".to_owned(),
                 "--clearmodifiers".to_owned(),
-                "--window".to_owned(),
-                self.target.clone(),
                 xtest_key(key, modifiers),
             ])),
             ActionV1::MouseClick { x, y, button } => {
                 operations.push(command(mouse_move_arguments(&self.target, *x, *y)));
                 operations.push(command(vec![
                     "click".to_owned(),
-                    "--window".to_owned(),
-                    self.target.clone(),
                     mouse_button_number(*button).to_string(),
                 ]));
             }
@@ -319,8 +313,6 @@ impl PlatformInputDriver {
             ActionV1::WindowControl { operation } => operations.push(command(vec![
                 "key".to_owned(),
                 "--clearmodifiers".to_owned(),
-                "--window".to_owned(),
-                self.target.clone(),
                 match operation {
                     WindowControl::Minimize => "alt+F9",
                     WindowControl::Maximize | WindowControl::Restore => "alt+F10",

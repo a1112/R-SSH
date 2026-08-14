@@ -56,12 +56,12 @@ xdotool windowactivate --sync "$window"
 
 case "$action" in
   focus) ;;
-  type) xdotool type --clearmodifiers --delay 0 --window "$window" -- "$*" ;;
-  key) xdotool key --clearmodifiers --window "$window" "$*" ;;
+  type) xdotool type --clearmodifiers --delay 0 -- "$*" ;;
+  key) xdotool key --clearmodifiers "$*" ;;
   click)
     xdotool mousemove --window "$window" "$1" "$2"
     case "$3" in left) button=1;; middle) button=2;; right) button=3;; *) exit 2;; esac
-    xdotool click --window "$window" "$button"
+    xdotool click "$button"
     ;;
   drag)
     case "$5" in left) button=1;; middle) button=2;; right) button=3;; *) exit 2;; esac
@@ -78,13 +78,13 @@ case "$action" in
   paste)
     command -v xclip >/dev/null
     printf %s "$*" | xclip -selection clipboard
-    xdotool key --clearmodifiers --window "$window" ctrl+v
+    xdotool key --clearmodifiers ctrl+v
     ;;
   resize) xdotool windowsize "$window" "$1" "$2" ;;
   window)
     case "$1" in
       minimize) xdotool windowminimize "$window" ;;
-      maximize|restore) xdotool key --clearmodifiers --window "$window" alt+F10 ;;
+      maximize|restore) xdotool key --clearmodifiers alt+F10 ;;
       close) xdotool windowclose "$window" ;;
       *) exit 2 ;;
     esac

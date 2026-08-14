@@ -22,6 +22,7 @@ pub const EXIT_USAGE: i32 = 2;
 pub const EXIT_INVALID_SUITE: i32 = 3;
 pub const EXIT_INFRASTRUCTURE_FAILED: i32 = 4;
 pub const EXIT_SCENARIO_FAILED: i32 = 5;
+const FUNCTIONAL_X11_WINDOW_CLASS: &str = "rssh-functional";
 
 pub fn run_cli(args: impl IntoIterator<Item = String>) -> i32 {
     match RunnerCommand::parse(args) {
@@ -797,6 +798,8 @@ fn execute_config_lifecycle_scenario(
         "--config-file",
         config_path.to_string_lossy().as_ref(),
         "window",
+        "--class",
+        FUNCTIONAL_X11_WINDOW_CLASS,
         "--",
         fixture_bin.to_string_lossy().as_ref(),
         "window-effects",
@@ -816,6 +819,7 @@ fn execute_config_lifecycle_scenario(
         .ok_or_else(|| RunnerError::Driver("config window has no process id".to_owned()))?;
     let mut client = connect_observer(&endpoint, &token, startup_timeout(scenario, started)?)?;
     let initial = wait_for_config_state(&mut client, 1, false, action_timeout(scenario, started)?)?;
+    let initial = wait_for_native_fixture_ready(scenario, &mut client, initial, started)?;
     record_driver_behavior(
         scenario,
         started,
@@ -892,7 +896,13 @@ fn run_config_window_actions(
     snapshot: &mut crate::ObserverSnapshotV1,
     writer: &mut EvidenceWriter<fs::File>,
 ) -> Result<(), RunnerError> {
-    let platform = platform_driver(context.target, process_id, None, None)?;
+    let platform = platform_driver(
+        context.target,
+        process_id,
+        None,
+        None,
+        Some(FUNCTIONAL_X11_WINDOW_CLASS),
+    )?;
     for (action_index, action) in context.scenario.actions.iter().enumerate() {
         if matches!(action, ActionV1::Finish) {
             writer
@@ -1123,6 +1133,8 @@ fn execute_observer_disconnect_scenario(
     command
         .args([
             "window",
+            "--class",
+            FUNCTIONAL_X11_WINDOW_CLASS,
             "--",
             fixture_bin.to_string_lossy().as_ref(),
             "window-effects",
@@ -1140,9 +1152,10 @@ fn execute_observer_disconnect_scenario(
         .process_id()
         .ok_or_else(|| RunnerError::Driver("observer disconnect process has no id".to_owned()))?;
     let mut client = connect_observer(&endpoint, &token, startup_timeout(scenario, started)?)?;
-    let _initial = client
+    let initial = client
         .snapshot()
         .map_err(|source| RunnerError::Driver(format!("read disconnect snapshot: {source}")))?;
+    let _initial = wait_for_native_fixture_ready(scenario, &mut client, initial, started)?;
     record_driver_behavior(
         scenario,
         started,
@@ -1158,7 +1171,13 @@ fn execute_observer_disconnect_scenario(
         "BHV-OBSERVER-DISCONNECT",
         "observer channel intentionally disconnected after authenticated read",
     )?;
-    let platform = platform_driver(target, process_id, None, None)?;
+    let platform = platform_driver(
+        target,
+        process_id,
+        None,
+        None,
+        Some(FUNCTIONAL_X11_WINDOW_CLASS),
+    )?;
     for (action_index, action) in scenario.actions.iter().enumerate() {
         if matches!(action, ActionV1::Finish) {
             writer
@@ -1236,7 +1255,7 @@ fn execute_host_terminal_scenario(
     } else {
         None
     };
-    let platform = platform_driver(target, input_pid, window_title, None)?;
+    let platform = platform_driver(target, input_pid, window_title, None, None)?;
     if target.contains("macos") {
         let setup = launch
             .command_arguments
@@ -1800,6 +1819,8 @@ fn native_window_command(
     };
     command.args([
         "window",
+        "--class",
+        FUNCTIONAL_X11_WINDOW_CLASS,
         "--osc52",
         "write",
         "--",
@@ -1886,7 +1907,12 @@ fn execute_observed_window_scenario(
         "BHV-LIFECYCLE-STARTED",
         "observer handshake completed for a live window",
     )?;
-    let platform = platform_driver(target, process_id, None, None)?;
+    if scenario.surface == Surface::NativeWindow {
+        snapshot = wait_for_native_fixture_ready(scenario, &mut client, snapshot, started)?;
+    }
+    let x11_class =
+        (scenario.surface == Surface::NativeWindow).then_some(FUNCTIONAL_X11_WINDOW_CLASS);
+    let platform = platform_driver(target, process_id, None, None, x11_class)?;
     let _clipboard = ClipboardRestore::capture_if_needed(&scenario.actions, target)?;
     let context = ScenarioRunContext {
         scenario,
@@ -2175,6 +2201,7 @@ fn platform_driver(
     process_id: u32,
     window_title: Option<&str>,
     window_handle: Option<u64>,
+    x11_class: Option<&str>,
 ) -> Result<crate::PlatformInputDriver, RunnerError> {
     let backend = if target.contains("windows") {
         crate::InputBackend::WindowsSendInput
@@ -2204,7 +2231,7 @@ fn platform_driver(
         );
     }
     if backend == crate::InputBackend::X11Xtest {
-        let window = discover_x11_window(process_id, &environment)?;
+        let window = discover_x11_window(process_id, x11_class, &environment)?;
         environment.insert("RSSH_FUNCTIONAL_X11_WINDOW".to_owned(), window);
     }
     crate::PlatformInputDriver::from_environment(backend, &environment)
@@ -2213,6 +2240,7 @@ fn platform_driver(
 
 fn discover_x11_window(
     process_id: u32,
+    window_class: Option<&str>,
     environment: &std::collections::BTreeMap<String, String>,
 ) -> Result<String, RunnerError> {
     let program = environment
@@ -2227,16 +2255,37 @@ fn discover_x11_window(
         if remaining.is_zero() {
             break;
         }
-        let mut command = Command::new(program);
-        command.args(["search", "--onlyvisible", "--pid", &process_id.to_string()]);
-        if let Some(display) = environment.get("DISPLAY") {
-            command.env("DISPLAY", display);
+        let mut selectors = vec![vec![
+            "search".to_owned(),
+            "--onlyvisible".to_owned(),
+            "--pid".to_owned(),
+            process_id.to_string(),
+        ]];
+        if let Some(window_class) = window_class {
+            selectors.push(vec![
+                "search".to_owned(),
+                "--onlyvisible".to_owned(),
+                "--class".to_owned(),
+                format!("^{window_class}$"),
+            ]);
         }
-        let output = ChildGuard::spawn(command, remaining.min(Duration::from_secs(2)))
-            .map_err(|source| RunnerError::Driver(format!("discover X11 window: {source}")))?
-            .wait()
-            .map_err(|source| RunnerError::child("discover X11 window", source))?;
-        let windows: Vec<_> = String::from_utf8_lossy(&output.stdout)
+        let mut stdout = Vec::new();
+        for selector in selectors {
+            let mut command = Command::new(program);
+            command.args(selector);
+            if let Some(display) = environment.get("DISPLAY") {
+                command.env("DISPLAY", display);
+            }
+            let output = ChildGuard::spawn(command, remaining.min(Duration::from_secs(2)))
+                .map_err(|source| RunnerError::Driver(format!("discover X11 window: {source}")))?
+                .wait()
+                .map_err(|source| RunnerError::child("discover X11 window", source))?;
+            if !output.stdout.is_empty() {
+                stdout = output.stdout;
+                break;
+            }
+        }
+        let windows: Vec<_> = String::from_utf8_lossy(&stdout)
             .lines()
             .filter(|line| !line.trim().is_empty())
             .map(str::to_owned)
@@ -2253,6 +2302,47 @@ fn discover_x11_window(
     Err(RunnerError::Driver(format!(
         "expected one visible X11 window for PID {process_id}; observed {observed}"
     )))
+}
+
+fn wait_for_terminal_text(
+    client: &mut crate::ObserverClient,
+    mut snapshot: crate::ObserverSnapshotV1,
+    marker: &str,
+    timeout: Duration,
+) -> Result<crate::ObserverSnapshotV1, RunnerError> {
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or_else(|| RunnerError::Driver("terminal readiness deadline overflow".to_owned()))?;
+    loop {
+        if snapshot.terminal.text.contains(marker) {
+            return Ok(snapshot);
+        }
+        if Instant::now() >= deadline {
+            return Err(RunnerError::Scenario(format!(
+                "observer terminal did not contain readiness marker {marker:?}"
+            )));
+        }
+        if let Some(updated) = client
+            .subscribe(snapshot.revision)
+            .map_err(|source| RunnerError::Driver(format!("subscribe to observer: {source}")))?
+        {
+            snapshot = updated;
+        }
+    }
+}
+
+fn wait_for_native_fixture_ready(
+    scenario: &ScenarioV1,
+    client: &mut crate::ObserverClient,
+    snapshot: crate::ObserverSnapshotV1,
+    started: Instant,
+) -> Result<crate::ObserverSnapshotV1, RunnerError> {
+    let marker = if scenario.fixture == "forced_close" {
+        "fixture-hold-open"
+    } else {
+        "fixture-ready"
+    };
+    wait_for_terminal_text(client, snapshot, marker, action_timeout(scenario, started)?)
 }
 
 fn wait_for_observer_change(

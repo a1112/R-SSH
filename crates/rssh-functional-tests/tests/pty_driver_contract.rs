@@ -10,6 +10,8 @@ fn fixture() -> PathBuf {
 fn pty_driver_round_trips_unicode_and_answers_terminal_queries_without_sleep() {
     let result = PtyFixtureDriver::spawn(&fixture(), "echo-query", 80, 24, Duration::from_secs(5))
         .unwrap()
+        .wait_for_output(b"fixture-ready")
+        .unwrap()
         .write(b"R-SSH \xe7\xbb\x88\xe7\xab\xaf\r\n")
         .unwrap()
         .finish()

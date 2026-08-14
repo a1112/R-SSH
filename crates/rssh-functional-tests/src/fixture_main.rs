@@ -166,6 +166,7 @@ fn echo_query() -> Result<u8, Box<dyn std::error::Error>> {
     io::stdout().flush()?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
+    let line = command_after_terminal_responses(&line);
     print!("fixture-echo:{line}");
     io::stdout().flush()?;
     Ok(0)
@@ -225,6 +226,10 @@ mod tests {
         assert_eq!(
             command_after_terminal_responses("\x1b[1;2R\x1b[3;4Remit-effects"),
             "emit-effects"
+        );
+        assert_eq!(
+            command_after_terminal_responses("\x1b[1;1RR-SSH 终端\r\n"),
+            "R-SSH 终端\r\n"
         );
     }
 

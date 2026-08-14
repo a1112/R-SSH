@@ -34,9 +34,7 @@ fn production_web_and_tauri_artifacts_have_black_box_smoke_jobs() {
     assert!(workflow.contains("npm --prefix web run build"));
     assert!(workflow.contains("cargo build --locked --release -p rssh-web"));
     assert!(
-        workflow.contains(
-            "npx --prefix web playwright test --config web/playwright.production.config.ts"
-        )
+        workflow.contains("cd web && npx playwright test --config playwright.production.config.ts")
     );
     assert!(workflow.contains("Black-box production Web PTY interaction and cleanup"));
     assert!(workflow.contains("npm --prefix tauri run build"));

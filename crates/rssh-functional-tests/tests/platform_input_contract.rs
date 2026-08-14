@@ -38,7 +38,7 @@ fn x11_uses_xtest_and_never_falls_back_to_synthetic_stdin() {
     assert!(matches!(
         &operations[1],
         DriverOperation::Command { arguments, .. }
-            if arguments == &["type", "--clearmodifiers", "--delay", "0", "--window", "4194305", "R-SSH 终端"]
+            if arguments == &["type", "--clearmodifiers", "--delay", "0", "R-SSH 终端"]
     ));
 }
 
@@ -92,6 +92,12 @@ fn wayland_requires_nested_weston_x11_backend_and_injects_through_its_seat() {
         operation,
         DriverOperation::Command { arguments, .. }
             if arguments.iter().any(|argument| argument == "mousemove")
+    )));
+    assert!(operations.iter().all(|operation| matches!(
+        operation,
+        DriverOperation::Command { arguments, .. }
+            if arguments.first().map(String::as_str) != Some("click")
+                || !arguments.iter().any(|argument| argument == "--window")
     )));
 }
 
