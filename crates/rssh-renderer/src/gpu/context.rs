@@ -943,12 +943,15 @@ impl GpuContext {
         let capabilities = surface.get_capabilities(&self.adapter);
         let format = Self::preferred_surface_format(&capabilities.formats)
             .ok_or_else(|| GpuContextError::message("surface exposes no formats".into()))?;
-        let present_mode = capabilities
-            .present_modes
-            .contains(&wgpu::PresentMode::Fifo)
-            .then_some(wgpu::PresentMode::Fifo)
-            .or_else(|| capabilities.present_modes.first().copied())
-            .ok_or_else(|| GpuContextError::message("surface exposes no present modes".into()))?;
+        #[cfg(debug_assertions)]
+        let test_present_mode = std::env::var("RSSH_TEST_PRESENT_MODE").ok();
+        #[cfg(not(debug_assertions))]
+        let test_present_mode = None;
+        let present_mode =
+            preferred_present_mode(&capabilities.present_modes, test_present_mode.as_deref())
+                .ok_or_else(|| {
+                    GpuContextError::message("surface exposes no present modes".into())
+                })?;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -1113,6 +1116,23 @@ impl GpuContext {
         }
         Ok(())
     }
+}
+
+fn preferred_present_mode(
+    available: &[wgpu::PresentMode],
+    test_override: Option<&str>,
+) -> Option<wgpu::PresentMode> {
+    #[cfg(debug_assertions)]
+    if test_override.is_some_and(|value| value.eq_ignore_ascii_case("immediate"))
+        && available.contains(&wgpu::PresentMode::Immediate)
+    {
+        return Some(wgpu::PresentMode::Immediate);
+    }
+
+    available
+        .contains(&wgpu::PresentMode::Fifo)
+        .then_some(wgpu::PresentMode::Fifo)
+        .or_else(|| available.first().copied())
 }
 
 fn create_surface(
@@ -1616,6 +1636,23 @@ mod tests {
             Some(wgpu::TextureFormat::Rgba8UnormSrgb)
         );
         assert_eq!(GpuContext::preferred_surface_format(&[]), None);
+    }
+
+    #[test]
+    fn preferred_present_mode_uses_immediate_only_for_the_explicit_test_override() {
+        let modes = [wgpu::PresentMode::Fifo, wgpu::PresentMode::Immediate];
+        assert_eq!(
+            preferred_present_mode(&modes, Some("immediate")),
+            Some(wgpu::PresentMode::Immediate)
+        );
+        assert_eq!(
+            preferred_present_mode(&modes, Some("fifo")),
+            Some(wgpu::PresentMode::Fifo)
+        );
+        assert_eq!(
+            preferred_present_mode(&[wgpu::PresentMode::Fifo], Some("immediate")),
+            Some(wgpu::PresentMode::Fifo)
+        );
     }
 
     #[test]

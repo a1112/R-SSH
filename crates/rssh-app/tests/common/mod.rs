@@ -73,6 +73,11 @@ fn run_ten_frame_native_window_with_command(
             "RSSH_TEST_WINDOW_SCALE_FACTOR",
             format!("{scale_factor:.2}"),
         );
+        // Hosted Windows runners can block indefinitely in FIFO presentation
+        // while a DPI probe is resizing a fresh native surface. Immediate is
+        // still a real GPU presentation path and falls back to FIFO when the
+        // adapter does not expose it.
+        command.env("RSSH_TEST_PRESENT_MODE", "immediate");
         #[cfg(target_os = "windows")]
         if std::env::var_os("RSSH_TEST_NATIVE_SCALE_PRIMARY").is_none() {
             // The baseline probe still exercises the hosted runner's primary

@@ -43,7 +43,7 @@ fn native_window_frame_probe_keeps_its_marker_process_alive() {
 
 #[cfg(target_os = "windows")]
 #[test]
-fn scaled_native_window_probes_use_the_software_fallback_adapter() {
+fn scaled_native_window_probes_use_deterministic_present_path() {
     let source = include_str!("common/mod.rs");
     let start = source
         .find("fn run_ten_frame_native_window_with_command(")
@@ -55,6 +55,7 @@ fn scaled_native_window_probes_use_the_software_fallback_adapter() {
     let command_helper = &source[start..end];
 
     assert!(command_helper.contains("if let Some(scale_factor) = scale_factor"));
+    assert!(command_helper.contains("RSSH_TEST_PRESENT_MODE"));
     assert!(command_helper.contains("RSSH_TEST_FORCE_FALLBACK_ADAPTER"));
     assert!(command_helper.contains("RSSH_TEST_NATIVE_SCALE_PRIMARY"));
 }
