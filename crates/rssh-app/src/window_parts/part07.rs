@@ -1096,10 +1096,6 @@ struct NativeAppliedInputConfig {
     tab_and_split_indices_are_zero_based: bool,
     mouse_wheel_scrolls_tabs: bool,
     switch_to_last_active_tab_when_closing_tab: bool,
-    tab_shortcut_style: NativeTabShortcutStyle,
-    closed_tab_history_size: usize,
-    close_tab_selection: CloseTabSelection,
-    tab_bar_wheel_behavior: NativeTabBarWheelBehavior,
     quit_when_all_windows_are_closed: bool,
     window_close_confirmation: NativeWindowCloseConfirmation,
     exit_behavior: NativeExitBehavior,
@@ -1174,10 +1170,6 @@ impl Default for NativeAppliedInputConfig {
             mouse_wheel_scrolls_tabs: DEFAULT_MOUSE_WHEEL_SCROLLS_TABS,
             switch_to_last_active_tab_when_closing_tab:
                 DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB,
-            tab_shortcut_style: NativeTabShortcutStyle::Terminal,
-            closed_tab_history_size: DEFAULT_CLOSED_TAB_HISTORY_SIZE,
-            close_tab_selection: CloseTabSelection::Adjacent,
-            tab_bar_wheel_behavior: NativeTabBarWheelBehavior::Scroll,
             quit_when_all_windows_are_closed: DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED,
             window_close_confirmation: DEFAULT_WINDOW_CLOSE_CONFIRMATION,
             exit_behavior: DEFAULT_EXIT_BEHAVIOR,
@@ -1250,6 +1242,10 @@ struct NativeAppliedDomainConfig {
     derived_config_environment: BTreeMap<String, String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
+    tab_shortcut_style: NativeTabShortcutStyle,
+    closed_tab_history_size: usize,
+    close_tab_selection: CloseTabSelection,
+    tab_bar_wheel_behavior: NativeTabBarWheelBehavior,
     input: NativeAppliedInputConfig,
 }
 
@@ -1296,6 +1292,10 @@ impl Default for NativeAppliedDomainConfig {
             derived_config_environment: BTreeMap::new(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
+            tab_shortcut_style: NativeTabShortcutStyle::Terminal,
+            closed_tab_history_size: DEFAULT_CLOSED_TAB_HISTORY_SIZE,
+            close_tab_selection: CloseTabSelection::Adjacent,
+            tab_bar_wheel_behavior: NativeTabBarWheelBehavior::Scroll,
             input: NativeAppliedInputConfig::default(),
         }
     }

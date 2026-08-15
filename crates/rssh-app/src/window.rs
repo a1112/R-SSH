@@ -7631,4 +7631,6 @@ include!("window_parts/part12.rs");
 include!("window_parts/part13.rs");
 include!("window_parts/part14.rs");
 include!("window_parts/part15.rs");
+include!("window_parts/tab_session.rs");
+include!("window_parts/runtime_helpers.rs");
 include!("window_parts/functional_observer.rs");

@@ -86,7 +86,9 @@ cleanup() {
   fi
   kill -TERM "$xvfb_pid" 2>/dev/null || true
   wait "$xvfb_pid" 2>/dev/null || true
-  rm -rf -- "$runtime"
+  if ! rm -rf -- "$runtime"; then
+    echo "warning: could not remove every private Wayland runtime entry" >&2
+  fi
   exit "$status"
 }
 trap cleanup EXIT

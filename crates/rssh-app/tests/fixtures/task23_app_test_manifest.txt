@@ -1648,7 +1648,6 @@ T23-TABS-0b6808373216|crates/rssh-app/src/window_compat_tests/part07_tests.rs|ta
 T23-TABS-d2427351b61a|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_clicking_tab_bar_close_marker_closes_tab|1|rssh-app|window::tests|tabs
 T23-TABS-1d8c52f633da|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_tab_bar_close_marker_can_switch_to_last_active_tab|1|rssh-app|window::tests|tabs
 T23-TABS-17ecc20b55a6|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_clicking_last_tab_bar_close_marker_requests_window_close|1|rssh-app|window::tests|tabs
-T23-TABS-28794400204b|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_clicking_tab_bar_new_tab_button_creates_tab|1|rssh-app|window::tests|tabs
 T23-TABS-48a6dca8764c|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_can_hide_tab_bar_new_tab_button|1|rssh-app|window::tests|tabs
 T23-TABS-6e65fdc048bc|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_can_hide_tab_labels_in_tab_bar|1|rssh-app|window::tests|tabs
 T23-TABS-8f9bf3cbe6e4|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_can_hide_tab_index_in_tab_bar|1|rssh-app|window::tests|tabs
@@ -3958,3 +3957,19 @@ T23-PLATFORM-ea99347ad317|crates/rssh-app/src/window_terminal_delta_tests.rs|win
 T23-PLATFORM-4dd6a3ab8d0e|crates/rssh-app/src/window_terminal_delta_tests.rs|window_app_ctrl_click_opens_default_hyperlink_rule_url|1|rssh-app|window_terminal_delta_tests::tests|platform
 T23-PLATFORM-311153b06105|crates/rssh-app/src/window_terminal_delta_tests.rs|window_app_hyperlink_rules_override_defaults_and_format_captures|1|rssh-app|window_terminal_delta_tests::tests|platform
 T23-PLATFORM-dfb86427a9b1|crates/rssh-app/src/window_terminal_delta_tests.rs|window_app_open_uri_hook_can_prevent_default_hyperlink_open|1|rssh-app|window_terminal_delta_tests::tests|platform
+T23-TABS-a60663e1bfc2|crates/rssh-app/src/window_compat_tests/part07_tests.rs|window_app_clicking_tab_bar_new_tab_button_opens_session_launcher|1|rssh-app|window::tests|tabs
+T23-TABS-cab3c92af25b|crates/rssh-app/src/window_compat_tests/part08_tests.rs|window_app_move_tab_to_new_window_transfers_every_pane_runtime|1|rssh-app|window::tests|tabs
+T23-TABS-9a3cc83224eb|crates/rssh-app/src/window_compat_tests/part08_tests.rs|window_manager_transfers_a_live_tab_between_windows_and_remaps_events|1|rssh-app|window::tests|tabs
+T23-TABS-35a542286f6c|crates/rssh-app/src/window_compat_tests/part08_tests.rs|window_manager_transfers_its_final_tab_and_retires_the_source_window|1|rssh-app|window::tests|tabs
+T23-TABS-a5614daba755|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_batch_tab_close_uses_one_confirmation_for_the_whole_set|1|rssh-app|window::tests|tabs
+T23-TABS-5bea2dcb2423|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_browser_tab_shortcuts_open_launcher_reopen_and_activate_tabs|1|rssh-app|window::tests|tabs
+T23-TABS-b352ab8e4f53|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_default_close_selection_prefers_the_right_tab|1|rssh-app|window::tests|tabs
+T23-TABS-fac20a48aee7|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_duplicate_and_reopen_closed_tab_restore_the_full_tab_layout|1|rssh-app|window::tests|tabs
+T23-TABS-ad688bc70395|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_move_tab_to_new_window_command_preserves_live_tab_ownership|1|rssh-app|window::tests|tabs
+T23-TABS-09860c908e1e|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_moving_its_final_tab_to_new_window_requests_source_close|1|rssh-app|window::tests|tabs
+T23-TABS-aaf85c8eb854|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_parses_move_tab_to_window_as_a_bindable_parameterized_command|1|rssh-app|window::tests|tabs
+T23-TABS-4e45f2bf6393|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_parses_tab_session_configuration_fields|1|rssh-app|window::tests|tabs
+T23-TABS-fc0016d73811|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_pending_windows_share_recently_closed_tab_history|1|rssh-app|window::tests|tabs
+T23-TABS-21e4077a16d7|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_tab_bar_wheel_scrolls_headers_without_switching_sessions|1|rssh-app|window::tests|tabs
+T23-TABS-01dfa67058a5|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_tab_context_menu_exposes_browser_tab_actions|1|rssh-app|window::tests|tabs
+T23-TABS-20d89c1cf993|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_tab_session_config_prefers_new_values_and_maps_legacy_values|1|rssh-app|window::tests|tabs
