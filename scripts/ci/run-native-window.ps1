@@ -84,15 +84,39 @@ try {
       $scenario,
       "--", "--exact", "--ignored", "--nocapture"
     )
-    for ($attempt = 1; $attempt -le $nativeScenarioAttempts; $attempt++) {
-      try {
-        $null = Invoke-BoundedProcess -Phase "native E2E scenario $scenario ($Profile), attempt $attempt" -FilePath "cargo" -ArgumentList $scenarioArguments -TimeoutSeconds 300
-        break
-      } catch {
-        if ($attempt -ge $nativeScenarioAttempts) {
-          throw
+    $previousScaleAdapterOverride = [Environment]::GetEnvironmentVariable(
+      "RSSH_TEST_NATIVE_SCALE_PRIMARY",
+      "Process"
+    )
+    try {
+      for ($attempt = 1; $attempt -le $nativeScenarioAttempts; $attempt++) {
+        if ($attempt -eq 1) {
+          if ($null -eq $previousScaleAdapterOverride) {
+            Remove-Item Env:RSSH_TEST_NATIVE_SCALE_PRIMARY -ErrorAction SilentlyContinue
+          } else {
+            $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = $previousScaleAdapterOverride
+          }
+        } else {
+          # A hosted Windows runner can wedge either the WARP fallback or the
+          # primary DX12 adapter after a DPI probe. Retry once through the
+          # other adapter path instead of repeating the same 120s timeout.
+          $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = "1"
         }
-        Write-Warning "native E2E scenario $scenario attempt $attempt failed; retrying after bounded cleanup: $_"
+        try {
+          $null = Invoke-BoundedProcess -Phase "native E2E scenario $scenario ($Profile), attempt $attempt" -FilePath "cargo" -ArgumentList $scenarioArguments -TimeoutSeconds 300
+          break
+        } catch {
+          if ($attempt -ge $nativeScenarioAttempts) {
+            throw
+          }
+          Write-Warning "native E2E scenario $scenario attempt $attempt failed; retrying after bounded cleanup with the alternate adapter: $_"
+        }
+      }
+    } finally {
+      if ($null -eq $previousScaleAdapterOverride) {
+        Remove-Item Env:RSSH_TEST_NATIVE_SCALE_PRIMARY -ErrorAction SilentlyContinue
+      } else {
+        $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = $previousScaleAdapterOverride
       }
     }
   }

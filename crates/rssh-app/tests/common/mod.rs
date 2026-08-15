@@ -74,10 +74,15 @@ fn run_ten_frame_native_window_with_command(
             format!("{scale_factor:.2}"),
         );
         #[cfg(target_os = "windows")]
-        // The baseline probe still exercises the hosted runner's primary
-        // adapter. Repeated DPI probes use the software fallback so a transient
-        // hosted DX12 driver teardown cannot poison later scenarios on the VM.
-        command.env("RSSH_TEST_FORCE_FALLBACK_ADAPTER", "1");
+        if std::env::var_os("RSSH_TEST_NATIVE_SCALE_PRIMARY").is_none() {
+            // The baseline probe still exercises the hosted runner's primary
+            // adapter. Repeated DPI probes use the software fallback so a
+            // transient hosted DX12 driver teardown cannot poison later
+            // scenarios on the VM. The runner can opt back into the primary
+            // adapter for a bounded retry when the software adapter itself is
+            // wedged by the hosted desktop stack.
+            command.env("RSSH_TEST_FORCE_FALLBACK_ADAPTER", "1");
+        }
     }
     for (name, value) in marker_command.get_envs() {
         if let Some(value) = value {
