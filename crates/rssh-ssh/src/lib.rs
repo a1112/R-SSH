@@ -11,6 +11,102 @@ pub use russh_client::{
     RusshPrivateKeyAuth, RusshRemoteTcpIpForward, RusshRemoteTcpIpForwardPlan, RusshSshChannel,
 };
 
+/// The kind of secret requested while establishing a native SSH session.
+/// Secret values are supplied only through the asynchronous provider and are
+/// never part of a connection request or host-key challenge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretPromptKind {
+    Password,
+    PrivateKeyPassphrase,
+}
+
+/// Non-secret metadata for a password or private-key passphrase prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecretPrompt {
+    pub username: String,
+    pub kind: SecretPromptKind,
+}
+
+impl SecretPrompt {
+    #[must_use]
+    pub fn password(username: impl Into<String>) -> Self {
+        Self {
+            username: username.into(),
+            kind: SecretPromptKind::Password,
+        }
+    }
+
+    #[must_use]
+    pub fn private_key_passphrase(username: impl Into<String>) -> Self {
+        Self {
+            username: username.into(),
+            kind: SecretPromptKind::PrivateKeyPassphrase,
+        }
+    }
+}
+
+/// Future returned by an asynchronous secret provider. `None` means that the
+/// user cancelled the prompt; the returned string is consumed by the auth
+/// operation and is not retained by the SSH request.
+pub type SecretPromptFuture = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
+
+pub trait AsyncSecretProvider: Send + Sync {
+    fn prompt(&self, prompt: SecretPrompt) -> SecretPromptFuture;
+}
+
+impl<F, Fut> AsyncSecretProvider for F
+where
+    F: Fn(SecretPrompt) -> Fut + Send + Sync,
+    Fut: Future<Output = Option<String>> + Send + 'static,
+{
+    fn prompt(&self, prompt: SecretPrompt) -> SecretPromptFuture {
+        Box::pin(self(prompt))
+    }
+}
+
+impl<T> AsyncSecretProvider for Arc<T>
+where
+    T: AsyncSecretProvider + ?Sized,
+{
+    fn prompt(&self, prompt: SecretPrompt) -> SecretPromptFuture {
+        (**self).prompt(prompt)
+    }
+}
+
+#[derive(Clone)]
+pub struct SecretProvider {
+    inner: Arc<dyn AsyncSecretProvider>,
+}
+
+impl SecretProvider {
+    #[must_use]
+    pub fn new<V>(provider: V) -> Self
+    where
+        V: AsyncSecretProvider + 'static,
+    {
+        Self {
+            inner: Arc::new(provider),
+        }
+    }
+
+    #[must_use]
+    pub fn prompt(&self, prompt: SecretPrompt) -> SecretPromptFuture {
+        self.inner.prompt(prompt)
+    }
+}
+
+impl std::fmt::Debug for SecretProvider {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SecretProvider(..)")
+    }
+}
+
+impl AsyncSecretProvider for SecretProvider {
+    fn prompt(&self, prompt: SecretPrompt) -> SecretPromptFuture {
+        self.inner.prompt(prompt)
+    }
+}
+
 /// The outcome of an asynchronous host-key prompt.
 ///
 /// `AcceptOnce` keeps the key in memory for the current connection, while

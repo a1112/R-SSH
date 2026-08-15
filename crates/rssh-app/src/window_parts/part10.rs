@@ -1715,10 +1715,10 @@ fn apply_protocol_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapsh
                     pixel_width: u32::from(rect.columns) * self.cell_width(),
                     pixel_height: u32::from(rect.rows) * self.cell_height(),
                     title: self.pane_title(pane.id()),
-                    foreground_process_name: pane.launch().program().to_owned(),
+                    foreground_process_name: pane_launch_display_program(pane.launch()).to_owned(),
                     current_working_dir: pane.launch().cwd().map(str::to_owned),
                     has_unseen_output: pane.has_unseen_output(),
-                    domain_name: "local".to_owned(),
+                    domain_name: pane_launch_domain_name(pane.launch()).to_owned(),
                     tty_name: self.pane_tty_name(pane.id()).map(str::to_owned),
                     user_vars: pane.user_vars().clone(),
                     progress: pane.progress(),
@@ -1783,7 +1783,11 @@ fn apply_protocol_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapsh
             .map_or_else(|| "unavailable".to_owned(), |pid| pid.to_string());
         let cwd = launch.cwd().unwrap_or("unavailable");
         let args = if launch.args().is_empty() {
-            "none".to_owned()
+            match launch.domain() {
+                PaneLaunchDomain::Local => "none".to_owned(),
+                PaneLaunchDomain::Ssh(ssh) if ssh.remote_command().is_empty() => "none".to_owned(),
+                PaneLaunchDomain::Ssh(ssh) => ssh.remote_command().join(" "),
+            }
         } else {
             launch.args().join(" ")
         };
@@ -1803,9 +1807,9 @@ fn apply_protocol_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapsh
             format!("dimensions: {}x{}", size.columns, size.rows),
             format!("pid: {pid}"),
             format!("cwd: {cwd}"),
-            format!("program: {}", launch.program()),
+            format!("program: {}", pane_launch_display_program(launch)),
             format!("args: {args}"),
-            "domain: local".to_owned(),
+            format!("domain: {}", pane_launch_domain_name(launch)),
             format!("environment: {environment_count} {environment_label}"),
         ])
     }
@@ -2623,6 +2627,38 @@ impl NativeWindowApp {
         let mut title = self.window_title.clone();
         title.push_str(&self.app_shell_state_id_suffix());
 
+        if let PaneLaunchDomain::Ssh(ssh) = self.app_shell.active_pane().launch().domain() {
+            title.push_str(" - SSH ");
+            title.push_str(ssh.target());
+            title.push_str(" [");
+            title.push_str(connection_metric_name(self.metrics.connection_state()));
+            title.push(']');
+        }
+
+        let active_pane_id = self.app_shell.active_pane_id();
+        if let Some(prompt) = self.ssh_secret_prompts.get(&active_pane_id) {
+            title.push_str(" - SSH ");
+            title.push_str(match prompt.prompt.kind {
+                SecretPromptKind::Password => "password",
+                SecretPromptKind::PrivateKeyPassphrase => "private-key passphrase",
+            });
+            title.push_str(" (masked)");
+        } else if let Some((challenge, _)) = self.ssh_host_key_prompts.get(&active_pane_id)
+        {
+            title.push_str(" - SSH host key ");
+            title.push_str(&challenge.host);
+            title.push(':');
+            title.push_str(&challenge.port.to_string());
+            title.push(' ');
+            title.push_str(&challenge.fingerprint);
+            if let Some(path) = &challenge.known_hosts_path {
+                title.push_str(" [");
+                title.push_str(&path.to_string_lossy());
+                title.push(']');
+            }
+            title.push_str(" [1] once [2] store [Esc] cancel");
+        }
+
         if !self.higher_level_ui_suppresses_pane_overlay() {
             match self.active_ui.copy_search_mode() {
                 Some(WindowCopySearchMode::Search) => {
@@ -2803,6 +2839,8 @@ impl NativeWindowApp {
             return Ok(());
         }
 
+        self.transport_start_requested = true;
+
         let runtime = self.spawn_pane_runtime_for_active_pane()?;
         self.install_active_runtime(runtime);
         Ok(())
@@ -2849,6 +2887,7 @@ impl NativeWindowApp {
                 .remove(&pane_id)
                 .expect("validated inactive pane runtime must exist")
         };
+        self.cancel_ssh_runtime(pane_id);
         let previous_size = previous_runtime.runtime.terminal().grid().size();
         let cleanup = previous_runtime.close();
         report_pane_pty_cleanup("pane restart PTY cleanup", &cleanup);
@@ -2974,6 +3013,7 @@ impl NativeWindowApp {
         pane_id: rssh_core::PaneId,
         cleanup_context: &str,
     ) {
+        self.cancel_ssh_runtime(pane_id);
         let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) else {
             return;
         };
@@ -3026,6 +3066,16 @@ impl NativeWindowApp {
                     pane_id.get()
                 ))) as Box<dyn Error>
             })?;
+
+        if let PaneLaunchDomain::Ssh(ssh_launch) = launch.domain() {
+            return self.spawn_native_ssh_runtime(
+                pane_id,
+                ssh_launch,
+                runtime_generation,
+                event_proxy,
+            );
+        }
+
         let term_session_id =
             iterm_session_termid(self.app_window_id.get(), tab_id.get(), pane_id.get());
         let environment = self.pane_environment_variables();
@@ -3089,6 +3139,268 @@ impl NativeWindowApp {
             writer: None,
             reader_thread: None,
             writer_thread: None,
+            runtime_generation,
+            snapshot,
+            ui: PaneUiState::default(),
+        })
+    }
+
+    /// Starts a native SSH channel without creating a local PTY.  The
+    /// terminal runtime is deliberately the same one used by local panes;
+    /// only the transport and lifecycle workers differ.  Secrets are
+    /// represented by prompt auth descriptors and never enter this method's
+    /// launch metadata, events, or terminal grid.
+    #[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
+    fn spawn_native_ssh_runtime(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        launch: &SshPaneLaunch,
+        runtime_generation: u64,
+        event_proxy: EventLoopProxy<WindowUserEvent>,
+    ) -> Result<PaneRuntime, Box<dyn Error>> {
+        let (pty_size, runtime) = self.prepare_pane_spawn_runtime(pane_id)?;
+        let request = ssh_request_from_pane_launch(launch, pty_size)?;
+        let app_window_id = self.app_window_id;
+        let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (command_sender, command_receiver) = mpsc::sync_channel::<NativeSshCommand>(64);
+        self.ssh_writer_senders
+            .insert(pane_id, command_sender.clone());
+        let _ = event_proxy.send_event(WindowUserEvent::SshState {
+            window_id: app_window_id,
+            pane_id,
+            runtime_generation,
+            state: ConnectionState::Pending,
+        });
+
+        // Input is serialized through a small worker so terminal event
+        // handling never blocks on network backpressure.  Data received while
+        // the connection overlay is pending is intentionally discarded by
+        // NativeSshWriter rather than cached.
+        let writer_event_proxy = event_proxy.clone();
+        let writer_connected = Arc::clone(&connected);
+        let writer_thread = thread::Builder::new()
+            .name(format!("rssh-ssh-writer-{}", pane_id.get()))
+            .spawn(move || {
+                let mut remote_writer: Option<Box<dyn SshShellWriter>> = None;
+                while let Ok(command) = command_receiver.recv() {
+                    match command {
+                        NativeSshCommand::Attach(writer) => {
+                            remote_writer = Some(writer);
+                        }
+                        NativeSshCommand::Data(bytes) => {
+                            let Some(writer) = remote_writer.as_mut() else {
+                                continue;
+                            };
+                            let started = Instant::now();
+                            match writer.write(&bytes) {
+                                Ok(byte_count) => {
+                                    let _ = writer_event_proxy.send_event(
+                                        WindowUserEvent::WriteCompleted {
+                                            window_id: app_window_id,
+                                            pane_id,
+                                            runtime_generation,
+                                            byte_count,
+                                            elapsed: started.elapsed(),
+                                        },
+                                    );
+                                }
+                                Err(error) => {
+                                    writer_connected.store(false, Ordering::Release);
+                                    let _ = writer_event_proxy.send_event(WindowUserEvent::WriteError {
+                                        window_id: app_window_id,
+                                        pane_id,
+                                        runtime_generation,
+                                        error: error.to_string(),
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                        NativeSshCommand::Resize(size) => {
+                            if let Some(writer) = remote_writer.as_mut()
+                                && let Err(error) = writer.resize(size)
+                            {
+                                writer_connected.store(false, Ordering::Release);
+                                let _ = writer_event_proxy.send_event(WindowUserEvent::WriteError {
+                                    window_id: app_window_id,
+                                    pane_id,
+                                    runtime_generation,
+                                    error: format!("SSH PTY resize failed: {error}"),
+                                });
+                                break;
+                            }
+                        }
+                        NativeSshCommand::Cancel => {
+                            writer_connected.store(false, Ordering::Release);
+                            if let Some(mut writer) = remote_writer.take() {
+                                let _ = writer.close();
+                            }
+                            break;
+                        }
+                    }
+                }
+                writer_connected.store(false, Ordering::Release);
+                if let Some(mut writer) = remote_writer {
+                    let _ = writer.close();
+                }
+            })?;
+
+        let connector_event_proxy = event_proxy.clone();
+        let connector_connected = Arc::clone(&connected);
+        let connector_command_sender = command_sender.clone();
+        let policy = launch.known_hosts_policy();
+        let known_hosts_path = ssh_known_hosts_path();
+        let connector_thread = thread::Builder::new()
+            .name(format!("rssh-ssh-connector-{}", pane_id.get()))
+            .spawn(move || {
+                let phase_proxy = connector_event_proxy.clone();
+                let phase_reporter = move |phase: SshConnectionPhase| {
+                    let state = match phase {
+                        SshConnectionPhase::Connecting | SshConnectionPhase::Opening => {
+                            ConnectionState::Connecting
+                        }
+                        SshConnectionPhase::Authenticating => ConnectionState::AwaitingSecret,
+                        SshConnectionPhase::Connected => ConnectionState::Connected,
+                    };
+                    let _ = phase_proxy.send_event(WindowUserEvent::SshState {
+                        window_id: app_window_id,
+                        pane_id,
+                        runtime_generation,
+                        state,
+                    });
+                };
+
+                let mut opener = RusshChannelOpener::default()
+                    .with_host_key_policy(russh_host_key_policy(policy))
+                    .with_phase_reporter(phase_reporter);
+                if let Some(path) = known_hosts_path.clone() {
+                    opener = opener.with_known_hosts_path(path);
+                }
+                if policy == SshKnownHostsPolicy::Prompt {
+                    let prompt_proxy = connector_event_proxy.clone();
+                    let verifier = HostKeyVerifier::new(
+                        move |challenge: HostKeyChallenge| {
+                            let (decision_sender, decision_receiver) = mpsc::channel();
+                            let _ = prompt_proxy.send_event(WindowUserEvent::HostKeyPrompt {
+                                window_id: app_window_id,
+                                pane_id,
+                                runtime_generation,
+                                challenge,
+                                decision: decision_sender,
+                            });
+                            async move {
+                                decision_receiver
+                                    .recv_timeout(Duration::from_secs(120))
+                                    .unwrap_or(HostKeyDecision::Cancel)
+                            }
+                        },
+                    );
+                    opener = opener.with_host_key_verifier_handle(verifier);
+                }
+
+                let secret_proxy = connector_event_proxy.clone();
+                let secret_provider = SecretProvider::new(move |prompt: SecretPrompt| {
+                    let (response_sender, response_receiver) = mpsc::channel();
+                    let _ = secret_proxy.send_event(WindowUserEvent::SecretPrompt {
+                        window_id: app_window_id,
+                        pane_id,
+                        runtime_generation,
+                        prompt,
+                        response: response_sender,
+                    });
+                    async move {
+                        response_receiver
+                            .recv_timeout(Duration::from_secs(120))
+                            .ok()
+                            .flatten()
+                    }
+                });
+                opener = opener.with_secret_provider_handle(secret_provider);
+
+                let mut connector = SshChannelConnector::new(opener);
+                let session = match connector.connect(request) {
+                    Ok(session) => session,
+                    Err(error) => {
+                        let _ = connector_event_proxy.send_event(WindowUserEvent::SshState {
+                            window_id: app_window_id,
+                            pane_id,
+                            runtime_generation,
+                            state: ConnectionState::Failed,
+                        });
+                        eprintln!("SSH connection failed: {error}");
+                        return;
+                    }
+                };
+                let (mut reader, writer) = session.into_read_writer();
+                if connector_command_sender
+                    .send(NativeSshCommand::Attach(writer))
+                    .is_err()
+                {
+                    return;
+                }
+                connector_connected.store(true, Ordering::Release);
+                let _ = connector_event_proxy.send_event(WindowUserEvent::SshState {
+                    window_id: app_window_id,
+                    pane_id,
+                    runtime_generation,
+                    state: ConnectionState::Connected,
+                });
+
+                let mut buffer = [0_u8; 8192];
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) => {
+                            connector_connected.store(false, Ordering::Release);
+                            let _ = connector_event_proxy.send_event(WindowUserEvent::SshState {
+                                window_id: app_window_id,
+                                pane_id,
+                                runtime_generation,
+                                state: ConnectionState::Disconnected,
+                            });
+                            break;
+                        }
+                        Ok(count) => {
+                            if connector_event_proxy
+                                .send_event(WindowUserEvent::Output {
+                                    window_id: app_window_id,
+                                    pane_id,
+                                    runtime_generation,
+                                    bytes: buffer[..count].to_vec(),
+                                })
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            connector_connected.store(false, Ordering::Release);
+                            let _ = connector_event_proxy.send_event(WindowUserEvent::SshState {
+                                window_id: app_window_id,
+                                pane_id,
+                                runtime_generation,
+                                state: ConnectionState::Failed,
+                            });
+                            eprintln!("SSH read failed: {error}");
+                            break;
+                        }
+                    }
+                }
+                let _ = connector_command_sender.send(NativeSshCommand::Cancel);
+            })?;
+
+        let writer: Box<dyn Write + Send> = Box::new(NativeSshWriter {
+            sender: command_sender,
+            connected,
+        });
+        let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
+        Ok(PaneRuntime {
+            runtime,
+            session: None,
+            session_process_id: None,
+            session_tty_name: None,
+            writer: Some(writer),
+            reader_thread: Some(connector_thread),
+            writer_thread: Some(writer_thread),
             runtime_generation,
             snapshot,
             ui: PaneUiState::default(),
@@ -3257,6 +3569,123 @@ impl NativeWindowApp {
     }
 
     #[allow(clippy::too_many_lines)]
+    fn handle_ssh_state(&mut self, pane_id: rssh_core::PaneId, state: ConnectionState) {
+        if matches!(state, ConnectionState::Disconnected | ConnectionState::Failed) {
+            self.resolve_host_key_prompt_for_pane(pane_id, HostKeyDecision::Cancel);
+            self.resolve_secret_prompt_for_pane(pane_id, None);
+        }
+        self.metrics.mark_connection_state(state);
+        if matches!(state, ConnectionState::Connecting | ConnectionState::AwaitingSecret) {
+            self.metrics.mark_ssh_started();
+        }
+        if state == ConnectionState::Connected {
+            self.metrics.mark_ssh_connected();
+        }
+        self.apply_window_title();
+    }
+
+    fn handle_host_key_prompt(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        challenge: HostKeyChallenge,
+        decision: mpsc::Sender<HostKeyDecision>,
+    ) {
+        self.ssh_host_key_prompts
+            .insert(pane_id, (challenge, decision));
+        self.metrics.mark_connection_state(ConnectionState::AwaitingHostKey);
+    }
+
+    fn resolve_host_key_prompt(&mut self, decision: HostKeyDecision) {
+        self.resolve_host_key_prompt_for_pane(self.app_shell.active_pane_id(), decision);
+        self.apply_window_title();
+    }
+
+    fn resolve_host_key_prompt_for_pane(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        decision: HostKeyDecision,
+    ) {
+        if let Some((_, sender)) = self.ssh_host_key_prompts.remove(&pane_id) {
+            let _ = sender.send(decision);
+        }
+        self.apply_window_title();
+    }
+
+    fn handle_secret_prompt(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        prompt: SecretPrompt,
+        response: mpsc::Sender<Option<String>>,
+    ) {
+        self.ssh_secret_prompts.insert(pane_id, SshSecretPromptState {
+            prompt,
+            response,
+            input: String::new(),
+        });
+        self.metrics
+            .mark_connection_state(ConnectionState::AwaitingSecret);
+    }
+
+    fn resolve_secret_prompt(&mut self, value: Option<String>) {
+        if let Some(mut prompt) = self
+            .ssh_secret_prompts
+            .remove(&self.app_shell.active_pane_id())
+        {
+            let _ = prompt.response.send(value);
+            prompt.input.clear();
+        }
+        self.apply_window_title();
+    }
+
+    fn resolve_secret_prompt_for_pane(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        value: Option<String>,
+    ) {
+        if let Some(mut prompt) = self.ssh_secret_prompts.remove(&pane_id) {
+            let _ = prompt.response.send(value);
+            prompt.input.clear();
+        }
+        self.apply_window_title();
+    }
+
+    fn handle_secret_prompt_key(&mut self, logical_key: &Key, text: Option<&str>) -> bool {
+        let pane_id = self.app_shell.active_pane_id();
+        if !self.ssh_secret_prompts.contains_key(&pane_id) {
+            return false;
+        }
+        match logical_key {
+            Key::Named(NamedKey::Enter) => {
+                let value = self
+                    .ssh_secret_prompts
+                    .get(&pane_id)
+                    .map(|prompt| prompt.input.clone());
+                self.resolve_secret_prompt(value);
+                true
+            }
+            Key::Named(NamedKey::Escape) => {
+                self.resolve_secret_prompt(None);
+                true
+            }
+            Key::Named(NamedKey::Backspace) => {
+                if let Some(prompt) = self.ssh_secret_prompts.get_mut(&pane_id) {
+                    prompt.input.pop();
+                }
+                true
+            }
+            _ => {
+                if let Some(text) = text
+                    && let Some(prompt) = self.ssh_secret_prompts.get_mut(&pane_id)
+                {
+                    prompt
+                        .input
+                        .extend(text.chars().filter(|character| !character.is_control()));
+                }
+                true
+            }
+        }
+    }
+
     fn handle_keyboard_input(&mut self, key: &winit::event::KeyEvent) -> io::Result<()> {
         let key_event_kind = KittyKeyEventKind::from_winit_key(key);
         self.handle_keyboard_input_event(
@@ -3390,6 +3819,30 @@ impl NativeWindowApp {
                 modifiers,
                 key_event_kind,
             )?;
+            return Ok(());
+        }
+
+        // Host-key prompts are intentionally modal.  The challenge contains
+        // only endpoint/fingerprint metadata; choices are sent back to the
+        // verifier through a one-shot channel and no key material is written
+        // to terminal input or logs.
+        if self
+            .ssh_host_key_prompts
+            .contains_key(&self.app_shell.active_pane_id())
+        {
+            let decision = match logical_key.as_ref() {
+                Key::Character("1") => Some(HostKeyDecision::AcceptOnce),
+                Key::Character("2") => Some(HostKeyDecision::AcceptAndStore),
+                Key::Named(NamedKey::Escape) => Some(HostKeyDecision::Cancel),
+                _ => None,
+            };
+            if let Some(decision) = decision {
+                self.resolve_host_key_prompt(decision);
+            }
+            return Ok(());
+        }
+
+        if self.handle_secret_prompt_key(logical_key, text) {
             return Ok(());
         }
 
@@ -5933,7 +6386,7 @@ fn lua_window_effective_config_field_text_part3(
                                 .unwrap_or_else(|| {
                                     let launch = self.app_shell.active_pane().launch();
                                     if offset == 0 {
-                                        launch.program().to_owned()
+                                        pane_launch_display_program(launch).to_owned()
                                     } else {
                                         launch
                                             .args()
@@ -6856,8 +7309,23 @@ fn lua_window_effective_config_field_text_part3(
         &mut self,
         size: PhysicalSize<u32>,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(gpu) = self.gpu.as_mut() {
-            gpu.resize_surface(size)?;
+        if let Some(gpu) = self.gpu.as_mut()
+            && let Err(error) = gpu.resize_surface(size)
+        {
+            if self.bootstrap_surface.is_some() {
+                eprintln!("GPU surface resize failed; using CPU fallback: {error}");
+                self.gpu = None;
+                self.metrics.mark_renderer(RendererKind::Cpu);
+                self.presentation_owner = PresentationOwner::CpuFallback;
+            } else {
+                return Err(error);
+            }
+        }
+        if let Some(surface) = self.bootstrap_surface.as_mut()
+            && size.width > 0
+            && size.height > 0
+        {
+            surface.resize(size)?;
         }
         Ok(())
     }
@@ -6939,24 +7407,32 @@ fn lua_window_effective_config_field_text_part3(
         }
 
         let process_name = self.pane_process_name(pane_id);
+        let domain_name = self
+            .app_shell
+            .active_workspace()
+            .tabs()
+            .iter()
+            .flat_map(rssh_core::app_shell::Tab::panes)
+            .find(|pane| pane.id() == pane_id)
+            .map_or(DEFAULT_DOMAIN_NAME, |pane| pane_launch_domain_name(pane.launch()));
         let code = status.exit_code();
         let clean = self.is_clean_exit_status(status);
         let exit_behavior = self.exit_behavior.as_wezterm_config_value();
         match self.exit_behavior_messaging {
             NativeExitBehaviorMessaging::Verbose if clean => Some(format!(
-                "👍 Process \"{process_name}\" in domain \"local\" completed.\r\n\
+                "👍 Process \"{process_name}\" in domain \"{domain_name}\" completed.\r\n\
                  This message is shown because exit_behavior=\"{exit_behavior}\"\r\n"
             )),
             NativeExitBehaviorMessaging::Verbose => Some(format!(
-                "⚠️  Process \"{process_name}\" in domain \"local\" didn't exit cleanly\r\n\
+                "⚠️  Process \"{process_name}\" in domain \"{domain_name}\" didn't exit cleanly\r\n\
                  Exited with code {code}\r\n\
                  This message is shown because exit_behavior=\"{exit_behavior}\"\r\n"
             )),
             NativeExitBehaviorMessaging::Brief if clean => Some(format!(
-                "👍 Process \"{process_name}\" in domain \"local\" completed.\r\n"
+                "👍 Process \"{process_name}\" in domain \"{domain_name}\" completed.\r\n"
             )),
             NativeExitBehaviorMessaging::Brief => Some(format!(
-                "⚠️  Process \"{process_name}\" in domain \"local\" didn't exit cleanly\r\n\
+                "⚠️  Process \"{process_name}\" in domain \"{domain_name}\" didn't exit cleanly\r\n\
                  Exited with code {code}\r\n"
             )),
             NativeExitBehaviorMessaging::Terse if clean => Some("[done]\r\n".to_owned()),
@@ -6972,7 +7448,7 @@ fn lua_window_effective_config_field_text_part3(
             .iter()
             .flat_map(rssh_core::app_shell::Tab::panes)
             .find(|pane| pane.id() == pane_id)
-            .map(|pane| pane.launch().program().to_owned())
+            .map(|pane| pane_launch_display_program(pane.launch()).to_owned())
             .unwrap_or_default()
     }
 

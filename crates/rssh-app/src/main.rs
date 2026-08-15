@@ -20,6 +20,7 @@ mod scp;
 mod self_test;
 mod sftp;
 mod ssh;
+mod startup_metrics;
 mod terminal_input;
 mod terminal_modes;
 mod terminal_queries;
@@ -32,6 +33,7 @@ mod visible_output;
 // crate under the workspace-wide formatter without attempting to reformat it.
 #[rustfmt::skip]
 mod window;
+mod window_bootstrap;
 mod window_gpu;
 
 use std::{env, process::ExitCode};
@@ -89,6 +91,10 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Sftp(options) => sftp::run(&options).map(|status| pty_exit_code(&status)),
+        AppCommand::Ssh(options) if options.gui => {
+            window::run_ssh_gui(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Version(options) => {
             version::print_version(&options)?;

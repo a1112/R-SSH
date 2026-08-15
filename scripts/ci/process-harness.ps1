@@ -221,18 +221,24 @@ public sealed class RsshCiOwnedProcess : IDisposable {
     public Process Process { get; private set; }
     public StreamReader StandardOutput { get; private set; }
     public StreamReader StandardError { get; private set; }
+    // Stopwatch timestamp captured immediately after the suspended child is
+    // resumed.  Startup probes use this instead of process creation time so
+    // their external measurement matches the first_present contract.
+    public long ResumeTimestamp { get; private set; }
 
     private RsshCiOwnedProcess(
         RsshCiJobObject job,
         IntPtr nativeProcessHandle,
         Process process,
         StreamReader standardOutput,
-        StreamReader standardError) {
+        StreamReader standardError,
+        long resumeTimestamp) {
         this.job = job;
         this.nativeProcessHandle = nativeProcessHandle;
         Process = process;
         StandardOutput = standardOutput;
         StandardError = standardError;
+        ResumeTimestamp = resumeTimestamp;
     }
 
     public static RsshCiOwnedProcess Start(
@@ -304,6 +310,7 @@ public sealed class RsshCiOwnedProcess : IDisposable {
             if (ResumeThread(processInformation.Thread) == UInt32.MaxValue) {
                 throw LastError("ResumeThread failed");
             }
+            long resumeTimestamp = Stopwatch.GetTimestamp();
             Close(ref processInformation.Thread);
             IntPtr ownedNativeProcess = processInformation.Process;
             processInformation.Process = IntPtr.Zero;
@@ -312,7 +319,8 @@ public sealed class RsshCiOwnedProcess : IDisposable {
                 ownedNativeProcess,
                 process,
                 stdoutReader,
-                stderrReader);
+                stderrReader,
+                resumeTimestamp);
         } catch {
             Exception cleanupFailure = null;
             if (created) {

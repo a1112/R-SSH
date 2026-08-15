@@ -148,6 +148,7 @@ pub struct ProfileShowOptions {
     pub json: bool,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, PartialEq, Eq)]
 pub struct SshOptions {
     pub target: SshTarget,
@@ -254,6 +255,7 @@ impl RendererMode {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct SshParseState {
     host: Option<String>,
     target: Option<String>,
@@ -1273,6 +1275,7 @@ fn parse_sftp_option(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_ssh_option(
     args: &[String],
     index: &mut usize,
@@ -1559,6 +1562,9 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
     if gui && !openssh_args.is_empty() {
         return Err("GUI SSH does not support OpenSSH passthrough options".to_owned());
     }
+    if gui && console.preflight {
+        return Err("GUI SSH does not support --preflight".to_owned());
+    }
     if !gui && renderer_selected {
         return Err("--renderer requires --gui".to_owned());
     }
@@ -1590,11 +1596,12 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         (None, None) => return Err("--host or --target is required".to_owned()),
     };
 
-    if matches!(native_host_key_policy, NativeHostKeyPolicy::AcceptUnknown) && !native {
-        return Err("--accept-unknown-host-key requires --native".to_owned());
+    let native_backend = native || gui;
+    if matches!(native_host_key_policy, NativeHostKeyPolicy::AcceptUnknown) && !native_backend {
+        return Err("--accept-unknown-host-key requires --native or --gui".to_owned());
     }
-    if matches!(native_host_key_policy, NativeHostKeyPolicy::TrustOnFirstUse) && !native {
-        return Err("--trust-on-first-use requires --native".to_owned());
+    if matches!(native_host_key_policy, NativeHostKeyPolicy::TrustOnFirstUse) && !native_backend {
+        return Err("--trust-on-first-use requires --native or --gui".to_owned());
     }
     if native && !openssh_args.is_empty() {
         return Err(
@@ -1609,7 +1616,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         forwards,
         openssh_args,
         no_shell,
-        native,
+        native: native || gui,
         gui,
         renderer,
         benchmark_startup,

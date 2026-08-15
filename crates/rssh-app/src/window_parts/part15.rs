@@ -331,12 +331,30 @@ fn tab_title_override(tab: &rssh_core::app_shell::Tab) -> Option<&str> {
 }
 
 fn pane_launch_command_line(launch: &PaneLaunch) -> String {
-    let mut command_line = launch.program().to_owned();
-    for arg in launch.args() {
+    let (program, args): (&str, &[String]) = match launch.domain() {
+        PaneLaunchDomain::Local => (launch.program(), launch.args()),
+        PaneLaunchDomain::Ssh(ssh) => ("ssh", ssh.remote_command()),
+    };
+    let mut command_line = program.to_owned();
+    for arg in args {
         command_line.push(' ');
         command_line.push_str(arg);
     }
     command_line
+}
+
+fn pane_launch_display_program(launch: &PaneLaunch) -> &str {
+    match launch.domain() {
+        PaneLaunchDomain::Local => launch.program(),
+        PaneLaunchDomain::Ssh(_) => "ssh",
+    }
+}
+
+fn pane_launch_domain_name(launch: &PaneLaunch) -> &'static str {
+    match launch.domain() {
+        PaneLaunchDomain::Local => "local",
+        PaneLaunchDomain::Ssh(_) => "ssh",
+    }
 }
 
 fn pane_launch_profile_name(launch: &PaneLaunch) -> Option<&str> {
@@ -3150,6 +3168,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.start_deferred_config_if_ready();
         self.reap_retired_apps();
         if let Err(error) = self.materialize_pending_apps(event_loop) {
             eprintln!("window error: {error}");
@@ -3244,7 +3263,10 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             return;
         }
 
-        if let Err(error) = self.spawn_pty() {
+        if self.renderer_mode == RendererMode::Gpu
+            && !self.benchmark_startup
+            && let Err(error) = self.spawn_pty()
+        {
             eprintln!("PTY error: {error}");
             event_loop.exit();
             return;
@@ -3255,6 +3277,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WindowUserEvent) {
         match event {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
@@ -3345,6 +3368,54 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 }
                 if self.handle_pane_runtime_write_error(pane_id, &error) {
                     event_loop.exit();
+                }
+            }
+            WindowUserEvent::SshState {
+                pane_id,
+                runtime_generation,
+                state,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    return;
+                }
+                self.handle_ssh_state(pane_id, state);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            WindowUserEvent::HostKeyPrompt {
+                pane_id,
+                runtime_generation,
+                challenge,
+                decision,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    let _ = decision.send(HostKeyDecision::Cancel);
+                    return;
+                }
+                self.handle_host_key_prompt(pane_id, challenge, decision);
+                self.handle_ssh_state(pane_id, ConnectionState::AwaitingHostKey);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            WindowUserEvent::SecretPrompt {
+                pane_id,
+                runtime_generation,
+                prompt,
+                response,
+                ..
+            } => {
+                if !self.pane_runtime_generation_matches(pane_id, runtime_generation) {
+                    let _ = response.send(None);
+                    return;
+                }
+                self.handle_secret_prompt(pane_id, prompt, response);
+                self.handle_ssh_state(pane_id, ConnectionState::AwaitingSecret);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
                 }
             }
         }
@@ -3538,6 +3609,158 @@ fn app_shell_from_pty_command(
     }
 }
 
+fn ssh_request_from_pane_launch(
+    launch: &SshPaneLaunch,
+    pty_size: PtySize,
+) -> Result<SshConnectRequest, Box<dyn Error>> {
+    let (username, host, port) = match launch.target_kind() {
+        SshTargetKind::Direct => parse_ssh_gui_target(launch.target())?,
+        SshTargetKind::OpenSsh => resolve_ssh_gui_openssh_target(launch)?,
+    };
+    let initial_size = TerminalSize::new(pty_size.columns(), pty_size.rows());
+    let config = SshSessionConfig::try_new(host, port, username, initial_size)?;
+    let auth = match launch.auth() {
+        SshAuthDescription::Agent => SshAuthMethod::Agent,
+        SshAuthDescription::PasswordPrompt => SshAuthMethod::PasswordPrompt,
+        SshAuthDescription::PrivateKey { path } => {
+            SshAuthMethod::private_key(path, None::<String>)?
+        }
+    };
+    let startup = if launch.remote_command().is_empty() {
+        SshSessionStartup::Shell
+    } else {
+        SshSessionStartup::command(launch.remote_command().iter().cloned())?
+    };
+    Ok(SshConnectRequest::new(config, auth).with_startup(startup))
+}
+
+fn resolve_ssh_gui_openssh_target(
+    launch: &SshPaneLaunch,
+) -> Result<(String, String, u16), Box<dyn Error>> {
+    let mut command = Command::new("ssh");
+    command.arg("-G");
+    if let Some(username) = launch.username() {
+        command.arg("-l").arg(username);
+    }
+    if let Some(port) = launch.port() {
+        command.arg("-p").arg(port.to_string());
+    }
+    command.arg(launch.target());
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "OpenSSH config resolution failed for target {}",
+            launch.target()
+        )
+        .into());
+    }
+
+    let config = String::from_utf8(output.stdout)?;
+    let mut host = None;
+    let mut username = None;
+    let mut port = None;
+    for line in config.lines() {
+        let mut parts = line.splitn(2, char::is_whitespace);
+        let Some(key) = parts.next() else {
+            continue;
+        };
+        let Some(value) = parts.next().map(str::trim).filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        match key.to_ascii_lowercase().as_str() {
+            "hostname" => host = Some(value.to_owned()),
+            "user" => username = Some(value.to_owned()),
+            "port" => port = Some(value.parse::<u16>()?),
+            _ => {}
+        }
+    }
+    let host = host.unwrap_or_else(|| launch.target().to_owned());
+    let username = launch
+        .username()
+        .map(ToOwned::to_owned)
+        .or(username)
+        .or_else(|| {
+            std::env::var("USERNAME")
+                .ok()
+                .or_else(|| std::env::var("USER").ok())
+        })
+        .filter(|username| !username.trim().is_empty())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "OpenSSH target has no username"))?;
+    let port = launch.port().or(port).unwrap_or(22);
+    if host.trim().is_empty() || port == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid OpenSSH host or port").into());
+    }
+    Ok((username, host, port))
+}
+
+fn parse_ssh_gui_target(target: &str) -> Result<(String, String, u16), Box<dyn Error>> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "SSH target is empty").into());
+    }
+    let (username, authority) = target
+        .split_once('@')
+        .map_or((None, target), |(user, authority)| (Some(user), authority));
+    let username = username
+        .filter(|user| !user.trim().is_empty())
+        .map(str::trim)
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            std::env::var("USERNAME")
+                .ok()
+                .or_else(|| std::env::var("USER").ok())
+                .filter(|user| !user.trim().is_empty())
+        })
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "SSH target has no username"))?;
+
+    let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
+        let Some((host, suffix)) = bracketed.split_once(']') else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid bracketed SSH host",
+            )
+            .into());
+        };
+        let port = suffix
+            .strip_prefix(':')
+            .map(str::parse::<u16>)
+            .transpose()?
+            .unwrap_or(22);
+        (host.to_owned(), port)
+    } else if authority.matches(':').count() == 1 {
+        if let Some((host, port)) = authority.rsplit_once(':')
+            && let Ok(port) = port.parse::<u16>()
+        {
+            (host.to_owned(), port)
+        } else {
+            (authority.to_owned(), 22)
+        }
+    } else {
+        (authority.to_owned(), 22)
+    };
+    if host.trim().is_empty() || port == 0 {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid SSH host or port").into());
+    }
+    Ok((username, host, port))
+}
+
+fn russh_host_key_policy(policy: SshKnownHostsPolicy) -> RusshHostKeyPolicy {
+    match policy {
+        SshKnownHostsPolicy::RejectUnknown => RusshHostKeyPolicy::RejectUnknown,
+        SshKnownHostsPolicy::Prompt => RusshHostKeyPolicy::Prompt,
+        SshKnownHostsPolicy::TrustOnFirstUse => RusshHostKeyPolicy::TrustOnFirstUse,
+        SshKnownHostsPolicy::AcceptUnknown => RusshHostKeyPolicy::AcceptUnknown,
+    }
+}
+
+fn ssh_known_hosts_path() -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let home = std::env::var_os("USERPROFILE");
+    #[cfg(not(target_os = "windows"))]
+    let home = std::env::var_os("HOME");
+    home.map(PathBuf::from).map(|home| home.join(".ssh").join("known_hosts"))
+}
+
 fn pty_command_matches_default_shell(command: &PtyCommand) -> bool {
     let default_shell = PtyCommand::default_shell();
     command.program() == default_shell.program() && command.args() == default_shell.args()
@@ -3680,6 +3903,12 @@ fn pty_command_from_pane_launch_with_optional_term_session_id(
     default_cwd: Option<&str>,
     term_session_id: Option<&str>,
 ) -> PtyCommand {
+    if matches!(launch.domain(), PaneLaunchDomain::Ssh(_)) {
+        // SSH panes are materialized by the native channel worker. Returning
+        // a local shell here is a defensive fallback for legacy call sites;
+        // it prevents an empty program from ever reaching PtySession::spawn.
+        return PtyCommand::default_shell();
+    }
     let mut command = PtyCommand::new(launch.program()).with_args(launch.args().iter());
     let cwd = launch
         .cwd()

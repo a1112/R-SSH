@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, fmt::Write as _};
 
-use rssh_core::app_shell::{PaneLaunch, SplitDirection};
+use rssh_core::app_shell::{PaneLaunch, PaneLaunchDomain, SplitDirection};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::WindowOptions;
@@ -247,11 +247,25 @@ impl WindowStateLaunch {
             .into_iter()
             .collect::<Vec<_>>();
         let environment_count = environment_keys.len();
+        let (domain, program, args, cwd) = match launch.domain() {
+            PaneLaunchDomain::Local => (
+                "local",
+                launch.program().to_owned(),
+                launch.args().to_vec(),
+                launch.cwd().or(default_cwd).map(str::to_owned),
+            ),
+            PaneLaunchDomain::Ssh(ssh) => (
+                "ssh",
+                "ssh".to_owned(),
+                ssh.remote_command().to_vec(),
+                None,
+            ),
+        };
         Self {
-            domain: "local".to_owned(),
-            program: launch.program().to_owned(),
-            args: launch.args().to_vec(),
-            cwd: launch.cwd().or(default_cwd).map(str::to_owned),
+            domain: domain.to_owned(),
+            program,
+            args,
+            cwd,
             environment_keys,
             environment_count,
         }

@@ -1,4 +1,4 @@
-    use super::PaneRenderRect;
+    use super::{NativeSshWriter, PaneRenderRect};
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
@@ -17,7 +17,12 @@
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
     use winit::window::CursorIcon;
 
-    use rssh_core::{TerminalSize, app_shell::SplitDirection};
+    use rssh_core::{
+        TerminalSize,
+        app_shell::{
+            PaneLaunch, SshAuthDescription, SshKnownHostsPolicy, SshPaneLaunch, SplitDirection,
+        },
+    };
     use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
     use rssh_renderer::{
         RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
@@ -38,6 +43,36 @@
 
     #[cfg(debug_assertions)]
     use crate::window::parse_test_window_scale_factor;
+
+    #[test]
+    fn native_ssh_writer_discards_input_before_connection_without_caching() {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut writer = NativeSshWriter {
+            sender,
+            connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+
+        writer.write_all(b"not-replayed").unwrap();
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn ssh_title_exposes_target_and_connection_status_without_secrets() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        app.set_initial_pane_launch(PaneLaunch::ssh(
+            SshPaneLaunch::new(
+                "ops@example.test:2222",
+                SshAuthDescription::PasswordPrompt,
+                SshKnownHostsPolicy::Prompt,
+            )
+            .with_remote_command(["uname", "-a"]),
+        ));
+
+        let title = app.effective_window_title();
+        assert!(title.contains("SSH ops@example.test:2222"));
+        assert!(title.contains("[not_started]"));
+        assert!(!title.contains("PasswordPrompt"));
+    }
 
     #[test]
     fn ime_cursor_area_tracks_tab_bar_and_split_pane_offsets() {
@@ -1161,7 +1196,7 @@
         NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
+        NativeWslDomain, ProcessCwdCandidate, ResizeDirection, SearchDirection,
         SelectionCell, SelectionSourceCell, StableOrdinarySelection, TAB_BAR_ROWS,
         TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
         WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,

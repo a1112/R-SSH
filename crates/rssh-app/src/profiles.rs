@@ -344,6 +344,17 @@ impl ProfileDefinition {
 
     fn to_args(&self) -> Result<Vec<String>, String> {
         let mut args = vec!["rssh-app".to_owned()];
+        if self.kind != "ssh"
+            && (self.gui.is_some()
+                || self.renderer.is_some()
+                || self.benchmark_startup.is_some()
+                || self.host_key_policy.is_some())
+        {
+            return Err(
+                "gui, renderer, benchmark_startup, and host_key_policy are valid only for ssh profiles"
+                    .to_owned(),
+            );
+        }
         match self.kind.as_str() {
             "local" => self.append_local_args(&mut args)?,
             "scp" => self.append_scp_args(&mut args)?,
@@ -457,11 +468,12 @@ impl ProfileDefinition {
 
         match self.host_key_policy.as_deref() {
             None | Some("reject-unknown") => {}
+            Some("prompt") if self.gui.unwrap_or(false) => {}
             Some("trust-on-first-use") => args.push("--trust-on-first-use".to_owned()),
             Some("accept-unknown") => args.push("--accept-unknown-host-key".to_owned()),
             Some(value) => {
                 return Err(format!(
-                    "invalid host_key_policy: {value}; expected \"reject-unknown\", \"trust-on-first-use\", or \"accept-unknown\""
+                    "invalid host_key_policy: {value}; expected \"prompt\", \"reject-unknown\", \"trust-on-first-use\", or \"accept-unknown\""
                 ));
             }
         }

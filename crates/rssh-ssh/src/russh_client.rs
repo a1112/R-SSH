@@ -15,10 +15,10 @@ use std::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    AsyncHostKeyVerifier, HostKeyChallenge, HostKeyStatus, HostKeyVerifier, SshAuthMethod,
-    SshChannel, SshChannelOpenPlan, SshChannelOpener, SshConnectRequest, SshConnectionPhase,
-    SshExitSignal, SshSessionError, SshSessionResult, SshSessionStartup, SshShellReader,
-    SshShellWriter,
+    AsyncHostKeyVerifier, HostKeyChallenge, HostKeyStatus, HostKeyVerifier, SecretPrompt,
+    SecretProvider, SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener,
+    SshConnectRequest, SshConnectionPhase, SshExitSignal, SshSessionError, SshSessionResult,
+    SshSessionStartup, SshShellReader, SshShellWriter,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,6 +212,7 @@ trait RusshAuthenticationBackend {
 async fn authenticate_auth_plan_with_backend(
     backend: &mut impl RusshAuthenticationBackend,
     auth_plan: &RusshAuthPlan,
+    secret_provider: Option<&SecretProvider>,
 ) -> Result<RusshAuthOutcome, SshSessionError> {
     let result = match auth_plan.request() {
         RusshAuthRequest::Password { password } => {
@@ -220,13 +221,53 @@ async fn authenticate_auth_plan_with_backend(
                 .await?
         }
         RusshAuthRequest::PasswordPrompt => {
-            return Err(SshSessionError::new(
-                "SSH password prompt authentication is not wired into russh yet",
-            ));
+            let Some(provider) = secret_provider else {
+                return Err(SshSessionError::new(
+                    "SSH password prompt requires a secret provider",
+                ));
+            };
+            let Some(password) = provider
+                .prompt(SecretPrompt::password(auth_plan.username().to_owned()))
+                .await
+            else {
+                return Err(SshSessionError::new("SSH password prompt was cancelled"));
+            };
+            let result = backend
+                .authenticate_password(auth_plan.username(), &password)
+                .await?;
+            drop(password);
+            result
         }
         RusshAuthRequest::PrivateKey { path, passphrase } => {
+            let prompted_passphrase = if passphrase.is_none()
+                && RusshPrivateKeyAuth::needs_passphrase(path).map_err(|error| {
+                    SshSessionError::new(format!("SSH private-key inspection failed: {error}"))
+                })? {
+                let Some(provider) = secret_provider else {
+                    return Err(SshSessionError::new(
+                        "encrypted SSH private key requires a secret provider",
+                    ));
+                };
+                let Some(secret) = provider
+                    .prompt(SecretPrompt::private_key_passphrase(
+                        auth_plan.username().to_owned(),
+                    ))
+                    .await
+                else {
+                    return Err(SshSessionError::new(
+                        "SSH private-key passphrase prompt was cancelled",
+                    ));
+                };
+                Some(secret)
+            } else {
+                None
+            };
             backend
-                .authenticate_private_key(auth_plan.username(), path, passphrase.as_deref())
+                .authenticate_private_key(
+                    auth_plan.username(),
+                    path,
+                    prompted_passphrase.as_deref().or(passphrase.as_deref()),
+                )
                 .await?
         }
         RusshAuthRequest::Agent => backend.authenticate_agent(auth_plan.username()).await?,
@@ -603,6 +644,7 @@ pub struct RusshChannelOpener {
     host_key_policy: RusshHostKeyPolicy,
     known_hosts_path: Option<PathBuf>,
     host_key_verifier: Option<HostKeyVerifier>,
+    secret_provider: Option<SecretProvider>,
     phase_reporter: Option<ConnectionPhaseReporter>,
     operation_timeout: Duration,
     channel_inactivity_timeout: Option<Duration>,
@@ -626,6 +668,7 @@ impl std::fmt::Debug for RusshChannelOpener {
             .field("host_key_policy", &self.host_key_policy)
             .field("known_hosts_path", &self.known_hosts_path)
             .field("host_key_verifier", &self.host_key_verifier)
+            .field("secret_provider", &self.secret_provider)
             .field("phase_reporter", &self.phase_reporter)
             .field("operation_timeout", &self.operation_timeout)
             .field(
@@ -650,6 +693,7 @@ impl Default for RusshChannelOpener {
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
             host_key_verifier: None,
+            secret_provider: None,
             phase_reporter: None,
             operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
             channel_inactivity_timeout: None,
@@ -665,6 +709,7 @@ impl RusshChannelOpener {
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
             host_key_verifier: None,
+            secret_provider: None,
             phase_reporter: None,
             operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
             channel_inactivity_timeout: None,
@@ -693,6 +738,25 @@ impl RusshChannelOpener {
     #[must_use]
     pub fn with_host_key_verifier_handle(mut self, verifier: HostKeyVerifier) -> Self {
         self.host_key_verifier = Some(verifier);
+        self
+    }
+
+    /// Installs an asynchronous provider for password and encrypted-key
+    /// passphrase prompts. The provider is invoked only when the request uses
+    /// a prompt auth method; plaintext secrets are never retained by the
+    /// opener.
+    #[must_use]
+    pub fn with_secret_provider<V>(mut self, provider: V) -> Self
+    where
+        V: crate::AsyncSecretProvider + 'static,
+    {
+        self.secret_provider = Some(SecretProvider::new(provider));
+        self
+    }
+
+    #[must_use]
+    pub fn with_secret_provider_handle(mut self, provider: SecretProvider) -> Self {
+        self.secret_provider = Some(provider);
         self
     }
 
@@ -765,6 +829,11 @@ impl RusshChannelOpener {
     #[must_use]
     pub fn host_key_verifier(&self) -> Option<&HostKeyVerifier> {
         self.host_key_verifier.as_ref()
+    }
+
+    #[must_use]
+    pub fn secret_provider(&self) -> Option<&SecretProvider> {
+        self.secret_provider.as_ref()
     }
 
     #[must_use]
@@ -902,7 +971,11 @@ impl RusshChannelOpener {
         let mut backend = RusshHandleAuthenticationBackend { handle };
         tokio::time::timeout(
             self.operation_timeout,
-            authenticate_auth_plan_with_backend(&mut backend, auth_plan),
+            authenticate_auth_plan_with_backend(
+                &mut backend,
+                auth_plan,
+                self.secret_provider.as_ref(),
+            ),
         )
         .await
         .map_err(|_| self.operation_deadline_error("authentication"))?
@@ -3068,10 +3141,43 @@ mod tests {
             .unwrap();
 
         let outcome = runtime
-            .block_on(authenticate_auth_plan_with_backend(&mut backend, &plan))
+            .block_on(authenticate_auth_plan_with_backend(
+                &mut backend,
+                &plan,
+                None,
+            ))
             .unwrap();
 
         assert_eq!(outcome, RusshAuthOutcome::Authenticated);
         assert_eq!(backend.calls, ["agent:ops"]);
+    }
+
+    #[test]
+    fn authenticate_auth_plan_uses_secret_provider_for_password_prompt() {
+        let request = SshConnectRequest::password_prompt(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let plan = RusshAuthPlan::from_request(&request);
+        let provider = SecretProvider::new(|prompt: crate::SecretPrompt| async move {
+            assert_eq!(prompt.username, "ops");
+            assert_eq!(prompt.kind, crate::SecretPromptKind::Password);
+            Some("test-only-secret".to_owned())
+        });
+        let mut backend = MockAuthBackend::default();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let outcome = runtime
+            .block_on(authenticate_auth_plan_with_backend(
+                &mut backend,
+                &plan,
+                Some(&provider),
+            ))
+            .unwrap();
+
+        assert_eq!(outcome, RusshAuthOutcome::Authenticated);
+        assert_eq!(backend.calls, ["password:ops"]);
     }
 }
