@@ -3145,7 +3145,8 @@
         assert_eq!(app.active_pane_id(), active_pane);
         assert_eq!(
             app.close_confirmation
-                .map(|confirmation| confirmation.target),
+                .as_ref()
+                .map(|confirmation| confirmation.target.clone()),
             Some(WindowCloseTarget::Pane(target_pane))
         );
         assert_eq!(app.app_shell.pane_ids().len(), 2);
@@ -3452,7 +3453,8 @@
         assert!(!app.window_drag_requested_for_test());
         assert_eq!(
             app.close_confirmation
-                .map(|confirmation| confirmation.target),
+                .as_ref()
+                .map(|confirmation| confirmation.target.clone()),
             Some(WindowCloseTarget::Pane(active_pane))
         );
     }
@@ -3576,6 +3578,117 @@
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
         assert!(app.command_palette.is_none());
         assert!(!app.window_close_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_default_close_selection_prefers_the_right_tab() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::ActivateTab {
+            tab: rssh_core::TabId::new(2),
+        })
+        .unwrap();
+
+        app.dispatch_app_action(AppAction::CloseTab {
+            tab: rssh_core::TabId::new(2),
+            switch_to_last_active: false,
+        })
+        .unwrap();
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(3));
+    }
+
+    #[test]
+    fn window_app_duplicate_and_reopen_closed_tab_restore_the_full_tab_layout() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: Some(PaneLaunch::local("ssh").with_args(["ops"])),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "operations".to_owned(),
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        assert!(app.command_palette_execute(WindowCommand::DuplicateTab));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(app.app_shell.active_tab().title(), Some("operations"));
+        assert_eq!(app.app_shell.active_tab().panes().len(), 2);
+
+        app.enter_command_palette_mode();
+        assert!(app.command_palette_execute(WindowCommand::CloseCurrentTab { confirm: false }));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        assert_eq!(
+            app.closed_tab_history
+                .lock()
+                .expect("history lock")
+                .len(),
+            1
+        );
+
+        app.enter_command_palette_mode();
+        assert!(app.command_palette_execute(WindowCommand::ReopenClosedTab));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(app.app_shell.active_tab().title(), Some("operations"));
+        assert_eq!(app.app_shell.active_tab().panes().len(), 2);
+        assert!(
+            app.closed_tab_history
+                .lock()
+                .expect("history lock")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn window_app_pending_windows_share_recently_closed_tab_history() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::CloseTabWithSelection {
+            tab: rssh_core::TabId::new(2),
+            selection: rssh_core::app_shell::CloseTabSelection::Adjacent,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        let mut detached = app
+            .take_next_pending_window_app()
+            .expect("pending window should materialize");
+
+        detached.enter_command_palette_mode();
+        assert!(detached.command_palette_execute(WindowCommand::ReopenClosedTab));
+        assert_eq!(detached.app_shell.active_workspace().tabs().len(), 2);
+        assert!(
+            detached
+                .closed_tab_history
+                .lock()
+                .expect("history lock")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn window_app_move_tab_to_new_window_command_preserves_live_tab_ownership() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        assert!(app.command_palette_execute(WindowCommand::MoveTabToNewWindow));
+
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        let detached = app
+            .take_next_pending_window_app()
+            .expect("moved tab should become a pending window");
+        assert_eq!(detached.app_shell.active_workspace().tabs().len(), 1);
+        assert_eq!(detached.active_tab_id(), rssh_core::TabId::new(2));
     }
 
     #[test]
@@ -3992,7 +4105,8 @@
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(3));
         assert_eq!(
             app.close_confirmation
-                .map(|confirmation| confirmation.target),
+                .as_ref()
+                .map(|confirmation| confirmation.target.clone()),
             Some(WindowCloseTarget::Tab(rssh_core::TabId::new(3)))
         );
 
@@ -4372,7 +4486,8 @@
             assert_eq!(app.active_tab_id(), active_tab);
             assert_eq!(
                 app.close_confirmation
-                    .map(|confirmation| confirmation.target),
+                    .as_ref()
+                    .map(|confirmation| confirmation.target.clone()),
                 Some(WindowCloseTarget::Tab(active_tab))
             );
             assert_eq!(
@@ -4447,7 +4562,8 @@
         assert!(!app.window_close_requested_for_test());
         assert_eq!(
             app.close_confirmation
-                .map(|confirmation| confirmation.target),
+                .as_ref()
+                .map(|confirmation| confirmation.target.clone()),
             Some(WindowCloseTarget::Window)
         );
         assert_eq!(
@@ -5701,5 +5817,238 @@
             [WindowCommand::ClearScrollback(
                 WindowClearScrollbackMode::ScrollbackAndViewport
             )]
+        );
+    }
+
+    #[test]
+    fn window_app_tab_session_config_prefers_new_values_and_maps_legacy_values() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = NativeConfigSnapshot {
+            tab_min_width: Some(11),
+            next: crate::window::NativeConfigSnapshot1 {
+                next: crate::window::NativeConfigSnapshot2 {
+                    next: crate::window::NativeConfigSnapshot3 {
+                        next: crate::window::NativeConfigSnapshot4 {
+                            tab_shortcut_style: Some(
+                                crate::window::NativeTabShortcutStyle::Browser,
+                            ),
+                            closed_tab_history_size: Some(7),
+                            close_tab_selection: Some(
+                                rssh_core::app_shell::CloseTabSelection::Adjacent,
+                            ),
+                            tab_bar_wheel_behavior: Some(
+                                crate::window::NativeTabBarWheelBehavior::Scroll,
+                            ),
+                            mouse_wheel_scrolls_tabs: Some(true),
+                            switch_to_last_active_tab_when_closing_tab: Some(true),
+                            ..crate::window::NativeConfigSnapshot4::default()
+                        },
+                        ..crate::window::NativeConfigSnapshot3::default()
+                    },
+                    ..crate::window::NativeConfigSnapshot2::default()
+                },
+                ..crate::window::NativeConfigSnapshot1::default()
+            },
+            ..NativeConfigSnapshot::default()
+        };
+
+        app.apply_config_overrides_silently(overrides);
+
+        assert_eq!(app.tab_min_width, 11);
+        assert_eq!(
+            app.tab_shortcut_style,
+            crate::window::NativeTabShortcutStyle::Browser
+        );
+        assert_eq!(app.closed_tab_history_size, 7);
+        assert_eq!(
+            app.close_tab_selection,
+            rssh_core::app_shell::CloseTabSelection::Adjacent
+        );
+        assert_eq!(
+            app.tab_bar_wheel_behavior,
+            crate::window::NativeTabBarWheelBehavior::Scroll
+        );
+        assert_eq!(app.closed_tab_history.lock().unwrap().capacity(), 7);
+
+        let legacy = NativeConfigSnapshot {
+            next: crate::window::NativeConfigSnapshot1 {
+                next: crate::window::NativeConfigSnapshot2 {
+                    next: crate::window::NativeConfigSnapshot3 {
+                        next: crate::window::NativeConfigSnapshot4 {
+                            mouse_wheel_scrolls_tabs: Some(false),
+                            switch_to_last_active_tab_when_closing_tab: Some(true),
+                            ..crate::window::NativeConfigSnapshot4::default()
+                        },
+                        ..crate::window::NativeConfigSnapshot3::default()
+                    },
+                    ..crate::window::NativeConfigSnapshot2::default()
+                },
+                ..crate::window::NativeConfigSnapshot1::default()
+            },
+            ..NativeConfigSnapshot::default()
+        };
+        app.apply_config_overrides_silently(legacy);
+
+        assert_eq!(
+            app.tab_bar_wheel_behavior,
+            crate::window::NativeTabBarWheelBehavior::Disabled
+        );
+        assert_eq!(
+            app.close_tab_selection,
+            rssh_core::app_shell::CloseTabSelection::LastActive
+        );
+    }
+
+    #[test]
+    fn window_app_browser_tab_shortcuts_open_launcher_reopen_and_activate_tabs() {
+        let mut app = NativeWindowApp::new(None);
+        app.tab_shortcut_style = crate::window::NativeTabShortcutStyle::Browser;
+
+        assert!(app.handle_browser_tab_shortcut_event(
+            &Key::Character("t".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyT),
+            ModifiersState::CONTROL,
+            false,
+        ));
+        assert_eq!(
+            app.command_palette
+                .as_ref()
+                .expect("Ctrl+T should open the session launcher")
+                .title(),
+            "Launcher"
+        );
+
+        app.command_palette = None;
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .expect("expected second tab");
+        let second = app.active_tab_id();
+        assert!(app.handle_browser_tab_shortcut_event(
+            &Key::Character("1".into()),
+            PhysicalKey::Code(WinitKeyCode::Digit1),
+            ModifiersState::CONTROL,
+            false,
+        ));
+        assert_ne!(app.active_tab_id(), second);
+    }
+
+    #[test]
+    fn window_app_parses_tab_session_configuration_fields() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            config.tab_min_width = 10
+            config.tab_shortcut_style = 'browser'
+            config.closed_tab_history_size = 12
+            config.close_tab_selection = 'last-active'
+            config.tab_bar_wheel_behavior = 'scroll'
+            return config
+            "#,
+        )
+        .expect("expected tab-session config values");
+
+        assert_eq!(overrides.tab_min_width, Some(10));
+        assert_eq!(
+            overrides.tab_shortcut_style,
+            Some(crate::window::NativeTabShortcutStyle::Browser)
+        );
+        assert_eq!(overrides.closed_tab_history_size, Some(12));
+        assert_eq!(
+            overrides.close_tab_selection,
+            Some(rssh_core::app_shell::CloseTabSelection::LastActive)
+        );
+        assert_eq!(
+            overrides.tab_bar_wheel_behavior,
+            Some(crate::window::NativeTabBarWheelBehavior::Scroll)
+        );
+    }
+
+    #[test]
+    fn window_app_tab_context_menu_exposes_browser_tab_actions() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .expect("expected second tab");
+
+        app.enter_tab_context_menu(rssh_core::TabId::new(1))
+            .expect("expected tab context menu");
+
+        assert_eq!(
+            app.command_palette
+                .as_ref()
+                .expect("context menu should be visible")
+                .title(),
+            "Tab Actions"
+        );
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![
+                WindowCommand::NewTab,
+                WindowCommand::DuplicateTab,
+                WindowCommand::RenameTab,
+                WindowCommand::MoveTabToNewWindow,
+                WindowCommand::CloseTab,
+                WindowCommand::CloseOtherTabs,
+                WindowCommand::CloseTabsToRight,
+                WindowCommand::ReopenClosedTab,
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_tab_bar_wheel_scrolls_headers_without_switching_sessions() {
+        let mut app = NativeWindowApp::new(None);
+        for _ in 0..3 {
+            app.dispatch_app_action(AppAction::NewTab { launch: None })
+                .expect("expected additional tab");
+        }
+        let active = app.active_tab_id();
+        app.tab_bar_wheel_behavior = crate::window::NativeTabBarWheelBehavior::Scroll;
+
+        assert!(app.handle_tab_bar_mouse_wheel(MouseScrollDelta::LineDelta(
+            0.0, -1.0,
+        )));
+        assert_eq!(app.active_tab_id(), active);
+        assert_eq!(app.tab_bar_scroll_position, 1);
+    }
+
+    #[test]
+    fn window_app_moving_its_final_tab_to_new_window_requests_source_close() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.dispatch_app_action(AppAction::MoveTabToNewWindow {
+            tab: app.active_tab_id(),
+        })
+        .expect("moving a final tab should prepare a replacement window");
+
+        assert!(app.window_close_requested_for_test());
+        let detached = app
+            .take_next_pending_window_app()
+            .expect("the moved tab should retain its live runtime in a pending app");
+        assert_eq!(detached.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(detached.active_pane_id(), rssh_core::PaneId::new(1));
+    }
+
+    #[test]
+    fn window_app_batch_tab_close_uses_one_confirmation_for_the_whole_set() {
+        let mut app = NativeWindowApp::new(None);
+        app.skip_close_confirmation_for_processes_named.clear();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .expect("expected second tab");
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .expect("expected third tab");
+
+        app.command_palette_apply_command(WindowCommand::CloseOtherTabs)
+            .expect("expected batch close request");
+        assert!(app.close_confirmation.is_some());
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 3);
+
+        app.accept_close_confirmation();
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+    }
+
+    #[test]
+    fn window_app_parses_move_tab_to_window_as_a_bindable_parameterized_command() {
+        assert_eq!(
+            super::command_palette_structured_query_command("MoveTabToWindow(42)"),
+            Some(WindowCommand::MoveTabToWindow(rssh_core::WindowId::new(42)))
         );
     }

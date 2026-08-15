@@ -3066,7 +3066,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         if let Err(error) = self.materialize_pending_apps(event_loop) {
             eprintln!("window error: {error}");
             event_loop.exit();
+            return;
         }
+        self.refresh_tab_transfer_targets();
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WindowUserEvent) {
@@ -3110,6 +3112,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
             return;
         }
 
+        self.refresh_tab_transfer_targets();
         let Some(mut app) = self.windows.remove(&window_id) else {
             return;
         };
@@ -3257,6 +3260,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 self.reload_configuration();
             }
+            WindowUserEvent::MoveTabToWindow { .. } => {}
             WindowUserEvent::RuntimeWakeWindow { .. } => {
                 self.handle_runtime_wake_window(event_loop);
             }

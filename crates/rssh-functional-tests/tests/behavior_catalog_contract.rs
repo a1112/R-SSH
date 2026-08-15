@@ -64,6 +64,8 @@ fn catalog_assigns_stable_ids_to_public_commands_actions_effects_and_lifecycle_r
         "BHV-CONSOLE-OSC52",
         "BHV-CONSOLE-SESSION-LOG",
         "BHV-WINDOW-TABS-PANES-SPLITS",
+        "BHV-WINDOW-TAB-SESSION-LIFECYCLE",
+        "BHV-WINDOW-LIVE-TAB-TRANSFER",
         "BHV-WINDOW-SELECTION-COPY-MODE",
         "BHV-WINDOW-SCROLL-SEARCH",
         "BHV-WINDOW-COMMAND-PALETTE",
@@ -177,6 +179,46 @@ fn mapped_protocol_evidence_is_executed_by_the_contract_job() {
     assert!(workflow.contains("--features ssh-transport --test ssh_transport"));
     assert!(workflow.contains("-p rssh-ssh --test loopback_native"));
     assert!(workflow.contains("-p rssh-web --lib"));
+}
+
+#[test]
+fn tab_session_behaviors_have_explicit_executed_evidence() {
+    let root = root();
+    let catalog = fs::read_to_string(root.join("functional-tests/behaviors.toml")).unwrap();
+    let evidence = fs::read_to_string(root.join("functional-tests/evidence-map.toml")).unwrap();
+    let workflow = fs::read_to_string(root.join(".github/workflows/functional.yml")).unwrap();
+
+    for behavior in [
+        "BHV-WINDOW-TAB-SESSION-LIFECYCLE",
+        "BHV-WINDOW-LIVE-TAB-TRANSFER",
+    ] {
+        assert!(
+            catalog.contains(behavior),
+            "missing tab-session behavior {behavior}"
+        );
+    }
+
+    for identity in [
+        "window_app_duplicate_and_reopen_closed_tab_restore_the_full_tab_layout",
+        "window_app_pending_windows_share_recently_closed_tab_history",
+        "window_app_batch_tab_close_uses_one_confirmation_for_the_whole_set",
+        "window_app_tab_context_menu_exposes_browser_tab_actions",
+        "window_app_browser_tab_shortcuts_open_launcher_reopen_and_activate_tabs",
+        "window_app_tab_bar_wheel_scrolls_headers_without_switching_sessions",
+        "window_app_tab_session_config_prefers_new_values_and_maps_legacy_values",
+        "window_app_move_tab_to_new_window_transfers_every_pane_runtime",
+        "window_manager_transfers_a_live_tab_between_windows_and_remaps_events",
+        "window_manager_transfers_its_final_tab_and_retires_the_source_window",
+    ] {
+        assert!(
+            evidence.contains(identity),
+            "unmapped tab-session evidence {identity}"
+        );
+        assert!(
+            workflow.contains(identity),
+            "unexecuted tab-session evidence {identity}"
+        );
+    }
 }
 
 #[test]

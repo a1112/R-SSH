@@ -43,7 +43,7 @@ fn native_window_frame_probe_keeps_its_marker_process_alive() {
 
 #[cfg(target_os = "windows")]
 #[test]
-fn scaled_native_window_probes_use_the_software_fallback_adapter() {
+fn scaled_native_window_probes_use_deterministic_present_path() {
     let source = include_str!("common/mod.rs");
     let start = source
         .find("fn run_ten_frame_native_window_with_command(")
@@ -54,8 +54,11 @@ fn scaled_native_window_probes_use_the_software_fallback_adapter() {
         .expect("native window metrics assertions");
     let command_helper = &source[start..end];
 
+    assert!(command_helper.contains("cfg!(target_os = \"windows\")"));
     assert!(command_helper.contains("if let Some(scale_factor) = scale_factor"));
+    assert!(command_helper.contains("RSSH_TEST_PRESENT_MODE"));
     assert!(command_helper.contains("RSSH_TEST_FORCE_FALLBACK_ADAPTER"));
+    assert!(command_helper.contains("RSSH_TEST_NATIVE_SCALE_PRIMARY"));
 }
 
 #[test]
@@ -358,7 +361,7 @@ fn assert_native_window_scale(scale_factor: f64) {
     let probe = common::run_ten_frame_native_window_at_scale(&executable, Some(scale_factor));
     common::assert_ten_frame_native_metrics(&probe);
     assert_eq!(probe.metrics["runtime_api"], "v2-runtime-hub");
-    if cfg!(target_os = "windows") {
+    if cfg!(target_os = "windows") && std::env::var_os("RSSH_TEST_NATIVE_SCALE_PRIMARY").is_none() {
         assert_eq!(probe.metrics["gpu_software_adapter"], true);
     }
 }
@@ -452,6 +455,10 @@ fn windows_native_runner_retries_each_heavy_scenario_once_after_bounded_cleanup(
     for contract in [
         "$nativeScenarioAttempts = 2",
         "$attempt -le $nativeScenarioAttempts",
+        "$isScaledScenario = $scenario.StartsWith(",
+        "$isScaledScenario -and $attempt -eq 1",
+        "$isScaledScenario -and $attempt -eq 2",
+        "$env:RSSH_TEST_NATIVE_SCALE_PRIMARY = \"1\"",
         "catch",
         "$attempt -ge $nativeScenarioAttempts",
         "throw",

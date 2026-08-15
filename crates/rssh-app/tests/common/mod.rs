@@ -68,16 +68,28 @@ fn run_ten_frame_native_window_with_command(
         .args(marker_command.get_args())
         .env("RSSH_TEST_DIRECT_GPU_TEXT", "1")
         .env("RSSH_TEST_PTY_LINKAGE", "1");
+    if cfg!(target_os = "windows") || scale_factor.is_some() {
+        // Hosted Windows runners can block indefinitely in FIFO presentation
+        // while a native surface is being resized or first exposed. Immediate
+        // is still a real GPU presentation path and falls back to FIFO when
+        // the adapter does not expose it.
+        command.env("RSSH_TEST_PRESENT_MODE", "immediate");
+    }
     if let Some(scale_factor) = scale_factor {
         command.env(
             "RSSH_TEST_WINDOW_SCALE_FACTOR",
             format!("{scale_factor:.2}"),
         );
         #[cfg(target_os = "windows")]
-        // The baseline probe still exercises the hosted runner's primary
-        // adapter. Repeated DPI probes use the software fallback so a transient
-        // hosted DX12 driver teardown cannot poison later scenarios on the VM.
-        command.env("RSSH_TEST_FORCE_FALLBACK_ADAPTER", "1");
+        if std::env::var_os("RSSH_TEST_NATIVE_SCALE_PRIMARY").is_none() {
+            // The baseline probe still exercises the hosted runner's primary
+            // adapter. Repeated DPI probes use the software fallback so a
+            // transient hosted DX12 driver teardown cannot poison later
+            // scenarios on the VM. The runner can opt back into the primary
+            // adapter for a bounded retry when the software adapter itself is
+            // wedged by the hosted desktop stack.
+            command.env("RSSH_TEST_FORCE_FALLBACK_ADAPTER", "1");
+        }
     }
     for (name, value) in marker_command.get_envs() {
         if let Some(value) = value {

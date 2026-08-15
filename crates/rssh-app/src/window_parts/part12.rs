@@ -3616,6 +3616,44 @@ fn move_tab_from_query_with_static_source(
         .and_then(|index| parse_maybe_static_query_usize(static_source, index))
 }
 
+fn move_tab_to_window_from_query(query: &str) -> Option<rssh_core::WindowId> {
+    move_tab_to_window_from_query_with_static_source(None, query)
+}
+
+fn move_tab_to_window_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<rssh_core::WindowId> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
+    let window_id = if let Some(window_id) = strip_lua_function_call_from_query(query, "movetabtowindow") {
+        parse_maybe_static_query_usize(static_source, window_id)
+    } else {
+        let window_id = strip_query_prefix_from_any(
+            query,
+            &[
+                "move tab to window=",
+                "move tab to window ",
+                "movetabtowindow=",
+                "movetabtowindow ",
+            ],
+        )
+        .and_then(parse_non_empty_query_text)?;
+        let window_id = strip_query_prefix_from_any(window_id, &["window=", "window "])
+            .or(Some(window_id))?;
+        parse_maybe_static_query_usize(static_source, window_id)
+    }?;
+    u64::try_from(window_id).ok().map(rssh_core::WindowId::new)
+}
+
 fn move_tab_relative_from_query(query: &str) -> Option<isize> {
     move_tab_relative_from_query_with_static_source(None, query)
 }

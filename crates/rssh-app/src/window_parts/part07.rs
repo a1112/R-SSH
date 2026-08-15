@@ -927,6 +927,7 @@ struct NativeAppliedRenderConfig {
     integrated_title_button_style: NativeIntegratedTitleButtonStyle,
     inactive_pane_hsb: NativeInactivePaneHsb,
     tab_max_width: usize,
+    tab_min_width: usize,
     command_palette_rows: Option<usize>,
     command_palette_font: Option<NativeFontConfig>,
     command_palette_font_size: NativeFontSize,
@@ -988,6 +989,7 @@ impl Default for NativeAppliedRenderConfig {
             integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             tab_max_width: MODERN_DEFAULT_TAB_MAX_WIDTH,
+            tab_min_width: DEFAULT_TAB_MIN_WIDTH,
             command_palette_rows: None,
             command_palette_font: None,
             command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
@@ -1240,6 +1242,10 @@ struct NativeAppliedDomainConfig {
     derived_config_environment: BTreeMap<String, String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
+    tab_shortcut_style: NativeTabShortcutStyle,
+    closed_tab_history_size: usize,
+    close_tab_selection: CloseTabSelection,
+    tab_bar_wheel_behavior: NativeTabBarWheelBehavior,
     input: NativeAppliedInputConfig,
 }
 
@@ -1286,6 +1292,10 @@ impl Default for NativeAppliedDomainConfig {
             derived_config_environment: BTreeMap::new(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
+            tab_shortcut_style: NativeTabShortcutStyle::Terminal,
+            closed_tab_history_size: DEFAULT_CLOSED_TAB_HISTORY_SIZE,
+            close_tab_selection: CloseTabSelection::Adjacent,
+            tab_bar_wheel_behavior: NativeTabBarWheelBehavior::Scroll,
             input: NativeAppliedInputConfig::default(),
         }
     }
@@ -1399,6 +1409,7 @@ impl DerefMut for NativeAppliedConfig {
 #[allow(clippy::struct_excessive_bools)]
 struct NativeWindowApp {
     app_window_id: rssh_core::WindowId,
+    tab_transfer_targets: Vec<rssh_core::WindowId>,
     window_close_requested: bool,
     window_drag_requested: bool,
     activate_window_request: Option<WindowActivateWindowRequest>,
@@ -1476,6 +1487,7 @@ struct NativeWindowInteractionState {
     scrollbar_dragging: bool,
     split_resize_dragging: Option<PaneSplitResizeDrag>,
     tab_bar_drag: Option<TabBarDrag>,
+    tab_bar_scroll_position: usize,
     ui_left_release_pending: bool,
     pressed_pane_close_button: Option<rssh_core::PaneId>,
     pane_inspection: Option<rssh_core::PaneId>,
@@ -1575,6 +1587,7 @@ struct NativeWindowHostState {
     pending_frame_damage: Vec<DamageRegion>,
     frame_needs_full_repaint: bool,
     app_shell: AppShell,
+    closed_tab_history: Arc<Mutex<ClosedTabHistory>>,
     pane_runtimes: HashMap<rssh_core::PaneId, PaneRuntime>,
     pane_bell_counts: HashMap<rssh_core::PaneId, u64>,
     applied_config: Arc<NativeAppliedConfig>,
@@ -1639,11 +1652,17 @@ struct NativeWindowManager {
     windows: HashMap<winit::window::WindowId, Box<NativeWindowApp>>,
     pending_apps: Vec<Box<NativeWindowApp>>,
     retired_apps: Vec<Box<NativeWindowApp>>,
-    pane_event_routes: HashMap<(rssh_core::WindowId, rssh_core::PaneId), rssh_core::WindowId>,
+    pane_event_routes: HashMap<(rssh_core::WindowId, rssh_core::PaneId), PaneEventRoute>,
     focus: WindowFocusCoordinator<winit::window::WindowId>,
     last_metrics: Option<WindowMetricsSnapshot>,
     closed_gpu_abandonments: u64,
     quit_when_all_windows_are_closed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PaneEventRoute {
+    window_id: rssh_core::WindowId,
+    pane_id: rssh_core::PaneId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1816,16 +1835,186 @@ impl NativeWindowManager {
             self.refresh_app_to_current_base(&mut detached_app);
             let destination_window_id = detached_app.app_window_id;
             for pane_id in detached_app.app_shell.pane_ids() {
-                for ((_, routed_pane_id), target_window_id) in &mut self.pane_event_routes {
-                    if *routed_pane_id == pane_id && *target_window_id == source_window_id {
-                        *target_window_id = destination_window_id;
+                for ((_, routed_pane_id), target) in &mut self.pane_event_routes {
+                    if *routed_pane_id == pane_id && target.window_id == source_window_id {
+                        target.window_id = destination_window_id;
                     }
                 }
                 self.pane_event_routes
-                    .insert((source_window_id, pane_id), destination_window_id);
+                    .insert(
+                        (source_window_id, pane_id),
+                        PaneEventRoute {
+                            window_id: destination_window_id,
+                            pane_id,
+                        },
+                    );
             }
             self.pending_apps.push(detached_app);
         }
+    }
+
+    fn refresh_tab_transfer_targets(&mut self) {
+        let window_ids = self
+            .all_app_locations()
+            .into_iter()
+            .filter_map(|location| self.app_at_location(location).map(|app| app.app_window_id))
+            .collect::<Vec<_>>();
+        for location in self.all_app_locations() {
+            if let Some(app) = self.app_at_location_mut(location) {
+                app.tab_transfer_targets = window_ids
+                    .iter()
+                    .copied()
+                    .filter(|window_id| *window_id != app.app_window_id)
+                    .collect();
+            }
+        }
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "tab runtime transfer keeps rollback and event-route updates in one transaction"
+    )]
+    fn transfer_tab_between_windows(
+        &mut self,
+        source_window_id: rssh_core::WindowId,
+        target_window_id: rssh_core::WindowId,
+        tab: rssh_core::TabId,
+        target_index: usize,
+    ) -> Result<(), AppShellError> {
+        if source_window_id == target_window_id {
+            return Err(AppShellError::UnsupportedAction);
+        }
+        let source_location = self
+            .owned_app_location_for_window(source_window_id)
+            .ok_or(AppShellError::UnsupportedAction)?;
+        let mut source = self
+            .take_app_at_location(source_location)
+            .ok_or(AppShellError::UnsupportedAction)?;
+        let target_location = self
+            .owned_app_location_for_window(target_window_id)
+            .ok_or(AppShellError::UnsupportedAction)?;
+        let Some(mut target) = self.take_app_at_location(target_location) else {
+            self.restore_app_at_location(source_location, source);
+            return Err(AppShellError::UnsupportedAction);
+        };
+
+        let source_transfers_final_tab = source
+            .app_shell
+            .active_workspace()
+            .tabs()
+            .iter()
+            .any(|candidate| candidate.id() == tab)
+            && source.app_shell.active_workspace().tabs().len() == 1;
+
+        let moved_pane_ids = source
+            .app_shell
+            .active_workspace()
+            .tabs()
+            .iter()
+            .find(|candidate| candidate.id() == tab)
+            .map(|candidate| {
+                candidate
+                    .panes()
+                    .iter()
+                    .map(rssh_core::app_shell::Pane::id)
+                    .collect::<Vec<_>>()
+            })
+            .ok_or(AppShellError::InvalidTab(tab));
+        let moved_pane_ids = match moved_pane_ids {
+            Ok(panes) => panes,
+            Err(error) => {
+                self.restore_app_at_location(target_location, target);
+                self.restore_app_at_location(source_location, source);
+                return Err(error);
+            }
+        };
+
+        let source_active_pane = source.app_shell.active_pane_id();
+        let mut moved_runtimes = HashMap::new();
+        let mut moved_bells = HashMap::new();
+        for pane_id in &moved_pane_ids {
+            let runtime = if *pane_id == source_active_pane {
+                Some(source.take_active_runtime())
+            } else {
+                source.pane_runtimes.remove(pane_id)
+            };
+            if let Some(runtime) = runtime {
+                moved_runtimes.insert(*pane_id, runtime);
+            }
+            if let Some(bell_count) = source.pane_bell_counts.remove(pane_id) {
+                moved_bells.insert(*pane_id, bell_count);
+            }
+        }
+
+        let detached = match if source_transfers_final_tab {
+            source.app_shell.clone_tab_for_transfer(tab)
+        } else {
+            source.app_shell.detach_tab(tab)
+        } {
+            Ok(detached) => detached,
+            Err(error) => {
+                if moved_pane_ids.contains(&source_active_pane)
+                    && let Some(runtime) = moved_runtimes.remove(&source_active_pane)
+                {
+                    source.install_active_runtime(runtime);
+                }
+                for (pane_id, runtime) in moved_runtimes {
+                    source.pane_runtimes.insert(pane_id, runtime);
+                }
+                source.pane_bell_counts.extend(moved_bells);
+                self.restore_app_at_location(target_location, target);
+                self.restore_app_at_location(source_location, source);
+                return Err(error);
+            }
+        };
+
+        if moved_pane_ids.contains(&source_active_pane) && !source_transfers_final_tab {
+            let replacement = source.new_inactive_pane_runtime();
+            source.sync_pane_runtimes(source_active_pane, replacement);
+        }
+
+        let target_active_pane = target.app_shell.active_pane_id();
+        let target_previous_runtime = target.take_active_runtime();
+        let imported = match target.app_shell.import_detached_tab(detached, target_index) {
+            Ok(imported) => imported,
+            Err(error) => {
+                target.install_active_runtime(target_previous_runtime);
+                self.restore_app_at_location(target_location, target);
+                self.restore_app_at_location(source_location, source);
+                return Err(error);
+            }
+        };
+        for (source_pane, target_pane) in imported.pane_id_map() {
+            if let Some(runtime) = moved_runtimes.remove(source_pane) {
+                target.pane_runtimes.insert(*target_pane, runtime);
+            }
+            if let Some(bell_count) = moved_bells.remove(source_pane) {
+                target.pane_bell_counts.insert(*target_pane, bell_count);
+            }
+            for route in self.pane_event_routes.values_mut() {
+                if route.window_id == source_window_id && route.pane_id == *source_pane {
+                    route.window_id = target_window_id;
+                    route.pane_id = *target_pane;
+                }
+            }
+            self.pane_event_routes.insert(
+                (source_window_id, *source_pane),
+                PaneEventRoute {
+                    window_id: target_window_id,
+                    pane_id: *target_pane,
+                },
+            );
+        }
+        target.sync_pane_runtimes(target_active_pane, target_previous_runtime);
+        source.apply_window_title();
+        target.apply_window_title();
+        self.restore_app_at_location(target_location, target);
+        self.restore_app_at_location(source_location, source);
+        if source_transfers_final_tab {
+            self.finalize_app_close_at_location(source_location)
+                .expect("moved final tab source remains manager-owned until retirement");
+        }
+        Ok(())
     }
 
     fn reload_configuration_attempt(&mut self) -> bool {
@@ -1878,6 +2067,23 @@ impl NativeWindowManager {
             self.reload_configuration_attempt();
             return true;
         }
+        if let WindowUserEvent::MoveTabToWindow {
+            source_window_id,
+            target_window_id,
+            tab,
+            target_index,
+        } = event
+        {
+            if let Err(error) = self.transfer_tab_between_windows(
+                *source_window_id,
+                *target_window_id,
+                *tab,
+                *target_index,
+            ) {
+                eprintln!("cross-window tab transfer failed: {error:?}");
+            }
+            return true;
+        }
         false
     }
 
@@ -1896,21 +2102,21 @@ impl NativeWindowManager {
             return Some(location);
         }
 
-        let mut routed_window_id = declared_window_id;
+        let mut routed_identity = (declared_window_id, pane_id);
         let mut visited = HashSet::new();
         let mut saw_route = false;
-        while visited.insert(routed_window_id) {
-            let Some(next_window_id) = self
+        while visited.insert(routed_identity) {
+            let Some(next) = self
                 .pane_event_routes
-                .get(&(routed_window_id, pane_id))
+                .get(&routed_identity)
                 .copied()
             else {
                 break;
             };
             saw_route = true;
-            routed_window_id = next_window_id;
+            routed_identity = (next.window_id, next.pane_id);
             if let Some(location) =
-                self.owned_app_location_for_window_and_pane(routed_window_id, pane_id)
+                self.owned_app_location_for_window_and_pane(routed_identity.0, routed_identity.1)
             {
                 return Some(location);
             }
@@ -2076,7 +2282,9 @@ impl NativeWindowManager {
         }
         let owner_window_id = app.app_window_id;
         let close_window = match event {
-            WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
+            WindowUserEvent::ReloadConfigurationRequested
+            | WindowUserEvent::ConfigFileChanged
+            | WindowUserEvent::MoveTabToWindow { .. } => {
                 false
             }
             WindowUserEvent::RuntimeWakeWindow { .. } => match app.poll_active_v2_runtime() {
@@ -2157,13 +2365,13 @@ impl NativeWindowManager {
         pane_id: rssh_core::PaneId,
     ) {
         self.pane_event_routes.retain(|(source, pane), target| {
-            *pane != pane_id || (*source != window_id && *target != window_id)
+            *pane != pane_id || (*source != window_id && target.window_id != window_id)
         });
     }
 
     fn remove_pane_event_routes_for_window(&mut self, window_id: rssh_core::WindowId) {
         self.pane_event_routes
-            .retain(|_, target| *target != window_id);
+            .retain(|_, target| target.window_id != window_id);
     }
 
     fn activate_window_relative_from(
@@ -2465,6 +2673,12 @@ impl NativeWindowManager {
 pub(crate) enum WindowUserEvent {
     ReloadConfigurationRequested,
     ConfigFileChanged,
+    MoveTabToWindow {
+        source_window_id: rssh_core::WindowId,
+        target_window_id: rssh_core::WindowId,
+        tab: rssh_core::TabId,
+        target_index: usize,
+    },
     RuntimeWakeWindow {
         window_id: rssh_core::WindowId,
     },
@@ -2505,6 +2719,7 @@ impl WindowUserEvent {
         match self {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
+            | Self::MoveTabToWindow { .. }
             | Self::RuntimeWakeWindow { .. } => None,
             Self::Output {
                 window_id, pane_id, ..
@@ -2528,6 +2743,7 @@ impl WindowUserEvent {
         match self {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
+            | Self::MoveTabToWindow { .. }
             | Self::RuntimeWakeWindow { .. } => None,
             Self::Output {
                 runtime_generation, ..

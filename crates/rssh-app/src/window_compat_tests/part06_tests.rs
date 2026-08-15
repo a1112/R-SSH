@@ -3836,7 +3836,14 @@
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
                 .unwrap()
         );
-        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        assert_eq!(
+            app.command_palette
+                .as_ref()
+                .expect("new-tab button should open the launcher")
+                .title(),
+            "Launcher"
+        );
     }
 
     #[test]
@@ -6001,4 +6008,3 @@
             "tab bar was {tab_bar:?}"
         );
     }
-

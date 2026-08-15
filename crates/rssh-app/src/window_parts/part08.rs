@@ -493,6 +493,7 @@ impl NativeWindowApp {
             .set_size(PhysicalSize::new(FRAME_WIDTH, FRAME_HEIGHT));
         self.font_size = DEFAULT_FONT_SIZE;
         self.tab_max_width = DEFAULT_TAB_MAX_WIDTH;
+        self.tab_min_width = DEFAULT_TAB_MIN_WIDTH;
         self.foreground_color = LEGACY_TEST_FOREGROUND_COLOR;
         self.background_color = LEGACY_TEST_BACKGROUND_COLOR;
         self.selection_bg_color = None;
@@ -545,6 +546,7 @@ impl NativeWindowApp {
             Box::new_uninit(),
             Self {
                 app_window_id: rssh_core::WindowId::new(1),
+                tab_transfer_targets: Vec::new(),
                 window_close_requested: false,
                 window_drag_requested: false,
                 activate_window_request: None,
@@ -628,6 +630,7 @@ impl NativeWindowApp {
                 scrollbar_dragging: false,
                 split_resize_dragging: None,
                 tab_bar_drag: None,
+                tab_bar_scroll_position: 0,
                 ui_left_release_pending: false,
                 pressed_pane_close_button: None,
                 pane_inspection: None,
@@ -722,6 +725,7 @@ impl NativeWindowApp {
                 pending_frame_damage: Vec::new(),
                 frame_needs_full_repaint: true,
                 app_shell,
+                closed_tab_history: Arc::new(Mutex::new(ClosedTabHistory::new(25))),
                 pane_runtimes: HashMap::new(),
                 pane_bell_counts: HashMap::new(),
                 applied_config: Arc::new(NativeAppliedConfig::default()),
@@ -859,12 +863,25 @@ impl NativeWindowApp {
                 tab,
                 switch_to_last_active,
             } => return self.dispatch_close_tab_action(tab, switch_to_last_active),
+            AppAction::CloseTabWithSelection { tab, selection } => {
+                return self.dispatch_close_tab_with_selection(tab, selection);
+            }
             AppAction::ClosePane { pane } => return self.dispatch_close_pane_action(pane),
             _ => {}
         }
 
+        let closes_source_after_move = matches!(
+            &action,
+            AppAction::MoveTabToNewWindow { tab }
+                if *tab == self.app_shell.active_tab_id()
+                    && self.app_shell.active_workspace().tabs().len() == 1
+        );
         let action = self.apply_default_prog_to_action(action);
-        self.dispatch_shell_action(action)
+        self.dispatch_shell_action(action)?;
+        if closes_source_after_move {
+            self.request_window_close();
+        }
+        Ok(())
     }
 
     fn apply_default_prog_to_action(&self, action: AppAction) -> AppAction {
@@ -1047,38 +1064,6 @@ impl NativeWindowApp {
         matches!(action, AppAction::ActivatePaneDirection { .. })
             && !self.unzoom_on_switch_pane
             && self.app_shell.active_tab().zoomed_pane_id().is_some()
-    }
-
-    fn dispatch_close_tab_action(
-        &mut self,
-        tab: rssh_core::TabId,
-        switch_to_last_active: bool,
-    ) -> Result<(), AppShellError> {
-        match self.dispatch_shell_action(AppAction::CloseTab {
-            tab,
-            switch_to_last_active,
-        }) {
-            Ok(()) => Ok(()),
-            Err(AppShellError::CannotCloseLastTab) => {
-                self.request_window_close();
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
-    }
-
-    fn dispatch_close_pane_action(&mut self, pane: rssh_core::PaneId) -> Result<(), AppShellError> {
-        if let Some(runtime) = self.runtime.worker_mut() {
-            let _ = runtime.begin_close_by_pane(pane, Duration::from_millis(250));
-        }
-        match self.dispatch_shell_action(AppAction::ClosePane { pane }) {
-            Ok(()) => Ok(()),
-            Err(AppShellError::CannotCloseLastPane | AppShellError::CannotCloseLastTab) => {
-                self.request_window_close();
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
     }
 
     fn request_window_close(&mut self) {
@@ -1662,18 +1647,40 @@ impl NativeWindowApp {
     }
 
     #[allow(dead_code)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "pending window creation explicitly transfers every live pane runtime"
+    )]
     fn take_next_pending_window_app(&mut self) -> Option<Box<Self>> {
         let pending_window = self.app_shell.take_next_pending_window()?;
         let app_window_id = pending_window.id();
         let initial_window_position = self.pending_window_positions.remove(&app_window_id);
         let active_pane = pending_window.active_pane_id();
+        let pending_panes = pending_window
+            .tab()
+            .panes()
+            .iter()
+            .map(rssh_core::app_shell::Pane::id)
+            .collect::<Vec<_>>();
         let startup_command = self.pending_window_startup_command(&pending_window)?;
         let mut runtime = self
             .pane_runtimes
             .remove(&active_pane)
             .unwrap_or_else(|| self.new_inactive_pane_runtime());
         runtime.ui.prepare_for_new_window();
-        let bell_count = self.pane_bell_counts.remove(&active_pane);
+        let mut inactive_pane_runtimes = Vec::new();
+        let mut pending_bell_counts = Vec::new();
+        for pane_id in pending_panes {
+            if pane_id != active_pane
+                && let Some(mut inactive_runtime) = self.pane_runtimes.remove(&pane_id)
+            {
+                inactive_runtime.ui.prepare_for_new_window();
+                inactive_pane_runtimes.push((pane_id, inactive_runtime));
+            }
+            if let Some(bell_count) = self.pane_bell_counts.remove(&pane_id) {
+                pending_bell_counts.push((pane_id, bell_count));
+            }
+        }
         let app_shell = AppShell::from_pending_window(pending_window);
         let mut detached_app = Self::new_with_command_and_osc52_policy(
             self.frame_limit,
@@ -1690,6 +1697,7 @@ impl NativeWindowApp {
             .reload_request_sender
             .clone_from(&self.reload_request_sender);
         detached_app.app_shell = app_shell;
+        detached_app.closed_tab_history = Arc::clone(&self.closed_tab_history);
         detached_app.startup_workspace_was_explicit = true;
         detached_app.config_overrides = self.config_overrides.clone();
         detached_app.applied_config = Arc::clone(&self.applied_config);
@@ -1745,10 +1753,11 @@ impl NativeWindowApp {
         detached_app.leader_active_since = None;
         detached_app.inherit_effective_config_from(self);
         detached_app.install_active_runtime(runtime);
-        if let Some(bell_count) = bell_count {
-            detached_app
-                .pane_bell_counts
-                .insert(active_pane, bell_count);
+        for (pane_id, runtime) in inactive_pane_runtimes {
+            detached_app.pane_runtimes.insert(pane_id, runtime);
+        }
+        for (pane_id, bell_count) in pending_bell_counts {
+            detached_app.pane_bell_counts.insert(pane_id, bell_count);
         }
         detached_app.apply_window_title();
         Some(detached_app)
@@ -2069,26 +2078,6 @@ impl NativeWindowApp {
 }
 
 impl NativeWindowApp {
-    fn configured_pane_terminal_runtime(&self, size: TerminalSize) -> TerminalRuntime {
-        let mut runtime = TerminalRuntime::new(size);
-        runtime.set_terminal_name(self.term.clone());
-        runtime.set_enq_answerback(self.enq_answerback.clone());
-        runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
-        runtime.set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
-        runtime.set_enable_title_reporting(self.enable_title_reporting);
-        runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
-        runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
-        runtime.set_treat_east_asian_ambiguous_width_as_wide(
-            self.treat_east_asian_ambiguous_width_as_wide,
-        );
-        runtime.set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
-        runtime.set_unicode_version(self.unicode_version);
-        runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
-        runtime.set_scrollback_limit(self.scrollback_lines);
-        runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
-        runtime
-    }
-
     fn install_active_runtime(&mut self, mut runtime: PaneRuntime) {
         let applied_config = Arc::clone(&self.applied_config);
         let mut runtime_runtime = TerminalRuntime::new(self.runtime.terminal().grid().size());
@@ -2493,6 +2482,44 @@ impl NativeWindowApp {
         self.apply_window_title();
     }
 
+    fn enter_tab_context_menu(&mut self, tab: rssh_core::TabId) -> Result<(), AppShellError> {
+        if self.app_shell.active_tab_id() != tab {
+            self.dispatch_app_action(AppAction::ActivateTab { tab })?;
+        }
+        self.enter_command_palette_mode();
+        let tab_transfer_targets = self.tab_transfer_targets.clone();
+        let palette = self
+            .command_palette
+            .as_mut()
+            .expect("entering the command palette must create its state");
+        palette.context_title = Some("Tab Actions".to_owned());
+        let mut entries = vec![
+            WindowCommand::NewTab,
+            WindowCommand::DuplicateTab,
+            WindowCommand::RenameTab,
+            WindowCommand::MoveTabToNewWindow,
+        ]
+        .into_iter()
+        .map(WindowCommandPaletteEntry::BuiltIn)
+        .collect::<Vec<_>>();
+        entries.extend(tab_transfer_targets.into_iter().map(|window_id| {
+            WindowCommandPaletteEntry::Contextual {
+                command: WindowCommand::MoveTabToWindow(window_id),
+                label: format!("Move Tab To Window {}", window_id.get()),
+            }
+        }));
+        entries.extend([
+            WindowCommand::CloseTab,
+            WindowCommand::CloseOtherTabs,
+            WindowCommand::CloseTabsToRight,
+            WindowCommand::ReopenClosedTab,
+        ]
+        .into_iter()
+        .map(WindowCommandPaletteEntry::BuiltIn));
+        palette.context_entries = Some(entries);
+        Ok(())
+    }
+
     fn enter_launcher_mode_with_args(&mut self, args: WindowShowLauncherArgs) {
         self.cancel_pane_inspection();
         self.deferred_wheel_context = None;
@@ -2537,6 +2564,22 @@ impl NativeWindowApp {
                 .map(WindowCommandPaletteEntry::into_command)
                 .collect();
         }
+        if let Some(entries) = palette.context_entries.as_ref() {
+            if palette.query.is_empty() {
+                return entries
+                    .iter()
+                    .cloned()
+                    .map(WindowCommandPaletteEntry::into_command)
+                    .collect();
+            }
+            let query = palette.query.to_ascii_lowercase();
+            return entries
+                .iter()
+                .filter(|entry| palette_match_score(entry.label(), &query).is_some())
+                .cloned()
+                .map(WindowCommandPaletteEntry::into_command)
+                .collect();
+        }
         if palette.query.is_empty() {
             let mut commands = WINDOW_COMMANDS.to_vec();
             self.sort_command_palette_commands(&mut commands, (0, 0));
@@ -2566,6 +2609,17 @@ impl NativeWindowApp {
         };
         if let Some(args) = &palette.launcher_args {
             return self.launcher_filtered_entries(args, &palette.query);
+        }
+        if let Some(entries) = palette.context_entries.as_ref() {
+            if palette.query.is_empty() {
+                return entries.clone();
+            }
+            let query = palette.query.to_ascii_lowercase();
+            return entries
+                .iter()
+                .filter(|entry| palette_match_score(entry.label(), &query).is_some())
+                .cloned()
+                .collect();
         }
         if palette.query.is_empty() {
             let mut entries = self
@@ -3040,6 +3094,10 @@ impl NativeWindowApp {
         &mut self,
         command: WindowCommand,
     ) -> Result<(), AppShellError> {
+        if self.dispatch_tab_command(&command)? {
+            return Ok(());
+        }
+
         if let WindowCommand::SpawnCommandInNewWindow(spawn_command) = &command {
             let window_position = spawn_command.window_position.clone();
             let launch = self.supported_pane_launch(spawn_command.clone())?;
@@ -4311,6 +4369,9 @@ impl NativeWindowApp {
     fn command_palette_execute_entry(&mut self, entry: WindowCommandPaletteEntry) -> bool {
         match entry {
             WindowCommandPaletteEntry::BuiltIn(command) => self.command_palette_execute(command),
+            WindowCommandPaletteEntry::Contextual { command, .. } => {
+                self.command_palette_execute(command)
+            }
             WindowCommandPaletteEntry::Augmented(entry) => {
                 let frecency_label = entry.brief;
                 let succeeded = self.command_palette_execute(entry.action);
@@ -4502,19 +4563,19 @@ impl NativeWindowApp {
         format!("{} Enter/Y=yes Esc/N=no", confirmation.message)
     }
 
-    fn close_confirmation_status(close_confirmation: WindowCloseConfirmation) -> String {
+    fn close_confirmation_status(close_confirmation: &WindowCloseConfirmation) -> String {
         format!("{}? Enter/Y=yes Esc/N=no", close_confirmation.label())
     }
 
     fn request_close_confirmation_or_close(&mut self, target: WindowCloseTarget) {
-        if self.should_skip_close_confirmation(target) {
+        if self.should_skip_close_confirmation(&target) {
             self.close_target_without_confirmation(target);
         } else {
             self.enter_close_confirmation_mode(target);
         }
     }
 
-    fn should_skip_close_confirmation(&self, target: WindowCloseTarget) -> bool {
+    fn should_skip_close_confirmation(&self, target: &WindowCloseTarget) -> bool {
         let processes = self.close_target_process_names(target);
         !processes.is_empty()
             && processes
@@ -4522,7 +4583,7 @@ impl NativeWindowApp {
                 .all(|process| self.is_skip_close_confirmation_process(process))
     }
 
-    fn close_target_process_names(&self, target: WindowCloseTarget) -> Vec<&str> {
+    fn close_target_process_names(&self, target: &WindowCloseTarget) -> Vec<&str> {
         match target {
             WindowCloseTarget::Window => self
                 .app_shell
@@ -4538,7 +4599,7 @@ impl NativeWindowApp {
                 .tabs()
                 .iter()
                 .flat_map(rssh_core::app_shell::Tab::panes)
-                .find(|pane| pane.id() == pane_id)
+                .find(|pane| pane.id() == *pane_id)
                 .map(|pane| vec![pane.launch().program()])
                 .unwrap_or_default(),
             WindowCloseTarget::Tab(tab_id) => self
@@ -4546,7 +4607,7 @@ impl NativeWindowApp {
                 .active_workspace()
                 .tabs()
                 .iter()
-                .find(|tab| tab.id() == tab_id)
+                .find(|tab| tab.id() == *tab_id)
                 .map(|tab| {
                     tab.panes()
                         .iter()
@@ -4554,6 +4615,15 @@ impl NativeWindowApp {
                         .collect()
                 })
                 .unwrap_or_default(),
+            WindowCloseTarget::Tabs(tab_ids) => self
+                .app_shell
+                .active_workspace()
+                .tabs()
+                .iter()
+                .filter(|tab| tab_ids.contains(&tab.id()))
+                .flat_map(rssh_core::app_shell::Tab::panes)
+                .map(|pane| pane.launch().program())
+                .collect(),
         }
     }
 
@@ -4578,6 +4648,11 @@ impl NativeWindowApp {
                     switch_to_last_active: self.switch_to_last_active_tab_when_closing_tab,
                 }) {
                     eprintln!("close action failed: {error:?}");
+                }
+            }
+            WindowCloseTarget::Tabs(tabs) => {
+                if let Err(error) = self.dispatch_close_tab_set_without_confirmation(tabs) {
+                    eprintln!("batch tab close action failed: {error:?}");
                 }
             }
         }
@@ -4609,14 +4684,22 @@ impl NativeWindowApp {
         let Some(close_confirmation) = self.close_confirmation.take() else {
             return;
         };
-        if let Some(action) =
-            close_confirmation.action(self.switch_to_last_active_tab_when_closing_tab)
-        {
-            if let Err(error) = self.dispatch_app_action(action) {
-                eprintln!("close confirmation action failed: {error:?}");
+        match close_confirmation.target {
+            WindowCloseTarget::Tabs(tabs) => {
+                if let Err(error) = self.dispatch_close_tab_set_without_confirmation(tabs) {
+                    eprintln!("batch tab close confirmation action failed: {error:?}");
+                }
             }
-        } else {
-            self.request_window_close();
+            WindowCloseTarget::Window => self.request_window_close(),
+            target => {
+                let confirmation = WindowCloseConfirmation { target };
+                if let Some(action) =
+                    confirmation.action(self.switch_to_last_active_tab_when_closing_tab)
+                    && let Err(error) = self.dispatch_app_action(action)
+                {
+                    eprintln!("close confirmation action failed: {error:?}");
+                }
+            }
         }
         self.frame_needs_full_repaint = true;
         self.apply_window_title();
@@ -6753,6 +6836,71 @@ impl NativeWindowApp {
             self.app_shell.active_tab_id(),
         ));
         true
+    }
+
+    fn handle_browser_tab_shortcut_event(
+        &mut self,
+        key: &Key,
+        physical_key: PhysicalKey,
+        modifiers: ModifiersState,
+        default_assignment_disabled: bool,
+    ) -> bool {
+        if self.tab_shortcut_style != NativeTabShortcutStyle::Browser
+            || default_assignment_disabled
+            || !modifiers.control_key()
+            || modifiers.alt_key()
+            || modifiers.super_key()
+        {
+            return false;
+        }
+
+        let key_matches = |token: &str| {
+            window_key_assignment_matches_key_event(
+                token,
+                key,
+                physical_key,
+                modifiers,
+                self.key_map_preference,
+            )
+        };
+
+        if modifiers.shift_key() {
+            if key_matches("CTRL+SHIFT+T") {
+                if let Err(error) = self.dispatch_reopen_closed_tab() {
+                    eprintln!("browser reopen closed tab failed: {error:?}");
+                }
+                return true;
+            }
+            return false;
+        }
+
+        if key_matches("CTRL+T") {
+            self.enter_launcher_mode();
+            return true;
+        }
+        if key_matches("CTRL+W") {
+            self.request_close_confirmation_or_close(WindowCloseTarget::Tab(
+                self.app_shell.active_tab_id(),
+            ));
+            return true;
+        }
+
+        for index in 0..8 {
+            let key = format!("CTRL+{}", index + 1);
+            if key_matches(&key) {
+                if let Err(error) = self.dispatch_app_action(AppAction::ActivateTabIndex { index }) {
+                    eprintln!("browser activate tab failed: {error:?}");
+                }
+                return true;
+            }
+        }
+        if key_matches("CTRL+9") {
+            if let Err(error) = self.dispatch_app_action(AppAction::ActivateTabIndex { index: -1 }) {
+                eprintln!("browser activate last tab failed: {error:?}");
+            }
+            return true;
+        }
+        false
     }
 
     #[allow(clippy::too_many_lines)]

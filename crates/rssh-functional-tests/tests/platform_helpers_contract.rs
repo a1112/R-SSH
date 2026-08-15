@@ -170,6 +170,7 @@ fn wayland_harness_is_nested_weston_x11_not_headless_input_emulation() {
     assert!(source.contains("wait_for_weston_window"));
     assert!(source.contains("dump_startup_logs"));
     assert!(source.contains("export RSSH_FUNCTIONAL_XDOTOOL="));
+    assert!(source.contains("if ! rm -rf -- \"$runtime\""));
     let weston_socket_wait = source
         .split("wait_for_weston_socket()")
         .nth(1)

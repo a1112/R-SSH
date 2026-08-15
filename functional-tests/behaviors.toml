@@ -433,6 +433,18 @@ summary = "Tabs and split panes retain their launch options, identities, focus, 
 surfaces = ["native_window"]
 
 [[behaviors]]
+id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+subsystem = "window"
+summary = "Browser-style tab duplication, reopening, batch close, menus, shortcuts, and overflow scrolling preserve session layout and selection semantics"
+surfaces = ["native_window"]
+
+[[behaviors]]
+id = "BHV-WINDOW-LIVE-TAB-TRANSFER"
+subsystem = "window"
+summary = "Moving a tab between native windows transfers every live pane runtime, remaps event identities, and retires an empty source window without reconnecting"
+surfaces = ["native_window"]
+
+[[behaviors]]
 id = "BHV-WINDOW-SELECTION-COPY-MODE"
 subsystem = "window"
 summary = "Selection, copy mode, and search editing change atomically without stale projections"

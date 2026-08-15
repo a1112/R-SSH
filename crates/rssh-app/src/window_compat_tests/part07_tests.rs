@@ -3494,7 +3494,7 @@
     }
 
     #[test]
-    fn window_app_clicking_tab_bar_new_tab_button_creates_tab() {
+    fn window_app_clicking_tab_bar_new_tab_button_opens_session_launcher() {
         let mut app = NativeWindowApp::new(None);
 
         let snapshot = app.render_snapshot();
@@ -3521,8 +3521,15 @@
                 .unwrap()
         );
 
-        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
-        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        assert_eq!(
+            app.command_palette
+                .as_ref()
+                .expect("new-tab button should open the launcher")
+                .title(),
+            "Launcher"
+        );
     }
 
     #[test]
@@ -3602,8 +3609,15 @@
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
                 .unwrap()
         );
-        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(3));
-        assert_eq!(app.app_shell.active_workspace().tabs().len(), 3);
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(
+            app.command_palette
+                .as_ref()
+                .expect("new-tab button should open the launcher")
+                .title(),
+            "Launcher"
+        );
     }
 
     #[test]
@@ -4150,6 +4164,7 @@
         );
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
         assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+        assert!(app.command_palette.is_none());
     }
 
     #[test]
@@ -4188,7 +4203,7 @@
                 window_id: rssh_core::WindowId::new(1),
                 pane: rssh_core::PaneId::new(1),
                 button: MouseButton::Right,
-                default_action: Some(WindowCommand::ShowLauncher),
+                default_action: Some(WindowCommand::NewTab),
             }]
         );
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));

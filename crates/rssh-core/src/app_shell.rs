@@ -82,6 +82,226 @@ impl PaneLaunch {
     }
 }
 
+/// Durable information needed to create a fresh tab from an existing tab.
+///
+/// This type deliberately contains launch configuration and layout only.  It
+/// never owns a live PTY, SSH transport, terminal screen, or runtime-only pane
+/// metadata, so callers can safely use it for duplicate and recently-closed
+/// tab flows without accidentally claiming that a process can be resumed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabReconnectSnapshot {
+    title: Option<String>,
+    panes: Vec<PaneReconnectSnapshot>,
+    active_pane_index: usize,
+    pane_activation_order: Vec<usize>,
+    zoomed_pane_index: Option<usize>,
+}
+
+impl TabReconnectSnapshot {
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    #[must_use]
+    pub fn panes(&self) -> &[PaneReconnectSnapshot] {
+        &self.panes
+    }
+
+    #[must_use]
+    pub const fn active_pane_index(&self) -> usize {
+        self.active_pane_index
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneReconnectSnapshot {
+    launch: PaneLaunch,
+    split: Option<PaneReconnectSplit>,
+}
+
+impl PaneReconnectSnapshot {
+    #[must_use]
+    pub fn launch(&self) -> &PaneLaunch {
+        &self.launch
+    }
+
+    #[must_use]
+    pub const fn split(&self) -> Option<PaneReconnectSplit> {
+        self.split
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaneReconnectSplit {
+    pub source_pane_index: usize,
+    pub direction: SplitDirection,
+    pub source_size_delta: i16,
+}
+
+/// A live tab model extracted from one shell and ready for insertion in
+/// another.  The application layer keeps the corresponding runtime resources
+/// alongside this value while transferring a tab between native windows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetachedTab {
+    tab: Tab,
+    source_index: usize,
+}
+
+/// Result of importing a detached tab into a shell.  IDs are always fresh in
+/// the destination, and the mapping lets window hosts retain live runtime
+/// ownership while redirecting events from the source identities.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportedTab {
+    tab_id: TabId,
+    pane_id_map: HashMap<PaneId, PaneId>,
+}
+
+impl ImportedTab {
+    #[must_use]
+    pub const fn tab_id(&self) -> TabId {
+        self.tab_id
+    }
+
+    #[must_use]
+    pub fn pane_id_map(&self) -> &HashMap<PaneId, PaneId> {
+        &self.pane_id_map
+    }
+}
+
+impl DetachedTab {
+    #[must_use]
+    pub fn tab(&self) -> &Tab {
+        &self.tab
+    }
+
+    #[must_use]
+    pub const fn source_index(&self) -> usize {
+        self.source_index
+    }
+}
+
+/// An in-memory entry for the browser-style "reopen closed tab" command.
+/// The entry is intentionally process-local and contains no live runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosedTabEntry {
+    snapshot: TabReconnectSnapshot,
+    origin_window_id: WindowId,
+    origin_workspace_id: WorkspaceId,
+    origin_index: usize,
+}
+
+impl ClosedTabEntry {
+    #[must_use]
+    pub const fn new(
+        snapshot: TabReconnectSnapshot,
+        origin_window_id: WindowId,
+        origin_workspace_id: WorkspaceId,
+        origin_index: usize,
+    ) -> Self {
+        Self {
+            snapshot,
+            origin_window_id,
+            origin_workspace_id,
+            origin_index,
+        }
+    }
+
+    #[must_use]
+    pub const fn origin_window_id(&self) -> WindowId {
+        self.origin_window_id
+    }
+
+    #[must_use]
+    pub const fn origin_workspace_id(&self) -> WorkspaceId {
+        self.origin_workspace_id
+    }
+
+    #[must_use]
+    pub const fn origin_index(&self) -> usize {
+        self.origin_index
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> &TabReconnectSnapshot {
+        &self.snapshot
+    }
+
+    #[must_use]
+    pub fn into_snapshot(self) -> TabReconnectSnapshot {
+        self.snapshot
+    }
+}
+
+/// Bounded, last-in-first-out storage for recently closed tabs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClosedTabHistory {
+    capacity: usize,
+    entries: Vec<ClosedTabEntry>,
+}
+
+impl ClosedTabHistory {
+    #[must_use]
+    pub const fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            entries: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub const fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn set_capacity(&mut self, capacity: usize) {
+        self.capacity = capacity;
+        let excess = self.entries.len().saturating_sub(capacity);
+        if excess > 0 {
+            self.entries.drain(..excess);
+        }
+    }
+
+    pub fn push(&mut self, entry: ClosedTabEntry) {
+        if self.capacity == 0 {
+            return;
+        }
+        let excess = self
+            .entries
+            .len()
+            .saturating_add(1)
+            .saturating_sub(self.capacity);
+        if excess > 0 {
+            self.entries.drain(..excess);
+        }
+        self.entries.push(entry);
+    }
+
+    pub fn pop(&mut self) -> Option<ClosedTabEntry> {
+        self.entries.pop()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseTabSelection {
+    /// Select the right neighbor, or the left neighbor at the end of the bar.
+    Adjacent,
+    /// Select the most recently active surviving tab when one exists.
+    LastActive,
+    /// Always select the left neighbor when possible.
+    Left,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppShell {
     workspaces: Vec<Workspace>,
@@ -219,6 +439,163 @@ impl AppShell {
         self.active_workspace().active_tab()
     }
 
+    /// Captures enough of a tab to create an equivalent, newly connected tab.
+    /// Runtime projection fields such as user variables, progress and unseen
+    /// output are intentionally excluded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::InvalidTab`] if `tab` is not in the active
+    /// workspace.
+    pub fn tab_reconnect_snapshot(
+        &self,
+        tab: TabId,
+    ) -> Result<TabReconnectSnapshot, AppShellError> {
+        let tab = self
+            .active_workspace()
+            .tab(tab)
+            .ok_or(AppShellError::InvalidTab(tab))?;
+        Ok(TabReconnectSnapshot::from_tab(tab))
+    }
+
+    /// Restores a reconnect snapshot at `index` in the active workspace and
+    /// activates the new tab.  Values beyond the end of the tab list append.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::InvalidTab`] when the snapshot contains an
+    /// invalid pane layout.  Snapshots produced by [`Self::tab_reconnect_snapshot`]
+    /// are always valid.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the shell invariant that an active workspace exists is
+    /// already broken.
+    pub fn restore_tab_snapshot(
+        &mut self,
+        snapshot: TabReconnectSnapshot,
+        index: usize,
+    ) -> Result<TabId, AppShellError> {
+        let tab_id = self.next_tab_id();
+        let pane_ids = (0..snapshot.panes.len())
+            .map(|_| self.next_pane_id())
+            .collect::<Vec<_>>();
+        let tab = Tab::from_reconnect_snapshot(tab_id, snapshot, &pane_ids)?;
+        let workspace = self
+            .active_workspace_mut()
+            .expect("active workspace must exist");
+        workspace.insert_tab(tab, index);
+        Ok(tab_id)
+    }
+
+    /// Creates a fresh reconnect clone directly to the right of `tab`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::InvalidTab`] if `tab` is not in the active
+    /// workspace.
+    pub fn duplicate_tab(&mut self, tab: TabId) -> Result<TabId, AppShellError> {
+        let index = self
+            .active_workspace()
+            .tab_position(tab)
+            .ok_or(AppShellError::InvalidTab(tab))?;
+        let snapshot = self.tab_reconnect_snapshot(tab)?;
+        self.restore_tab_snapshot(snapshot, index.saturating_add(1))
+    }
+
+    /// Removes a non-final tab from the active workspace without destroying
+    /// its model.  The caller owns the returned value until it is inserted
+    /// into another shell or restored to this one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::CannotCloseLastTab`] for the final tab and
+    /// [`AppShellError::InvalidTab`] when the tab is not in the active
+    /// workspace.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the shell invariant that an active workspace exists is
+    /// already broken.
+    pub fn detach_tab(&mut self, tab: TabId) -> Result<DetachedTab, AppShellError> {
+        self.active_workspace_mut()
+            .expect("active workspace must exist")
+            .detach_tab(tab)
+    }
+
+    /// Produces a detached representation for a tab that a window host is
+    /// about to transfer while retiring the source window.  Unlike
+    /// [`Self::detach_tab`], this also supports the final tab because the
+    /// source shell remains valid only until the host has installed the
+    /// destination owner and closed that window.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::InvalidTab`] when the tab is not in the
+    /// active workspace.
+    pub fn clone_tab_for_transfer(&self, tab: TabId) -> Result<DetachedTab, AppShellError> {
+        let workspace = self.active_workspace();
+        let source_index = workspace
+            .tab_position(tab)
+            .ok_or(AppShellError::InvalidTab(tab))?;
+        Ok(DetachedTab {
+            tab: workspace.tabs[source_index].clone(),
+            source_index,
+        })
+    }
+
+    /// Inserts a detached tab into the active workspace, assigning fresh tab
+    /// and pane IDs so it cannot collide with state already owned by this
+    /// shell.  The inserted tab becomes active.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::InvalidTab`] if the detached tab has invalid
+    /// internal pane references.
+    pub fn insert_detached_tab(
+        &mut self,
+        detached: DetachedTab,
+        index: usize,
+    ) -> Result<TabId, AppShellError> {
+        self.import_detached_tab(detached, index)
+            .map(|imported| imported.tab_id)
+    }
+
+    /// Imports a detached tab with fresh destination identities and returns
+    /// the complete source-to-destination pane identity mapping.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppShellError::InvalidTab`] if the detached tab contains an
+    /// invalid pane layout or split reference.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the shell invariant that an active workspace exists is
+    /// already broken.
+    pub fn import_detached_tab(
+        &mut self,
+        mut detached: DetachedTab,
+        index: usize,
+    ) -> Result<ImportedTab, AppShellError> {
+        let tab_id = self.next_tab_id();
+        let pane_id_map = detached
+            .tab
+            .panes()
+            .iter()
+            .map(|pane| (pane.id(), self.next_pane_id()))
+            .collect::<HashMap<_, _>>();
+        detached.tab.remap_ids(tab_id, &pane_id_map)?;
+        let workspace = self
+            .active_workspace_mut()
+            .expect("active workspace must exist");
+        workspace.insert_tab(detached.tab, index);
+        Ok(ImportedTab {
+            tab_id,
+            pane_id_map,
+        })
+    }
+
     /// Rebalances every split tree from its current cell layout when the
     /// available pane grid changes.
     pub fn preserve_split_layout_for_resize(
@@ -332,6 +709,9 @@ impl AppShell {
                 tab,
                 switch_to_last_active,
             } => self.apply_close_tab(tab, switch_to_last_active),
+            AppAction::CloseTabWithSelection { tab, selection } => {
+                self.apply_close_tab_with_selection(tab, selection)
+            }
             AppAction::ActivateTab { tab } => self.apply_activate_tab(tab),
             AppAction::ActivateTabIndex { index } => {
                 self.apply_activate_tab_index(index);
@@ -348,6 +728,7 @@ impl AppShell {
             AppAction::SetTabTitle { tab, title } => self.apply_set_tab_title(tab, &title),
             AppAction::MoveTab { index } => self.apply_move_tab(index),
             AppAction::MoveTabRelative { offset } => self.apply_move_tab_relative(offset),
+            AppAction::MoveTabToNewWindow { tab } => self.apply_move_tab_to_new_window(tab),
             AppAction::RotatePanes { direction } => self.apply_rotate_panes(direction),
             action @ (AppAction::SplitPane { .. }
             | AppAction::SplitPaneWithSize { .. }
@@ -471,7 +852,23 @@ impl AppShell {
         let active_workspace = self
             .active_workspace_mut()
             .expect("active workspace must exist");
-        active_workspace.close_tab(tab, switch_to_last_active)
+        let selection = if switch_to_last_active {
+            CloseTabSelection::LastActive
+        } else {
+            CloseTabSelection::Left
+        };
+        active_workspace.close_tab(tab, selection)
+    }
+
+    fn apply_close_tab_with_selection(
+        &mut self,
+        tab: TabId,
+        selection: CloseTabSelection,
+    ) -> Result<(), AppShellError> {
+        let active_workspace = self
+            .active_workspace_mut()
+            .expect("active workspace must exist");
+        active_workspace.close_tab(tab, selection)
     }
 
     fn apply_activate_tab(&mut self, tab: TabId) -> Result<(), AppShellError> {
@@ -528,6 +925,35 @@ impl AppShell {
             .active_workspace_mut()
             .expect("active workspace must exist");
         active_workspace.move_tab_relative(offset)
+    }
+
+    fn apply_move_tab_to_new_window(&mut self, tab: TabId) -> Result<(), AppShellError> {
+        let window_id = self.next_window_id();
+        let active_workspace = self
+            .active_workspace_mut()
+            .expect("active workspace must exist");
+        let workspace_id = active_workspace.id();
+        let workspace_name = active_workspace.name().to_owned();
+        // A window host must materialize the pending owner before it can
+        // retire its source window.  Keep the final tab model in the source
+        // until then; the host transfers its live runtime and immediately
+        // closes that source window.  Non-final tabs retain normal ownership
+        // transfer semantics.
+        let tab = if active_workspace.tabs.len() == 1 {
+            active_workspace
+                .tab(tab)
+                .cloned()
+                .ok_or(AppShellError::InvalidTab(tab))?
+        } else {
+            active_workspace.detach_tab(tab)?.tab
+        };
+        self.pending_windows.push(PendingWindow::new(
+            window_id,
+            workspace_id,
+            workspace_name,
+            tab,
+        ));
+        Ok(())
     }
 
     fn apply_rotate_panes(
@@ -620,7 +1046,7 @@ impl AppShell {
         };
         if active_workspace.tabs[tab_index].panes().len() <= 1 {
             let tab_id = active_workspace.tabs[tab_index].id();
-            return active_workspace.close_tab(tab_id, false);
+            return active_workspace.close_tab(tab_id, CloseTabSelection::Left);
         }
 
         active_workspace.tabs[tab_index].close_pane(pane)
@@ -1067,6 +1493,11 @@ impl Workspace {
         &self.tabs
     }
 
+    fn tab(&self, tab_id: TabId) -> Option<&Tab> {
+        self.tab_position(tab_id)
+            .and_then(|index| self.tabs.get(index))
+    }
+
     fn tab_position(&self, tab_id: TabId) -> Option<usize> {
         self.tabs.iter().position(|tab| tab.id == tab_id)
     }
@@ -1100,6 +1531,34 @@ impl Workspace {
         if let Some(tab_id) = self.tabs.last().map(Tab::id) {
             self.activate_existing_tab(tab_id);
         }
+    }
+
+    fn insert_tab(&mut self, tab: Tab, index: usize) {
+        let tab_id = tab.id();
+        self.tabs.insert(index.min(self.tabs.len()), tab);
+        self.activate_existing_tab(tab_id);
+    }
+
+    fn detach_tab(&mut self, tab_id: TabId) -> Result<DetachedTab, AppShellError> {
+        let Some(index) = self.tab_position(tab_id) else {
+            return Err(AppShellError::InvalidTab(tab_id));
+        };
+        if self.tabs.len() <= 1 {
+            return Err(AppShellError::CannotCloseLastTab);
+        }
+
+        let tab = self.tabs.remove(index);
+        if self.last_active_tab_id == Some(tab_id) {
+            self.last_active_tab_id = None;
+        }
+        if self.active_tab_id == tab_id {
+            let next_index = index.min(self.tabs.len() - 1);
+            self.active_tab_id = self.tabs[next_index].id();
+        }
+        Ok(DetachedTab {
+            tab,
+            source_index: index,
+        })
     }
 
     fn move_pane_to_new_tab(
@@ -1258,7 +1717,7 @@ impl Workspace {
     fn close_tab(
         &mut self,
         tab_id: TabId,
-        switch_to_last_active: bool,
+        selection: CloseTabSelection,
     ) -> Result<(), AppShellError> {
         let Some(index) = self.tab_position(tab_id) else {
             return Err(AppShellError::InvalidTab(tab_id));
@@ -1267,10 +1726,15 @@ impl Workspace {
             return Err(AppShellError::CannotCloseLastTab);
         }
 
-        let next_active_tab = if self.active_tab_id == tab_id && switch_to_last_active {
-            self.last_active_tab_id
-                .filter(|last_active_tab_id| *last_active_tab_id != tab_id)
-                .filter(|last_active_tab_id| self.tab_position(*last_active_tab_id).is_some())
+        let next_active_tab = if self.active_tab_id == tab_id {
+            match selection {
+                CloseTabSelection::Adjacent => self.tabs.get(index.saturating_add(1)).map(Tab::id),
+                CloseTabSelection::LastActive => self
+                    .last_active_tab_id
+                    .filter(|last_active_tab_id| *last_active_tab_id != tab_id)
+                    .filter(|last_active_tab_id| self.tab_position(*last_active_tab_id).is_some()),
+                CloseTabSelection::Left => None,
+            }
         } else {
             None
         };
@@ -1361,6 +1825,98 @@ impl Tab {
     fn set_title(&mut self, title: &str) {
         let title = title.trim();
         self.title = (!title.is_empty()).then(|| title.to_owned());
+    }
+
+    fn from_reconnect_snapshot(
+        id: TabId,
+        snapshot: TabReconnectSnapshot,
+        pane_ids: &[PaneId],
+    ) -> Result<Self, AppShellError> {
+        if snapshot.panes.is_empty()
+            || snapshot.panes.len() != pane_ids.len()
+            || snapshot.active_pane_index >= pane_ids.len()
+            || snapshot
+                .pane_activation_order
+                .iter()
+                .any(|index| *index >= pane_ids.len())
+            || snapshot
+                .zoomed_pane_index
+                .is_some_and(|index| index >= pane_ids.len())
+        {
+            return Err(AppShellError::InvalidTab(id));
+        }
+
+        let panes = snapshot
+            .panes
+            .iter()
+            .enumerate()
+            .map(|(index, pane)| {
+                let split = pane.split.map(|split| {
+                    let source_pane = *pane_ids
+                        .get(split.source_pane_index)
+                        .ok_or(AppShellError::InvalidTab(id))?;
+                    Ok(PaneSplit {
+                        source_pane,
+                        direction: split.direction,
+                        source_size_delta: split.source_size_delta,
+                    })
+                });
+                let split = split.transpose()?;
+                Ok(Pane::new(pane_ids[index], pane.launch.clone()).with_split(split))
+            })
+            .collect::<Result<Vec<_>, AppShellError>>()?;
+        let active_pane_id = pane_ids[snapshot.active_pane_index];
+        let pane_activation_order = snapshot
+            .pane_activation_order
+            .into_iter()
+            .map(|index| pane_ids[index])
+            .collect::<Vec<_>>();
+        let zoomed_pane_id = snapshot.zoomed_pane_index.map(|index| pane_ids[index]);
+
+        Ok(Self {
+            id,
+            panes,
+            active_pane_id,
+            pane_activation_order,
+            zoomed_pane_id,
+            title: snapshot.title,
+        })
+    }
+
+    fn remap_ids(
+        &mut self,
+        tab_id: TabId,
+        pane_id_map: &HashMap<PaneId, PaneId>,
+    ) -> Result<(), AppShellError> {
+        let remap = |pane_id| {
+            pane_id_map
+                .get(&pane_id)
+                .copied()
+                .ok_or(AppShellError::InvalidPane(pane_id))
+        };
+        let active_pane_id = remap(self.active_pane_id)?;
+        let pane_activation_order = self
+            .pane_activation_order
+            .iter()
+            .copied()
+            .map(remap)
+            .collect::<Result<Vec<_>, _>>()?;
+        let zoomed_pane_id = self.zoomed_pane_id.map(remap).transpose()?;
+
+        for pane in &mut self.panes {
+            let old_id = pane.id;
+            pane.id = remap(old_id)?;
+            if let Some(mut split) = pane.split {
+                split.source_pane = remap(split.source_pane)?;
+                pane.split = Some(split);
+            }
+        }
+
+        self.id = tab_id;
+        self.active_pane_id = active_pane_id;
+        self.pane_activation_order = pane_activation_order;
+        self.zoomed_pane_id = zoomed_pane_id;
+        Ok(())
     }
 
     fn pane_position(&self, pane_id: PaneId) -> Option<usize> {
@@ -1880,6 +2436,47 @@ impl Tab {
     }
 }
 
+impl TabReconnectSnapshot {
+    fn from_tab(tab: &Tab) -> Self {
+        let pane_indices = tab
+            .panes
+            .iter()
+            .enumerate()
+            .map(|(index, pane)| (pane.id, index))
+            .collect::<HashMap<_, _>>();
+        let pane_index = |pane_id| {
+            *pane_indices
+                .get(&pane_id)
+                .expect("tab pane references remain internally valid")
+        };
+        let panes = tab
+            .panes
+            .iter()
+            .map(|pane| PaneReconnectSnapshot {
+                launch: pane.launch.clone(),
+                split: pane.split.map(|split| PaneReconnectSplit {
+                    source_pane_index: pane_index(split.source_pane),
+                    direction: split.direction,
+                    source_size_delta: split.source_size_delta,
+                }),
+            })
+            .collect();
+
+        Self {
+            title: tab.title.clone(),
+            panes,
+            active_pane_index: pane_index(tab.active_pane_id),
+            pane_activation_order: tab
+                .pane_activation_order
+                .iter()
+                .copied()
+                .map(pane_index)
+                .collect(),
+            zoomed_pane_index: tab.zoomed_pane_id.map(pane_index),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct PaneDirectionCandidate {
     pane_id: PaneId,
@@ -2389,6 +2986,10 @@ pub enum AppAction {
         tab: TabId,
         switch_to_last_active: bool,
     },
+    CloseTabWithSelection {
+        tab: TabId,
+        selection: CloseTabSelection,
+    },
     ActivateTab {
         tab: TabId,
     },
@@ -2411,6 +3012,9 @@ pub enum AppAction {
     },
     MoveTabRelative {
         offset: isize,
+    },
+    MoveTabToNewWindow {
+        tab: TabId,
     },
     RotatePanes {
         direction: PaneRotationDirection,
@@ -3249,6 +3853,246 @@ mod tests {
 
         assert_eq!(shell.active_tab_id(), TabId::new(2));
         assert_eq!(shell.active_workspace().tabs().len(), 3);
+    }
+
+    #[test]
+    fn close_tab_with_adjacent_selection_prefers_the_right_neighbor() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        shell
+            .apply_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        shell
+            .apply_action(AppAction::ActivateTab { tab: TabId::new(2) })
+            .unwrap();
+
+        shell
+            .apply_action(AppAction::CloseTabWithSelection {
+                tab: TabId::new(2),
+                selection: CloseTabSelection::Adjacent,
+            })
+            .unwrap();
+
+        assert_eq!(shell.active_tab_id(), TabId::new(3));
+        assert_eq!(
+            shell
+                .active_workspace()
+                .tabs()
+                .iter()
+                .map(Tab::id)
+                .collect::<Vec<_>>(),
+            vec![TabId::new(1), TabId::new(3)]
+        );
+    }
+
+    #[test]
+    fn reconnect_snapshot_restores_a_full_split_tab_with_fresh_ids() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh").with_cwd("C:/work"));
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: Some(PaneLaunch::local("ssh").with_args(["ops"])),
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::SetTabTitle {
+                tab: TabId::new(1),
+                title: "production".to_owned(),
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::SetPaneZoomState {
+                pane: PaneId::new(2),
+                zoomed: true,
+            })
+            .unwrap();
+
+        let snapshot = shell.tab_reconnect_snapshot(TabId::new(1)).unwrap();
+        let restored = shell.restore_tab_snapshot(snapshot, 1).unwrap();
+
+        assert_eq!(restored, TabId::new(2));
+        assert_eq!(shell.active_tab_id(), restored);
+        let tab = shell.active_tab();
+        assert_eq!(tab.title(), Some("production"));
+        assert_eq!(tab.panes().len(), 2);
+        assert_eq!(tab.active_pane_id(), PaneId::new(4));
+        assert_eq!(tab.zoomed_pane_id(), Some(PaneId::new(4)));
+        assert_eq!(tab.panes()[0].id(), PaneId::new(3));
+        assert_eq!(tab.panes()[0].launch().cwd(), Some("C:/work"));
+        assert_eq!(tab.panes()[1].id(), PaneId::new(4));
+        assert_eq!(tab.panes()[1].launch().program(), "ssh");
+        assert_eq!(
+            tab.panes()[1]
+                .split()
+                .expect("split is retained")
+                .source_pane,
+            PaneId::new(3)
+        );
+    }
+
+    #[test]
+    fn duplicate_tab_inserts_a_full_reconnect_clone_to_the_right() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Down,
+                launch: Some(PaneLaunch::local("ssh").with_args(["ops"])),
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::SetTabTitle {
+                tab: TabId::new(1),
+                title: "ops".to_owned(),
+            })
+            .unwrap();
+
+        let duplicate = shell.duplicate_tab(TabId::new(1)).unwrap();
+
+        assert_eq!(duplicate, TabId::new(2));
+        assert_eq!(shell.active_tab_id(), duplicate);
+        assert_eq!(shell.active_tab().title(), Some("ops"));
+        assert_eq!(shell.active_tab().panes().len(), 2);
+        assert_eq!(
+            shell.active_tab().panes()[1]
+                .split()
+                .expect("split is retained")
+                .direction,
+            SplitDirection::Down
+        );
+        assert_eq!(
+            shell
+                .active_workspace()
+                .tabs()
+                .iter()
+                .map(Tab::id)
+                .collect::<Vec<_>>(),
+            vec![TabId::new(1), TabId::new(2)]
+        );
+    }
+
+    #[test]
+    fn detached_tab_import_remaps_conflicting_tab_and_pane_ids() {
+        let mut source = AppShell::new(PaneLaunch::local("pwsh"));
+        source
+            .apply_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        source
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(2),
+                direction: SplitDirection::Right,
+                launch: Some(PaneLaunch::local("ssh")),
+            })
+            .unwrap();
+        let detached = source.detach_tab(TabId::new(2)).unwrap();
+
+        let mut target = AppShell::new(PaneLaunch::local("pwsh"));
+        target
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Left,
+                launch: None,
+            })
+            .unwrap();
+
+        let imported = target.insert_detached_tab(detached, 0).unwrap();
+
+        assert_eq!(imported, TabId::new(2));
+        assert_eq!(target.active_tab_id(), imported);
+        assert_eq!(target.active_tab().panes()[0].id(), PaneId::new(3));
+        assert_eq!(target.active_tab().panes()[1].id(), PaneId::new(4));
+        assert_eq!(
+            target.active_tab().panes()[1]
+                .split()
+                .expect("split source is remapped")
+                .source_pane,
+            PaneId::new(3)
+        );
+    }
+
+    #[test]
+    fn closed_tab_history_is_bounded_and_reopens_the_most_recent_tab_first() {
+        let shell = AppShell::new(PaneLaunch::local("pwsh"));
+        let first = shell.tab_reconnect_snapshot(TabId::new(1)).unwrap();
+        let second = first.clone();
+        let third = first.clone();
+        let mut history = ClosedTabHistory::new(2);
+
+        history.push(ClosedTabEntry::new(
+            first,
+            WindowId::new(3),
+            WorkspaceId::new(1),
+            0,
+        ));
+        history.push(ClosedTabEntry::new(
+            second,
+            WindowId::new(4),
+            WorkspaceId::new(2),
+            1,
+        ));
+        history.push(ClosedTabEntry::new(
+            third,
+            WindowId::new(5),
+            WorkspaceId::new(3),
+            2,
+        ));
+
+        assert_eq!(history.len(), 2);
+        assert_eq!(history.pop().unwrap().origin_window_id(), WindowId::new(5));
+        assert_eq!(
+            history.pop().unwrap().origin_workspace_id(),
+            WorkspaceId::new(2)
+        );
+        assert!(history.pop().is_none());
+    }
+
+    #[test]
+    fn move_tab_to_new_window_preserves_the_complete_tab_model() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(2),
+                direction: SplitDirection::Right,
+                launch: Some(PaneLaunch::local("ssh").with_args(["ops"])),
+            })
+            .unwrap();
+
+        shell
+            .apply_action(AppAction::MoveTabToNewWindow { tab: TabId::new(2) })
+            .unwrap();
+
+        assert_eq!(shell.active_workspace().tabs().len(), 1);
+        let pending = shell.pending_windows().first().expect("pending window");
+        assert_eq!(pending.tab().panes().len(), 2);
+        assert_eq!(pending.tab().panes()[0].id(), PaneId::new(2));
+        assert_eq!(pending.tab().panes()[1].id(), PaneId::new(3));
+        assert_eq!(
+            pending.tab().panes()[1]
+                .split()
+                .expect("split is retained")
+                .source_pane,
+            PaneId::new(2)
+        );
+    }
+
+    #[test]
+    fn move_final_tab_to_new_window_keeps_a_pending_copy_for_the_host_to_transfer() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+
+        shell
+            .apply_action(AppAction::MoveTabToNewWindow { tab: TabId::new(1) })
+            .expect("the host must be able to move a final tab before closing its source window");
+
+        assert_eq!(shell.active_workspace().tabs().len(), 1);
+        let pending = shell.pending_windows().first().expect("pending window");
+        assert_eq!(pending.tab().id(), TabId::new(1));
+        assert_eq!(pending.active_pane_id(), PaneId::new(1));
     }
 
     #[test]

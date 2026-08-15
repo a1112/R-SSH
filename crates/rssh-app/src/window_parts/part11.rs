@@ -3531,6 +3531,9 @@ fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowC
     if let Some(index) = move_tab_from_query(query) {
         return Some(WindowCommand::MoveTab(index));
     }
+    if let Some(window_id) = move_tab_to_window_from_query(query) {
+        return Some(WindowCommand::MoveTabToWindow(window_id));
+    }
     if let Some(direction) = activate_pane_direction_from_query(query) {
         return Some(WindowCommand::ActivatePaneDirection(direction));
     }
@@ -3874,6 +3877,11 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
         "enterpanemovetonewwindow" => return Some(WindowCommand::EnterPaneMoveToNewWindow),
         "closepane" => return Some(WindowCommand::ClosePane),
         "closetab" => return Some(WindowCommand::CloseTab),
+        "duplicatetab" => return Some(WindowCommand::DuplicateTab),
+        "reopenclosedtab" => return Some(WindowCommand::ReopenClosedTab),
+        "closeothertabs" => return Some(WindowCommand::CloseOtherTabs),
+        "closetabstoright" => return Some(WindowCommand::CloseTabsToRight),
+        "movetabtonewwindow" => return Some(WindowCommand::MoveTabToNewWindow),
         _ => {}
     }
     None

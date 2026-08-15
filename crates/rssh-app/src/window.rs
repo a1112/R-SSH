@@ -26,8 +26,9 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{
     DamageRegion, TerminalSize,
     app_shell::{
-        AppAction, AppShell, AppShellError, PaneDirection, PaneLaunch, PaneProgress,
-        PaneRotationDirection, ResizeDirection, SplitDirection,
+        AppAction, AppShell, AppShellError, ClosedTabEntry, ClosedTabHistory,
+        CloseTabSelection, PaneDirection, PaneLaunch, PaneProgress, PaneRotationDirection,
+        ResizeDirection, SplitDirection,
     },
 };
 use rssh_native::input::{
@@ -414,6 +415,8 @@ const DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS: NativeBoldBrightensAnsiColors =
 const DEFAULT_WINDOW_DPI: u32 = 96;
 const DEFAULT_TAB_MAX_WIDTH: usize = 16;
 const MODERN_DEFAULT_TAB_MAX_WIDTH: usize = 20;
+const DEFAULT_TAB_MIN_WIDTH: usize = 8;
+const DEFAULT_CLOSED_TAB_HISTORY_SIZE: usize = 25;
 const MODERN_FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * MODERN_CELL_WIDTH;
 const MODERN_FRAME_HEIGHT: u32 =
     (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * MODERN_CELL_HEIGHT;
@@ -425,6 +428,42 @@ const DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR: bool = true;
 const DEFAULT_SHOW_TABS_IN_TAB_BAR: bool = true;
 const DEFAULT_MOUSE_WHEEL_SCROLLS_TABS: bool = true;
 const DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB: bool = false;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum NativeTabShortcutStyle {
+    #[default]
+    Terminal,
+    Browser,
+}
+
+impl NativeTabShortcutStyle {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "terminal" => Some(Self::Terminal),
+            "browser" => Some(Self::Browser),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum NativeTabBarWheelBehavior {
+    #[default]
+    Scroll,
+    Switch,
+    Disabled,
+}
+
+impl NativeTabBarWheelBehavior {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "scroll" => Some(Self::Scroll),
+            "switch" => Some(Self::Switch),
+            "disabled" => Some(Self::Disabled),
+            _ => None,
+        }
+    }
+}
 const DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED: bool = true;
 const DEFAULT_WINDOW_CLOSE_CONFIRMATION: NativeWindowCloseConfirmation =
     NativeWindowCloseConfirmation::AlwaysPrompt;
@@ -4233,6 +4272,7 @@ struct NativeConfigView  {
     dpi: u32,
     dpi_by_screen: BTreeMap<String, u32>,
     tab_max_width: usize,
+    tab_min_width: usize,
     status_update_interval: u64,
     status_update_interval_ms: u64,
     max_fps: usize,
@@ -4565,6 +4605,10 @@ struct NativeConfigView4 {
     tab_and_split_indices_are_zero_based: bool,
     mouse_wheel_scrolls_tabs: bool,
     switch_to_last_active_tab_when_closing_tab: bool,
+    tab_shortcut_style: NativeTabShortcutStyle,
+    closed_tab_history_size: usize,
+    close_tab_selection: CloseTabSelection,
+    tab_bar_wheel_behavior: NativeTabBarWheelBehavior,
     quit_when_all_windows_are_closed: bool,
     window_close_confirmation: NativeWindowCloseConfirmation,
     exit_behavior: NativeExitBehavior,
@@ -4583,6 +4627,7 @@ pub(crate) struct NativeConfigSnapshot {
     dpi: Option<u32>,
     dpi_by_screen: Option<BTreeMap<String, u32>>,
     tab_max_width: Option<usize>,
+    tab_min_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
     pub(crate) max_fps: Option<usize>,
     animation_fps: Option<usize>,
@@ -4918,6 +4963,10 @@ pub(crate) struct NativeConfigSnapshot4 {
     tab_and_split_indices_are_zero_based: Option<bool>,
     mouse_wheel_scrolls_tabs: Option<bool>,
     switch_to_last_active_tab_when_closing_tab: Option<bool>,
+    tab_shortcut_style: Option<NativeTabShortcutStyle>,
+    closed_tab_history_size: Option<usize>,
+    close_tab_selection: Option<CloseTabSelection>,
+    tab_bar_wheel_behavior: Option<NativeTabBarWheelBehavior>,
     quit_when_all_windows_are_closed: Option<bool>,
     window_close_confirmation: Option<NativeWindowCloseConfirmation>,
     exit_behavior: Option<NativeExitBehavior>,
@@ -4935,6 +4984,7 @@ impl NativeConfigSnapshot {
         values.dpi = self.dpi;
         values.dpi_by_screen = self.dpi_by_screen;
         values.tab_max_width = self.tab_max_width;
+        values.tab_min_width = self.tab_min_width;
         values.status_update_interval_ms = self.status_update_interval_ms;
         values.max_fps = self.max_fps;
         values.animation_fps = self.animation_fps;
@@ -5207,6 +5257,10 @@ impl NativeConfigSnapshot4 {
         values.tab_and_split_indices_are_zero_based = self.tab_and_split_indices_are_zero_based;
         values.mouse_wheel_scrolls_tabs = self.mouse_wheel_scrolls_tabs;
         values.switch_to_last_active_tab_when_closing_tab = self.switch_to_last_active_tab_when_closing_tab;
+        values.tab_shortcut_style = self.tab_shortcut_style;
+        values.closed_tab_history_size = self.closed_tab_history_size;
+        values.close_tab_selection = self.close_tab_selection;
+        values.tab_bar_wheel_behavior = self.tab_bar_wheel_behavior;
         values.quit_when_all_windows_are_closed = self.quit_when_all_windows_are_closed;
         values.window_close_confirmation = self.window_close_confirmation;
         values.exit_behavior = self.exit_behavior;
@@ -5342,6 +5396,10 @@ fn parse_native_config_group_1(
     }
     if let Some(tab_max_width) = lua_config_usize_assignment_from_query(config, "tab_max_width") {
         overrides.tab_max_width = Some(tab_max_width);
+        parsed = true;
+    }
+    if let Some(tab_min_width) = lua_config_usize_assignment_from_query(config, "tab_min_width") {
+        overrides.tab_min_width = Some(tab_min_width);
         parsed = true;
     }
     if let Some(default_prog) =
@@ -7378,6 +7436,36 @@ fn parse_native_config_group_9(
             Some(switch_to_last_active_tab_when_closing_tab);
         parsed = true;
     }
+    if let Some(tab_shortcut_style) =
+        lua_config_string_assignment_from_query(config, "tab_shortcut_style")
+    {
+        overrides.tab_shortcut_style = Some(NativeTabShortcutStyle::parse(&tab_shortcut_style)?);
+        parsed = true;
+    }
+    if let Some(closed_tab_history_size) =
+        lua_config_usize_assignment_from_query(config, "closed_tab_history_size")
+    {
+        overrides.closed_tab_history_size = Some(closed_tab_history_size);
+        parsed = true;
+    }
+    if let Some(close_tab_selection) =
+        lua_config_string_assignment_from_query(config, "close_tab_selection")
+    {
+        overrides.close_tab_selection = Some(match close_tab_selection.trim() {
+            "adjacent" => CloseTabSelection::Adjacent,
+            "last-active" => CloseTabSelection::LastActive,
+            "left" => CloseTabSelection::Left,
+            _ => return None,
+        });
+        parsed = true;
+    }
+    if let Some(tab_bar_wheel_behavior) =
+        lua_config_string_assignment_from_query(config, "tab_bar_wheel_behavior")
+    {
+        overrides.tab_bar_wheel_behavior =
+            Some(NativeTabBarWheelBehavior::parse(&tab_bar_wheel_behavior)?);
+        parsed = true;
+    }
     if let Some(quit_when_all_windows_are_closed) =
         lua_config_bool_assignment_from_query(config, "quit_when_all_windows_are_closed")
     {
@@ -7543,4 +7631,6 @@ include!("window_parts/part12.rs");
 include!("window_parts/part13.rs");
 include!("window_parts/part14.rs");
 include!("window_parts/part15.rs");
+include!("window_parts/tab_session.rs");
+include!("window_parts/runtime_helpers.rs");
 include!("window_parts/functional_observer.rs");

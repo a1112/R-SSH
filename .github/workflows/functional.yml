@@ -46,6 +46,16 @@ jobs:
             local::tests::session_log_writer_records_visible_output \
             window::tests::window_app_dispatches_native_split_pane_action_payload \
             window::tests::new_split_and_tab_launches_use_reloaded_defaults \
+            window::tests::window_app_duplicate_and_reopen_closed_tab_restore_the_full_tab_layout \
+            window::tests::window_app_pending_windows_share_recently_closed_tab_history \
+            window::tests::window_app_batch_tab_close_uses_one_confirmation_for_the_whole_set \
+            window::tests::window_app_tab_context_menu_exposes_browser_tab_actions \
+            window::tests::window_app_browser_tab_shortcuts_open_launcher_reopen_and_activate_tabs \
+            window::tests::window_app_tab_bar_wheel_scrolls_headers_without_switching_sessions \
+            window::tests::window_app_tab_session_config_prefers_new_values_and_maps_legacy_values \
+            window::tests::window_app_move_tab_to_new_window_transfers_every_pane_runtime \
+            window::tests::window_manager_transfers_a_live_tab_between_windows_and_remaps_events \
+            window::tests::window_manager_transfers_its_final_tab_and_retires_the_source_window \
             window::tests::window_app_alternate_copy_projection_keeps_retained_cursor_identity \
             window::tests::window_app_copy_search_mode_and_editing_state_change_atomically \
             window::tests::window_search_finds_matches_in_scrollback \

@@ -78,21 +78,59 @@ try {
     "native_window_e2e_preserves_gpu_text_at_scale_200",
     "native_window_local_pane_v2_writes_visible_session_log"
   )) {
+    $isScaledScenario = $scenario.StartsWith(
+      "native_window_e2e_preserves_gpu_text_at_scale_",
+      [StringComparison]::Ordinal
+    )
     $scenarioArguments = @(
       "test", "--locked", "-p", "rssh-app", "--test", "native_window_e2e"
     ) + $profileArguments + @(
       $scenario,
       "--", "--exact", "--ignored", "--nocapture"
     )
-    for ($attempt = 1; $attempt -le $nativeScenarioAttempts; $attempt++) {
-      try {
-        $null = Invoke-BoundedProcess -Phase "native E2E scenario $scenario ($Profile), attempt $attempt" -FilePath "cargo" -ArgumentList $scenarioArguments -TimeoutSeconds 300
-        break
-      } catch {
-        if ($attempt -ge $nativeScenarioAttempts) {
-          throw
+    $previousScaleAdapterOverride = [Environment]::GetEnvironmentVariable(
+      "RSSH_TEST_NATIVE_SCALE_PRIMARY",
+      "Process"
+    )
+    try {
+      for ($attempt = 1; $attempt -le $nativeScenarioAttempts; $attempt++) {
+        if ($isScaledScenario -and $attempt -eq 1) {
+          # Fresh hosted Windows runners are more reliable when the scaled
+          # probe starts on the primary adapter. Keep the software fallback
+          # as a bounded alternate path for runners whose GPU stack wedges.
+          $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = "1"
+        } elseif ($isScaledScenario -and $attempt -eq 2) {
+          if ($null -eq $previousScaleAdapterOverride) {
+            Remove-Item Env:RSSH_TEST_NATIVE_SCALE_PRIMARY -ErrorAction SilentlyContinue
+          } else {
+            $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = $previousScaleAdapterOverride
+          }
+        } elseif ($attempt -eq 1) {
+          if ($null -eq $previousScaleAdapterOverride) {
+            Remove-Item Env:RSSH_TEST_NATIVE_SCALE_PRIMARY -ErrorAction SilentlyContinue
+          } else {
+            $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = $previousScaleAdapterOverride
+          }
+        } else {
+          # A non-scaled scenario still retries once through the alternate
+          # adapter path instead of repeating the same bounded timeout.
+          $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = "1"
         }
-        Write-Warning "native E2E scenario $scenario attempt $attempt failed; retrying after bounded cleanup: $_"
+        try {
+          $null = Invoke-BoundedProcess -Phase "native E2E scenario $scenario ($Profile), attempt $attempt" -FilePath "cargo" -ArgumentList $scenarioArguments -TimeoutSeconds 300
+          break
+        } catch {
+          if ($attempt -ge $nativeScenarioAttempts) {
+            throw
+          }
+          Write-Warning "native E2E scenario $scenario attempt $attempt failed; retrying after bounded cleanup with the alternate adapter: $_"
+        }
+      }
+    } finally {
+      if ($null -eq $previousScaleAdapterOverride) {
+        Remove-Item Env:RSSH_TEST_NATIVE_SCALE_PRIMARY -ErrorAction SilentlyContinue
+      } else {
+        $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = $previousScaleAdapterOverride
       }
     }
   }

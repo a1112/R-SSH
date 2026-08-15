@@ -1042,37 +1042,39 @@ enum WindowInputSelectorShortcut {
     Pending(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct WindowCloseConfirmation {
     target: WindowCloseTarget,
 }
 
 impl WindowCloseConfirmation {
-    const fn label(self) -> &'static str {
-        match self.target {
+    const fn label(&self) -> &'static str {
+        match &self.target {
             WindowCloseTarget::Window => "Close Window",
             WindowCloseTarget::Pane(_) => "Close Current Pane",
             WindowCloseTarget::Tab(_) => "Close Current Tab",
+            WindowCloseTarget::Tabs(_) => "Close Tabs",
         }
     }
 
-    const fn action(self, switch_to_last_active: bool) -> Option<AppAction> {
-        match self.target {
-            WindowCloseTarget::Window => None,
-            WindowCloseTarget::Pane(pane) => Some(AppAction::ClosePane { pane }),
+    const fn action(&self, switch_to_last_active: bool) -> Option<AppAction> {
+        match &self.target {
+            WindowCloseTarget::Pane(pane) => Some(AppAction::ClosePane { pane: *pane }),
             WindowCloseTarget::Tab(tab) => Some(AppAction::CloseTab {
-                tab,
+                tab: *tab,
                 switch_to_last_active,
             }),
+            WindowCloseTarget::Window | WindowCloseTarget::Tabs(_) => None,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum WindowCloseTarget {
     Window,
     Pane(rssh_core::PaneId),
     Tab(rssh_core::TabId),
+    Tabs(Vec<rssh_core::TabId>),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1575,6 +1577,13 @@ enum WindowCommand {
         confirm: bool,
     },
     CloseTab,
+    DuplicateTab,
+    ReopenClosedTab,
+    CloseOtherTabs,
+    CloseTabsToRight,
+    #[allow(dead_code)]
+    MoveTabToWindow(rssh_core::WindowId),
+    MoveTabToNewWindow,
     ActivateTabId(rssh_core::TabId),
     ActivateTab1,
     ActivateTab2,
@@ -1873,6 +1882,12 @@ impl WindowCommand {
             | Self::CloseWorkspace
             | Self::CloseCurrentTab { .. }
             | Self::CloseTab
+            | Self::DuplicateTab
+            | Self::ReopenClosedTab
+            | Self::CloseOtherTabs
+            | Self::CloseTabsToRight
+            | Self::MoveTabToWindow(_)
+            | Self::MoveTabToNewWindow
             | Self::ActivateTabId(_)
             | Self::ActivateTab1
             | Self::ActivateTab2
@@ -1970,6 +1985,10 @@ impl WindowCommand {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "command labels remain explicit for stable configuration and palette names"
+    )]
     fn navigation_label(&self) -> &'static str {
         if let Some(label) = self.activate_pane_label() {
             return label;
@@ -1981,6 +2000,12 @@ impl WindowCommand {
             Self::CloseCurrentPane { .. } | Self::ClosePane => "Close Current Pane",
             Self::CloseWorkspace => "Close Workspace",
             Self::CloseCurrentTab { .. } | Self::CloseTab => "Close Current Tab",
+            Self::DuplicateTab => "Duplicate Tab",
+            Self::ReopenClosedTab => "Reopen Closed Tab",
+            Self::CloseOtherTabs => "Close Other Tabs",
+            Self::CloseTabsToRight => "Close Tabs To Right",
+            Self::MoveTabToWindow(_) => "Move Tab To Window",
+            Self::MoveTabToNewWindow => "Move Tab To New Window",
             Self::ActivateCopyMode | Self::EnterCopyMode => "Activate Copy Mode",
             Self::CopyMode(_) => "Copy Mode",
             Self::ClearScrollback(_) => "Clear Scrollback",
@@ -2152,6 +2177,11 @@ impl WindowCommand {
             Self::CloseCurrentPane { .. } | Self::ClosePane => "Close Current Pane",
             Self::CloseWorkspace => "Close Workspace",
             Self::CloseCurrentTab { .. } | Self::CloseTab => "Close Current Tab",
+            Self::DuplicateTab => "Duplicate Tab",
+            Self::ReopenClosedTab => "Reopen Closed Tab",
+            Self::CloseOtherTabs => "Close Other Tabs",
+            Self::CloseTabsToRight => "Close Tabs To Right",
+            Self::MoveTabToNewWindow => "Move Tab To New Window",
             Self::ActivateCopyMode | Self::EnterCopyMode => "Activate Copy Mode",
             Self::CopyMode(_) => "Copy Mode",
             Self::ClearScrollback(_) => "Clear Scrollback",
@@ -3182,6 +3212,11 @@ const WINDOW_COMMANDS: &[WindowCommand] = &[
     WindowCommand::SpawnWindow,
     WindowCommand::ActivateCommandPalette,
     WindowCommand::CloseTab,
+    WindowCommand::DuplicateTab,
+    WindowCommand::ReopenClosedTab,
+    WindowCommand::CloseOtherTabs,
+    WindowCommand::CloseTabsToRight,
+    WindowCommand::MoveTabToNewWindow,
     WindowCommand::ActivateTab1,
     WindowCommand::ActivateTab2,
     WindowCommand::ActivateTab3,
@@ -3306,6 +3341,10 @@ const WINDOW_COMMANDS: &[WindowCommand] = &[
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum WindowCommandPaletteEntry {
     BuiltIn(WindowCommand),
+    Contextual {
+        command: WindowCommand,
+        label: String,
+    },
     Augmented(NativeCommandPaletteEntry),
 }
 
@@ -3319,6 +3358,7 @@ impl WindowCommandPaletteEntry {
     fn label(&self) -> &str {
         match self {
             Self::BuiltIn(command) => command.label(),
+            Self::Contextual { label, .. } => label,
             Self::Augmented(entry) => &entry.brief,
         }
     }
@@ -3331,6 +3371,7 @@ impl WindowCommandPaletteEntry {
         let prefix = if selected { '>' } else { ' ' };
         match self {
             Self::BuiltIn(command) => format!("{prefix} {}", command.label()),
+            Self::Contextual { label, .. } => format!("{prefix} {label}"),
             Self::Augmented(entry) => {
                 let brief = augmented_command_palette_display_brief(entry, ui_key_cap_rendering);
                 match entry.doc.as_deref() {
@@ -3343,7 +3384,7 @@ impl WindowCommandPaletteEntry {
 
     fn into_command(self) -> WindowCommand {
         match self {
-            Self::BuiltIn(command) => command,
+            Self::BuiltIn(command) | Self::Contextual { command, .. } => command,
             Self::Augmented(entry) => entry.action,
         }
     }
@@ -3503,12 +3544,17 @@ struct WindowCommandPalette {
     selected: usize,
     augmented_entries: Vec<NativeCommandPaletteEntry>,
     launcher_args: Option<WindowShowLauncherArgs>,
+    context_entries: Option<Vec<WindowCommandPaletteEntry>>,
+    context_title: Option<String>,
     launcher_shortcut_prefix: String,
     launcher_fuzzy_filter: bool,
 }
 
 impl WindowCommandPalette {
     fn title(&self) -> &str {
+        if let Some(title) = self.context_title.as_deref() {
+            return title;
+        }
         self.launcher_args
             .as_ref()
             .and_then(|args| args.title.as_deref())
@@ -5910,7 +5956,7 @@ struct TabBarTitleContext {
 #[derive(Clone, Copy)]
 struct TabBarDrag {
     source_tab_id: rssh_core::TabId,
-    pressed_column: u16,
+    pressed_pixel_x: f64,
     moved: bool,
 }
 
