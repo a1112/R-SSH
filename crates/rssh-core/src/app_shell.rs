@@ -9,21 +9,119 @@ const PANE_DIRECTION_LAYOUT_ROWS: i32 = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneLaunch {
+    domain: PaneLaunchDomain,
     program: String,
     args: Vec<String>,
     cwd: Option<String>,
     environment: HashMap<String, String>,
 }
 
+/// Identifies the transport used to create a pane.
+///
+/// The local variant preserves the historical `PaneLaunch` behavior. The SSH
+/// variant contains only connection metadata; interactive secrets are always
+/// requested by the runtime and are deliberately not representable here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaneLaunchDomain {
+    Local,
+    Ssh(SshPaneLaunch),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshPaneLaunch {
+    target: String,
+    auth: SshAuthDescription,
+    known_hosts_policy: SshKnownHostsPolicy,
+    remote_command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SshAuthDescription {
+    Agent,
+    PasswordPrompt,
+    PrivateKey { path: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshKnownHostsPolicy {
+    RejectUnknown,
+    Prompt,
+    TrustOnFirstUse,
+    AcceptUnknown,
+}
+
+impl SshPaneLaunch {
+    #[must_use]
+    pub fn new(
+        target: impl Into<String>,
+        auth: SshAuthDescription,
+        known_hosts_policy: SshKnownHostsPolicy,
+    ) -> Self {
+        Self {
+            target: target.into(),
+            auth,
+            known_hosts_policy,
+            remote_command: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_remote_command<I, S>(mut self, command: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.remote_command = command.into_iter().map(Into::into).collect();
+        self
+    }
+
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    #[must_use]
+    pub fn auth(&self) -> &SshAuthDescription {
+        &self.auth
+    }
+
+    #[must_use]
+    pub const fn known_hosts_policy(&self) -> SshKnownHostsPolicy {
+        self.known_hosts_policy
+    }
+
+    #[must_use]
+    pub fn remote_command(&self) -> &[String] {
+        &self.remote_command
+    }
+}
+
 impl PaneLaunch {
     #[must_use]
     pub fn local(program: impl Into<String>) -> Self {
         Self {
+            domain: PaneLaunchDomain::Local,
             program: program.into(),
             args: Vec::new(),
             cwd: None,
             environment: HashMap::new(),
         }
+    }
+
+    #[must_use]
+    pub fn ssh(launch: SshPaneLaunch) -> Self {
+        Self {
+            domain: PaneLaunchDomain::Ssh(launch),
+            program: String::new(),
+            args: Vec::new(),
+            cwd: None,
+            environment: HashMap::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn domain(&self) -> &PaneLaunchDomain {
+        &self.domain
     }
 
     #[must_use]
@@ -5441,5 +5539,41 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error, AppShellError::CannotCloseLastWorkspace);
+    }
+
+    #[test]
+    fn ssh_pane_launch_exposes_typed_domain_without_retaining_secrets() {
+        let launch = PaneLaunch::ssh(
+            SshPaneLaunch::new(
+                "ops@example.com",
+                SshAuthDescription::PasswordPrompt,
+                SshKnownHostsPolicy::Prompt,
+            )
+            .with_remote_command(["uname", "-a"]),
+        );
+
+        let PaneLaunchDomain::Ssh(ssh) = launch.domain() else {
+            panic!("expected SSH pane launch domain");
+        };
+
+        assert_eq!(ssh.target(), "ops@example.com");
+        assert_eq!(ssh.auth(), &SshAuthDescription::PasswordPrompt);
+        assert_eq!(ssh.known_hosts_policy(), SshKnownHostsPolicy::Prompt);
+        assert_eq!(ssh.remote_command(), ["uname", "-a"]);
+        assert!(!format!("{launch:?}").contains("password"));
+    }
+
+    #[test]
+    fn local_pane_launch_remains_compatible_with_existing_accessors() {
+        let launch = PaneLaunch::local("pwsh")
+            .with_args(["-NoLogo"])
+            .with_cwd("C:/work")
+            .with_environment([(String::from("MODE"), String::from("test"))]);
+
+        assert!(matches!(launch.domain(), PaneLaunchDomain::Local));
+        assert_eq!(launch.program(), "pwsh");
+        assert_eq!(launch.args(), ["-NoLogo"]);
+        assert_eq!(launch.cwd(), Some("C:/work"));
+        assert_eq!(launch.environment().get("MODE"), Some(&"test".to_owned()));
     }
 }

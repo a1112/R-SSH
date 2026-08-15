@@ -156,6 +156,9 @@ pub struct SshOptions {
     pub openssh_args: Vec<String>,
     pub no_shell: bool,
     pub native: bool,
+    pub gui: bool,
+    pub renderer: RendererMode,
+    pub benchmark_startup: bool,
     pub native_host_key_policy: NativeHostKeyPolicy,
     pub console: ConsoleOptions,
     pub osc52_policy: Osc52Policy,
@@ -230,6 +233,27 @@ pub enum NativeHostKeyPolicy {
     AcceptUnknown,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RendererMode {
+    #[default]
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+impl RendererMode {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "cpu" => Ok(Self::Cpu),
+            "gpu" => Ok(Self::Gpu),
+            value => Err(format!(
+                "invalid renderer: {value}; expected auto, cpu, or gpu"
+            )),
+        }
+    }
+}
+
 struct SshParseState {
     host: Option<String>,
     target: Option<String>,
@@ -243,6 +267,10 @@ struct SshParseState {
     openssh_args: Vec<String>,
     no_shell: bool,
     native: bool,
+    gui: bool,
+    renderer: RendererMode,
+    renderer_selected: bool,
+    benchmark_startup: bool,
     native_host_key_policy: NativeHostKeyPolicy,
     console: ConsoleOptions,
     osc52_policy: Osc52Policy,
@@ -264,6 +292,10 @@ impl Default for SshParseState {
             openssh_args: Vec::new(),
             no_shell: false,
             native: false,
+            gui: false,
+            renderer: RendererMode::Auto,
+            renderer_selected: false,
+            benchmark_startup: false,
             native_host_key_policy: NativeHostKeyPolicy::default(),
             console: ConsoleOptions::default(),
             osc52_policy: Osc52Policy::Off,
@@ -520,7 +552,7 @@ Usage:
   rssh-app start [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json | --state | --state-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
   rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--cwd CWD] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--cwd CWD] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
-  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-B IFACE] [-b ADDR] [-c CIPHER] [-E LOG] [-e CHAR] [-I PKCS11] [-m MAC] [-O CTL] [-P TAG] [-Q QUERY] [-S CTL_PATH] [-W HOST:PORT] [-w TUN] [-f] [-G] [-g] [-K | -k] [-M] [-n] [-s] [-T | -t | -tt] [-X | -x | -Y | -y] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]
+  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native | --gui] [--renderer auto|cpu|gpu] [--benchmark-startup] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-B IFACE] [-b ADDR] [-c CIPHER] [-E LOG] [-e CHAR] [-I PKCS11] [-m MAC] [-O CTL] [-P TAG] [-Q QUERY] [-S CTL_PATH] [-W HOST:PORT] [-w TUN] [-f] [-G] [-g] [-K | -k] [-M] [-n] [-s] [-T | -t | -tt] [-X | -x | -Y | -y] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]
   rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l LIMIT | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-b FILE] [-B N] [-R N] [-D COMMAND] [-S PROGRAM] [-s SUBSYSTEM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]
   rssh-app scp [--preflight] [--metrics | --metrics-json] [-l LIMIT] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-p] [-R] [-s] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] LOCAL... [USER@]HOST:REMOTE
   rssh-app scp [--preflight] [--metrics | --metrics-json] [-l LIMIT] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-p] [-R] [-s] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE... LOCAL
@@ -1315,6 +1347,19 @@ fn parse_ssh_option(
         "--native" => {
             state.native = true;
         }
+        "--gui" => {
+            state.gui = true;
+            state.native = true;
+        }
+        "--renderer" => {
+            *index += 1;
+            state.renderer_selected = true;
+            state.renderer =
+                RendererMode::parse(required_option_value(args.get(*index), "--renderer")?)?;
+        }
+        "--benchmark-startup" => {
+            state.benchmark_startup = true;
+        }
         "--preflight" => {
             state.console.preflight = true;
         }
@@ -1491,6 +1536,10 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         openssh_args,
         no_shell,
         native,
+        gui,
+        renderer,
+        renderer_selected,
+        benchmark_startup,
         native_host_key_policy,
         console,
         osc52_policy,
@@ -1499,6 +1548,22 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
 
     if no_shell && !remote_command.is_empty() {
         return Err("--no-shell cannot be combined with a remote command".to_owned());
+    }
+
+    if gui && !forwards.is_empty() {
+        return Err("GUI SSH does not support forwarding options".to_owned());
+    }
+    if gui && no_shell {
+        return Err("GUI SSH does not support --no-shell".to_owned());
+    }
+    if gui && !openssh_args.is_empty() {
+        return Err("GUI SSH does not support OpenSSH passthrough options".to_owned());
+    }
+    if !gui && renderer_selected {
+        return Err("--renderer requires --gui".to_owned());
+    }
+    if !gui && benchmark_startup {
+        return Err("--benchmark-startup requires --gui".to_owned());
     }
 
     let size = ssh_terminal_size(columns, rows)?;
@@ -1545,6 +1610,9 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         openssh_args,
         no_shell,
         native,
+        gui,
+        renderer,
+        benchmark_startup,
         native_host_key_policy,
         console,
         osc52_policy,
@@ -4757,5 +4825,89 @@ mod tests {
     fn rejects_partial_local_size() {
         assert!(parse_args(["rssh-app", "local", "--cols", "100"]).is_err());
         assert!(parse_args(["rssh-app", "local", "--rows", "30"]).is_err());
+    }
+
+    #[test]
+    fn parses_gui_ssh_with_hybrid_renderer_by_default() {
+        let AppCommand::Ssh(options) =
+            parse_args(["rssh-app", "ssh", "--gui", "--target", "prod"]).unwrap()
+        else {
+            panic!("expected SSH command");
+        };
+
+        assert!(options.gui);
+        assert!(options.native);
+        assert_eq!(options.renderer, super::RendererMode::Auto);
+        assert!(!options.benchmark_startup);
+    }
+
+    #[test]
+    fn parses_gui_ssh_renderer_override_and_startup_benchmark() {
+        let AppCommand::Ssh(options) = parse_args([
+            "rssh-app",
+            "ssh",
+            "--target",
+            "prod",
+            "--gui",
+            "--renderer",
+            "cpu",
+            "--benchmark-startup",
+        ])
+        .unwrap() else {
+            panic!("expected SSH command");
+        };
+
+        assert!(options.gui);
+        assert_eq!(options.renderer, super::RendererMode::Cpu);
+        assert!(options.benchmark_startup);
+    }
+
+    #[test]
+    fn rejects_gui_ssh_forwarding_no_shell_and_openssh_passthrough() {
+        for args in [
+            vec![
+                "rssh-app",
+                "ssh",
+                "--gui",
+                "--target",
+                "prod",
+                "-L",
+                "127.0.0.1:1:db:1",
+            ],
+            vec!["rssh-app", "ssh", "--gui", "--target", "prod", "--no-shell"],
+            vec![
+                "rssh-app", "ssh", "--gui", "--target", "prod", "-J", "bastion",
+            ],
+        ] {
+            let error = parse_args(args).unwrap_err();
+            assert!(
+                error.contains("GUI") || error.contains("passthrough"),
+                "unexpected GUI rejection: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn renderer_parser_rejects_unknown_values() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--gui",
+            "--target",
+            "prod",
+            "--renderer",
+            "vulkan",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("renderer"));
+    }
+
+    #[test]
+    fn rejects_renderer_without_gui_even_when_auto_is_selected() {
+        let error =
+            parse_args(["rssh-app", "ssh", "--target", "prod", "--renderer", "auto"]).unwrap_err();
+
+        assert!(error.contains("--renderer requires --gui"));
     }
 }

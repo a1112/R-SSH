@@ -30,6 +30,9 @@ struct ProfileDefinition {
     metrics: Option<ProfileMetrics>,
     preflight: Option<bool>,
     native: Option<bool>,
+    gui: Option<bool>,
+    renderer: Option<String>,
+    benchmark_startup: Option<bool>,
     host_key_policy: Option<String>,
     osc52: Option<String>,
     log: Option<String>,
@@ -374,6 +377,16 @@ impl ProfileDefinition {
         self.append_preflight(args);
         self.append_console_metrics(args)?;
         self.append_native_ssh_args(args)?;
+        if self.gui.unwrap_or(false) {
+            args.push("--gui".to_owned());
+        }
+        if let Some(renderer) = self.renderer.as_deref() {
+            args.push("--renderer".to_owned());
+            args.push(renderer.to_owned());
+        }
+        if self.benchmark_startup.unwrap_or(false) {
+            args.push("--benchmark-startup".to_owned());
+        }
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -658,6 +671,9 @@ dynamic_forward = ["127.0.0.1:1080"]
                 openssh_args: Vec::new(),
                 no_shell: false,
                 native: false,
+                gui: false,
+                renderer: crate::cli::RendererMode::Auto,
+                benchmark_startup: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 console: crate::cli::ConsoleOptions::default(),
                 osc52_policy: crate::cli::Osc52Policy::Off,
@@ -1332,5 +1348,57 @@ log = "prod.log"
             json,
             "{\"name\":\"prod\",\"kind\":\"ssh\",\"command\":\"rssh-app ssh --target prod --agent --log prod.log\",\"argv\":[\"rssh-app\",\"ssh\",\"--target\",\"prod\",\"--agent\",\"--log\",\"prod.log\"]}"
         );
+    }
+
+    #[test]
+    fn ssh_profile_gui_true_maps_to_native_gui_renderer_options() {
+        let contents = r#"
+[profiles.gui-prod]
+kind = "ssh"
+target = "prod"
+gui = true
+renderer = "cpu"
+benchmark_startup = true
+auth = "agent"
+"#;
+
+        assert_eq!(
+            super::args_from_toml("gui-prod", contents).unwrap(),
+            [
+                "rssh-app",
+                "ssh",
+                "--target",
+                "prod",
+                "--gui",
+                "--renderer",
+                "cpu",
+                "--benchmark-startup",
+                "--agent"
+            ]
+        );
+
+        let AppCommand::Ssh(options) = super::command_from_toml("gui-prod", contents).unwrap()
+        else {
+            panic!("expected SSH command");
+        };
+        assert!(options.gui);
+        assert!(options.native);
+    }
+
+    #[test]
+    fn gui_ssh_profile_rejects_forwarding_and_no_shell() {
+        for extra in [
+            "local_forward = [\"127.0.0.1:1234:db:5432\"]",
+            "no_shell = true",
+        ] {
+            let contents = format!(
+                "[profiles.gui-prod]\nkind = \"ssh\"\ntarget = \"prod\"\ngui = true\n{extra}\n"
+            );
+            let error = super::command_from_toml("gui-prod", &contents).unwrap_err();
+            assert!(
+                error.contains("GUI"),
+                "unexpected GUI profile error: {error}"
+            );
+        }
     }
 }
