@@ -946,7 +946,7 @@ impl GpuContext {
         #[cfg(debug_assertions)]
         let test_present_mode = std::env::var("RSSH_TEST_PRESENT_MODE").ok();
         #[cfg(not(debug_assertions))]
-        let test_present_mode = None;
+        let test_present_mode: Option<&str> = None;
         let present_mode =
             preferred_present_mode(&capabilities.present_modes, test_present_mode.as_deref())
                 .ok_or_else(|| {
@@ -1122,6 +1122,9 @@ fn preferred_present_mode(
     available: &[wgpu::PresentMode],
     test_override: Option<&str>,
 ) -> Option<wgpu::PresentMode> {
+    #[cfg(not(debug_assertions))]
+    let _ = test_override;
+
     #[cfg(debug_assertions)]
     if test_override.is_some_and(|value| value.eq_ignore_ascii_case("immediate"))
         && available.contains(&wgpu::PresentMode::Immediate)
