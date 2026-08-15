@@ -108,6 +108,15 @@ where
     }
 }
 
+impl<T> AsyncHostKeyVerifier for Arc<T>
+where
+    T: AsyncHostKeyVerifier + ?Sized,
+{
+    fn verify(&self, challenge: HostKeyChallenge) -> HostKeyVerificationFuture {
+        (**self).verify(challenge)
+    }
+}
+
 /// Cloneable asynchronous host-key verifier.
 #[derive(Clone)]
 pub struct HostKeyVerifier {
@@ -1267,10 +1276,10 @@ mod tests {
     };
 
     use crate::{
-        HostKeyChallenge, HostKeyDecision, HostKeyStatus, HostKeyVerifier, RusshAuthOutcome,
-        RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan, RusshChannelStartupRequest,
-        RusshConnectPlan, RusshHostKeyPolicy, RusshKnownHosts, RusshPrivateKeyAuth,
-        RusshRemoteTcpIpForwardPlan, SshConnectionPhase,
+        AsyncHostKeyVerifier, HostKeyChallenge, HostKeyDecision, HostKeyStatus, HostKeyVerifier,
+        RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan,
+        RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy, RusshKnownHosts,
+        RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan, SshConnectionPhase,
     };
 
     #[test]
@@ -1317,6 +1326,29 @@ mod tests {
         let decision = runtime.block_on(verifier.verify(challenge));
 
         assert_eq!(decision, HostKeyDecision::AcceptOnce);
+    }
+
+    #[test]
+    fn host_key_verifier_accepts_shared_async_trait_objects() {
+        let callback: Arc<dyn AsyncHostKeyVerifier> =
+            Arc::new(|_challenge: HostKeyChallenge| async move { HostKeyDecision::AcceptOnce });
+        let verifier = HostKeyVerifier::new(callback);
+        let challenge = HostKeyChallenge::new(
+            "ssh.example.com",
+            22,
+            "ssh-ed25519",
+            "SHA256:example",
+            HostKeyStatus::Unknown,
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            runtime.block_on(verifier.verify(challenge)),
+            HostKeyDecision::AcceptOnce
+        );
     }
 
     #[test]
