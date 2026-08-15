@@ -48,6 +48,7 @@ impl NativeWindowApp {
     dpi: self.window_dpi,
     dpi_by_screen: self.dpi_by_screen.clone(),
     tab_max_width: self.tab_max_width,
+    tab_min_width: self.tab_min_width,
     status_update_interval: u64::try_from(self.status_update_interval.as_millis())
                     .unwrap_or(u64::MAX),
     status_update_interval_ms: u64::try_from(self.status_update_interval.as_millis())
@@ -310,6 +311,10 @@ impl NativeWindowApp {
                     mouse_wheel_scrolls_tabs: self.mouse_wheel_scrolls_tabs,
                     switch_to_last_active_tab_when_closing_tab: self
                                     .switch_to_last_active_tab_when_closing_tab,
+                    tab_shortcut_style: self.tab_shortcut_style,
+                    closed_tab_history_size: self.closed_tab_history_size,
+                    close_tab_selection: self.close_tab_selection,
+                    tab_bar_wheel_behavior: self.tab_bar_wheel_behavior,
                     quit_when_all_windows_are_closed: self.quit_when_all_windows_are_closed,
                     window_close_confirmation: self.window_close_confirmation,
                     exit_behavior: self.exit_behavior,
@@ -456,6 +461,10 @@ fn apply_core_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapshot>)
         } else {
             DEFAULT_TAB_MAX_WIDTH
         });
+        self.tab_min_width = overrides
+            .tab_min_width
+            .unwrap_or(DEFAULT_TAB_MIN_WIDTH)
+            .clamp(1, self.tab_max_width);
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
         self.lua_tab_title.clone_from(&overrides.lua_tab_title);
         self.lua_window_title
@@ -1383,6 +1392,29 @@ fn apply_protocol_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapsh
         self.switch_to_last_active_tab_when_closing_tab = overrides
             .switch_to_last_active_tab_when_closing_tab
             .unwrap_or(DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB);
+        self.tab_shortcut_style = overrides
+            .tab_shortcut_style
+            .unwrap_or(NativeTabShortcutStyle::Terminal);
+        self.closed_tab_history_size = overrides
+            .closed_tab_history_size
+            .unwrap_or(DEFAULT_CLOSED_TAB_HISTORY_SIZE);
+        self.close_tab_selection = overrides.close_tab_selection.unwrap_or_else(|| {
+            match overrides.switch_to_last_active_tab_when_closing_tab {
+                Some(true) => CloseTabSelection::LastActive,
+                Some(false) => CloseTabSelection::Left,
+                None => CloseTabSelection::Adjacent,
+            }
+        });
+        self.tab_bar_wheel_behavior = overrides.tab_bar_wheel_behavior.unwrap_or_else(|| {
+            match overrides.mouse_wheel_scrolls_tabs {
+                Some(true) => NativeTabBarWheelBehavior::Switch,
+                Some(false) => NativeTabBarWheelBehavior::Disabled,
+                None => NativeTabBarWheelBehavior::Scroll,
+            }
+        });
+        if let Ok(mut history) = self.closed_tab_history.lock() {
+            history.set_capacity(self.closed_tab_history_size);
+        }
         self.quit_when_all_windows_are_closed = overrides
             .quit_when_all_windows_are_closed
             .unwrap_or(DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED);
@@ -2648,7 +2680,7 @@ impl NativeWindowApp {
             title.push_str(&Self::confirmation_status(confirmation));
         }
 
-        if let Some(close_confirmation) = self.close_confirmation {
+        if let Some(close_confirmation) = &self.close_confirmation {
             title.push_str(" - ");
             title.push_str(&Self::close_confirmation_status(close_confirmation));
         }
@@ -3505,6 +3537,15 @@ impl NativeWindowApp {
         }
 
         if self.handle_reload_configuration_shortcut_event(logical_key, physical_key, modifiers) {
+            return Ok(());
+        }
+
+        if self.handle_browser_tab_shortcut_event(
+            logical_key,
+            physical_key,
+            modifiers,
+            default_assignment_disabled,
+        ) {
             return Ok(());
         }
 

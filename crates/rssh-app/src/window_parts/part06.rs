@@ -4797,6 +4797,10 @@ fn native_key_assignment_command_from_query(
     if let Some(index) = move_tab_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::MoveTab(index));
     }
+    if let Some(window_id) = move_tab_to_window_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::MoveTabToWindow(window_id));
+    }
     if let Some(offset) = move_tab_relative_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::MoveTabRelative(offset));
     }
@@ -5946,6 +5950,7 @@ struct NativeWindowConfigPatchValues1 {
     window_frame_appearance: Option<NativeWindowFrameAppearance>,
     inactive_pane_hsb: Option<NativeInactivePaneHsb>,
     tab_max_width: Option<usize>,
+    tab_min_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
     max_fps: Option<usize>,
     animation_fps: Option<usize>,
@@ -6224,6 +6229,10 @@ struct NativeWindowConfigPatchValues5 {
     tab_and_split_indices_are_zero_based: Option<bool>,
     mouse_wheel_scrolls_tabs: Option<bool>,
     switch_to_last_active_tab_when_closing_tab: Option<bool>,
+    tab_shortcut_style: Option<NativeTabShortcutStyle>,
+    closed_tab_history_size: Option<usize>,
+    close_tab_selection: Option<CloseTabSelection>,
+    tab_bar_wheel_behavior: Option<NativeTabBarWheelBehavior>,
     quit_when_all_windows_are_closed: Option<bool>,
     window_close_confirmation: Option<NativeWindowCloseConfirmation>,
     exit_behavior: Option<NativeExitBehavior>,

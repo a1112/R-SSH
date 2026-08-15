@@ -639,7 +639,10 @@
         let mut manager = NativeWindowManager::new_for_test(declared);
         manager.pane_event_routes.insert(
             (rssh_core::WindowId::new(99), rssh_core::PaneId::new(1)),
-            rssh_core::WindowId::new(100),
+            crate::window::PaneEventRoute {
+                window_id: rssh_core::WindowId::new(100),
+                pane_id: rssh_core::PaneId::new(1),
+            },
         );
 
         assert_eq!(
@@ -871,6 +874,36 @@
             let mut detached = app.take_next_pending_window_app().expect("detached app");
             assert_detached_overlay_source(&mut detached, &rows, scrollback, top, &written);
         }
+    }
+
+    #[test]
+    fn window_app_move_tab_to_new_window_transfers_every_pane_runtime() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(2),
+            direction: SplitDirection::Right,
+            launch: Some(PaneLaunch::local("ssh").with_args(["ops"])),
+        })
+        .unwrap();
+
+        app.dispatch_app_action(AppAction::MoveTabToNewWindow {
+            tab: rssh_core::TabId::new(2),
+        })
+        .unwrap();
+        let detached = app
+            .take_next_pending_window_app()
+            .expect("tab should materialize as a detached window");
+
+        assert_eq!(detached.app_shell.active_workspace().tabs().len(), 1);
+        assert_eq!(detached.app_shell.active_tab().panes().len(), 2);
+        assert!(
+            detached
+                .pane_runtimes
+                .contains_key(&rssh_core::PaneId::new(2))
+        );
+        assert_eq!(detached.active_pane_id(), rssh_core::PaneId::new(3));
     }
 
     #[test]
@@ -2925,6 +2958,10 @@
         let pane_count_before = app.app_shell.pane_ids().len();
         let active_offset_before = app.current_scrollback_offset();
         app.mouse_pixel_position = Some(PhysicalPosition::new(f64::from(CELL_WIDTH), 0.0));
+        app.set_config_overrides(native_config_snapshot! {
+            mouse_wheel_scrolls_tabs: Some(true),
+            ..NativeConfigSnapshot::default()
+        });
 
         assert!(
             app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
@@ -5368,6 +5405,10 @@
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(3));
+        app.set_config_overrides(native_config_snapshot! {
+            mouse_wheel_scrolls_tabs: Some(true),
+            ..NativeConfigSnapshot::default()
+        });
 
         app.handle_cursor_moved(PhysicalPosition::new(f64::from(CELL_WIDTH), 0.0))
             .unwrap();
@@ -5999,3 +6040,72 @@
         assert_eq!(app.effective_window_title(), "TOSTRING LUA TITLE");
     }
 
+    #[test]
+    fn window_manager_transfers_a_live_tab_between_windows_and_remaps_events() {
+        let mut source = NativeWindowApp::new(None);
+        source
+            .dispatch_app_action(AppAction::NewTab { launch: None })
+            .expect("expected second source tab");
+        let mut target = NativeWindowApp::new(None);
+        target.app_window_id = rssh_core::WindowId::new(2);
+
+        let mut manager = NativeWindowManager::new_for_test(source);
+        manager.pending_apps.push(Box::new(target));
+        manager
+            .transfer_tab_between_windows(
+                rssh_core::WindowId::new(1),
+                rssh_core::WindowId::new(2),
+                rssh_core::TabId::new(1),
+                1,
+            )
+            .expect("expected live tab transfer");
+
+        let source = manager
+            .startup_app
+            .as_ref()
+            .expect("source remains open with its other tab");
+        assert_eq!(source.app_shell.active_workspace().tabs().len(), 1);
+        assert_eq!(source.app_shell.active_tab_id(), rssh_core::TabId::new(2));
+
+        let target = manager
+            .pending_apps
+            .first()
+            .expect("target window remains managed");
+        assert_eq!(target.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(target.app_shell.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(
+            manager
+                .pane_event_routes
+                .get(&(rssh_core::WindowId::new(1), rssh_core::PaneId::new(1))),
+            Some(&crate::window::PaneEventRoute {
+                window_id: rssh_core::WindowId::new(2),
+                pane_id: rssh_core::PaneId::new(2),
+            })
+        );
+    }
+
+    #[test]
+    fn window_manager_transfers_its_final_tab_and_retires_the_source_window() {
+        let source = NativeWindowApp::new(None);
+        let mut target = NativeWindowApp::new(None);
+        target.app_window_id = rssh_core::WindowId::new(2);
+
+        let mut manager = NativeWindowManager::new_for_test(source);
+        manager.pending_apps.push(Box::new(target));
+        manager
+            .transfer_tab_between_windows(
+                rssh_core::WindowId::new(1),
+                rssh_core::WindowId::new(2),
+                rssh_core::TabId::new(1),
+                1,
+            )
+            .expect("expected final live tab transfer");
+
+        assert!(manager.startup_app.is_none());
+        let target = manager
+            .pending_apps
+            .first()
+            .expect("target window remains managed");
+        assert_eq!(target.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(target.app_shell.active_tab_id(), rssh_core::TabId::new(2));
+    }

@@ -2815,22 +2815,37 @@ impl NativeWindowApp {
     }
 
     fn handle_tab_bar_mouse_wheel(&mut self, delta: MouseScrollDelta) -> bool {
-        if !self.mouse_wheel_scrolls_tabs {
-            return false;
-        }
-
         let lines = scrollback_lines_from_mouse_delta(delta);
-        let offset = match lines.cmp(&0) {
-            std::cmp::Ordering::Greater => -1,
-            std::cmp::Ordering::Less => 1,
-            std::cmp::Ordering::Equal => return false,
-        };
-
-        if let Err(error) = self.dispatch_app_action(AppAction::ActivateTabRelative { offset }) {
-            eprintln!("tab bar wheel activation failed: {error:?}");
+        if lines == 0 {
             return false;
         }
-        true
+        match self.tab_bar_wheel_behavior {
+            NativeTabBarWheelBehavior::Disabled => false,
+            NativeTabBarWheelBehavior::Switch => {
+                let offset = if lines > 0 { -1 } else { 1 };
+                if let Err(error) = self.dispatch_app_action(AppAction::ActivateTabRelative { offset }) {
+                    eprintln!("tab bar wheel activation failed: {error:?}");
+                    return false;
+                }
+                true
+            }
+            NativeTabBarWheelBehavior::Scroll => {
+                let tab_count = self.app_shell.active_workspace().tabs().len();
+                let next = if lines > 0 {
+                    self.tab_bar_scroll_position.saturating_sub(1)
+                } else {
+                    self.tab_bar_scroll_position
+                        .saturating_add(1)
+                        .min(tab_count.saturating_sub(1))
+                };
+                if next != self.tab_bar_scroll_position {
+                    self.tab_bar_scroll_position = next;
+                    self.rendered_tab_bar_layout.replace(None);
+                    self.frame_needs_full_repaint = true;
+                }
+                true
+            }
+        }
     }
 
     fn mouse_position_is_in_tab_bar(&self) -> bool {
@@ -5872,6 +5887,10 @@ fn paint_fancy_tab_items(
         cells
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "tab-bar hit-testing keeps mouse actions and drag initialization together"
+    )]
     fn handle_tab_bar_mouse_input(&mut self, state: ElementState, button: MouseButton) -> bool {
         if state != ElementState::Pressed
             || !matches!(
@@ -5903,7 +5922,16 @@ fn paint_fancy_tab_items(
             if !self.dispatch_new_tab_button_click(&event) {
                 return true;
             }
-            let Some(default_action) = event.default_action else {
+            // Preserve the event contract for existing `new-tab-button-click`
+            // handlers: their supplied default action still creates a tab.
+            // With no Lua event handler, the browser-style button instead
+            // opens the session launcher.
+            let default_action = if self.lua_new_tab_button_click.is_some() {
+                event.default_action
+            } else {
+                Some(WindowCommand::ShowLauncher)
+            };
+            let Some(default_action) = default_action else {
                 return true;
             };
             if let Err(error) = self.command_palette_apply_command(default_action) {
@@ -5911,6 +5939,32 @@ fn paint_fancy_tab_items(
                 return false;
             }
             return true;
+        }
+
+        if button == MouseButton::Left {
+            let (is_leading_overflow, is_trailing_overflow) = {
+                let layout = self.current_tab_bar_visible_layout(Some(column));
+                (
+                    layout.leading_overflow_column == Some(column),
+                    layout.overflow_column == Some(column),
+                )
+            };
+            if is_leading_overflow {
+                self.tab_bar_scroll_position = self.tab_bar_scroll_position.saturating_sub(1);
+                self.rendered_tab_bar_layout.replace(None);
+                self.frame_needs_full_repaint = true;
+                return true;
+            }
+            if is_trailing_overflow {
+                let tab_count = self.app_shell.active_workspace().tabs().len();
+                self.tab_bar_scroll_position = self
+                    .tab_bar_scroll_position
+                    .saturating_add(1)
+                    .min(tab_count.saturating_sub(1));
+                self.rendered_tab_bar_layout.replace(None);
+                self.frame_needs_full_repaint = true;
+                return true;
+            }
         }
 
         if button == MouseButton::Middle {
@@ -5922,6 +5976,17 @@ fn paint_fancy_tab_items(
                 self.switch_to_last_active_tab_when_closing_tab,
             ) {
                 eprintln!("tab bar middle-click close failed: {error:?}");
+                return false;
+            }
+            return true;
+        }
+
+        if button == MouseButton::Right {
+            let Some(tab) = self.tab_for_tab_bar_column(column) else {
+                return false;
+            };
+            if let Err(error) = self.enter_tab_context_menu(tab) {
+                eprintln!("tab context menu failed: {error:?}");
                 return false;
             }
             return true;
@@ -5961,7 +6026,7 @@ fn paint_fancy_tab_items(
             self.active_mouse_button = Some(MouseButton::Left);
             self.tab_bar_drag = Some(TabBarDrag {
                 source_tab_id: tab,
-                pressed_column: column,
+                pressed_pixel_x: self.mouse_pixel_position.map_or(0.0, |position| position.x),
                 moved: false,
             });
         }
@@ -6014,8 +6079,11 @@ fn paint_fancy_tab_items(
         let Some(mut drag) = self.tab_bar_drag else {
             return false;
         };
-        if let Some(column) = self.tab_bar_column_at_mouse_position()
-            && column != drag.pressed_column
+        if self
+            .mouse_pixel_position
+            .is_some_and(|position| {
+                (position.x - drag.pressed_pixel_x).abs() >= 6.0 * self.window_dpi_scale()
+            })
         {
             drag.moved = true;
             self.tab_bar_drag = Some(drag);
@@ -6099,8 +6167,7 @@ fn paint_fancy_tab_items(
 
     fn new_tab_button_default_action(button: MouseButton) -> Option<WindowCommand> {
         match button {
-            MouseButton::Left => Some(WindowCommand::NewTab),
-            MouseButton::Right => Some(WindowCommand::ShowLauncher),
+            MouseButton::Left | MouseButton::Right => Some(WindowCommand::NewTab),
             _ => None,
         }
     }
@@ -6671,6 +6738,26 @@ fn paint_fancy_tab_items(
         }
 
         let tabs_were_clipped = tabs_need_room && cursor > tab_area_end;
+        let mut leading_overflow_column = None;
+        let active_position = tabs.iter().position(|tab| tab.active).unwrap_or_default();
+        let scroll_position = self.tab_bar_scroll_position.min(active_position);
+        if scroll_position > 0 {
+            leading_overflow_column = (tab_area_end > left_prefix_width)
+                .then_some(left_prefix_width);
+            let mut relocated_cursor = left_prefix_width
+                .saturating_add(u16::from(leading_overflow_column.is_some()));
+            tabs = tabs
+                .into_iter()
+                .skip(scroll_position)
+                .map(|mut tab| {
+                    tab.reposition(relocated_cursor);
+                    relocated_cursor = tab.end_column;
+                    tab.hovered = hover_column
+                        .is_some_and(|column| column >= tab.start_column && column < tab.end_column);
+                    tab
+                })
+                .collect();
+        }
         let overflow_column = if tabs_were_clipped {
             if tab_area_end > left_prefix_width {
                 Some(tab_area_end.saturating_sub(1))
@@ -6688,7 +6775,6 @@ fn paint_fancy_tab_items(
                 .iter()
                 .find(|tab| tab.active)
                 .is_some_and(|tab| tab.start_column >= visible_tab_end);
-        let mut leading_overflow_column = None;
         if active_tab_was_outside_view
             && let Some(active_position) = tabs.iter().position(|tab| tab.active)
         {
@@ -6829,7 +6915,8 @@ fn paint_fancy_tab_items(
                 .saturating_add(fixed_tab_width),
         );
         let per_tab_width = available_title_width / tab_count;
-        self.tab_max_width.min(per_tab_width.max(1))
+        self.tab_max_width
+            .min(per_tab_width.max(self.tab_min_width))
     }
 
     fn tab_progress_for_tab(tab: &rssh_core::app_shell::Tab) -> PaneProgress {

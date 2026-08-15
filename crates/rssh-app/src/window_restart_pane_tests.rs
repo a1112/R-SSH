@@ -356,7 +356,10 @@ fn closed_detach_route_never_delivers_old_events_to_another_detached_same_id_own
     manager.pending_apps.push(second_owner);
     manager.pane_event_routes.insert(
         (rssh_core::WindowId::new(3), rssh_core::PaneId::new(1)),
-        rssh_core::WindowId::new(4),
+        PaneEventRoute {
+            window_id: rssh_core::WindowId::new(4),
+            pane_id: rssh_core::PaneId::new(1),
+        },
     );
 
     for event in [

@@ -27,7 +27,10 @@ fn window_manager_declared_owner_wins_over_relocation_route_on_pane_id_collision
     manager.pending_apps.push(Box::new(collision));
     manager.pane_event_routes.insert(
         (rssh_core::WindowId::new(1), rssh_core::PaneId::new(1)),
-        rssh_core::WindowId::new(2),
+        PaneEventRoute {
+            window_id: rssh_core::WindowId::new(2),
+            pane_id: rssh_core::PaneId::new(1),
+        },
     );
 
     assert_eq!(
