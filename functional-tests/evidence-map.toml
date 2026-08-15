@@ -171,6 +171,56 @@ source = "libtest"
 identity = "window::tests::new_split_and_tab_launches_use_reloaded_defaults"
 
 [[evidence]]
+behavior_id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+source = "libtest"
+identity = "window::tests::window_app_duplicate_and_reopen_closed_tab_restore_the_full_tab_layout"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+source = "libtest"
+identity = "window::tests::window_app_pending_windows_share_recently_closed_tab_history"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+source = "libtest"
+identity = "window::tests::window_app_batch_tab_close_uses_one_confirmation_for_the_whole_set"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+source = "libtest"
+identity = "window::tests::window_app_tab_context_menu_exposes_browser_tab_actions"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+source = "libtest"
+identity = "window::tests::window_app_browser_tab_shortcuts_open_launcher_reopen_and_activate_tabs"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+source = "libtest"
+identity = "window::tests::window_app_tab_bar_wheel_scrolls_headers_without_switching_sessions"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TAB-SESSION-LIFECYCLE"
+source = "libtest"
+identity = "window::tests::window_app_tab_session_config_prefers_new_values_and_maps_legacy_values"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-LIVE-TAB-TRANSFER"
+source = "libtest"
+identity = "window::tests::window_app_move_tab_to_new_window_transfers_every_pane_runtime"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-LIVE-TAB-TRANSFER"
+source = "libtest"
+identity = "window::tests::window_manager_transfers_a_live_tab_between_windows_and_remaps_events"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-LIVE-TAB-TRANSFER"
+source = "libtest"
+identity = "window::tests::window_manager_transfers_its_final_tab_and_retires_the_source_window"
+
+[[evidence]]
 behavior_id = "BHV-WINDOW-SELECTION-COPY-MODE"
 source = "libtest"
 identity = "window::tests::window_app_alternate_copy_projection_keeps_retained_cursor_identity"
