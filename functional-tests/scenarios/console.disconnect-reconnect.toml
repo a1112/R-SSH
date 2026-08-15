@@ -1,0 +1,10 @@
+schema = 1
+id = "console.disconnect-reconnect"
+behavior_ids = ["BHV-CMD-LOCAL", "BHV-ACTION-FIXTURE-DISCONNECT", "BHV-ACTION-FIXTURE-RECONNECT", "BHV-ACTION-PTY-INPUT", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-DISCONNECTED", "BHV-LIFECYCLE-RECONNECTED", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+capabilities = ["real_stdin_pty"]
+fixture = "pty_disconnect_reconnect"
+estimated_cost_ms = 5000
+required_evidence = ["event_log", "stdout", "stderr", "final_snapshot", "process_tree"]
+actions = [{ type = "fixture_disconnect", fixture = "local-pty-generation-1" }, { type = "fixture_reconnect", fixture = "local-pty-generation-2" }, { type = "pty_input", bytes_hex = "7265636f6e6e65637465642d7074790d" }, { type = "finish" }]
+checkpoints = [{ type = "terminal_contains", text = "reconnected-pty" }, { type = "exit_status", code = 0 }, { type = "resources_zero" }]

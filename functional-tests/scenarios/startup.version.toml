@@ -1,0 +1,9 @@
+schema = 1
+id = "startup.version"
+behavior_ids = ["BHV-STARTUP-VERSION", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "console"
+fixture = "none"
+estimated_cost_ms = 100
+required_evidence = ["event_log", "stdout", "stderr", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "exit_status", code = 0 }, { type = "resources_zero" }]

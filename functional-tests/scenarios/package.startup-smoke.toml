@@ -1,0 +1,10 @@
+schema = 1
+id = "package.startup-smoke"
+behavior_ids = ["BHV-STARTUP-VERSION", "BHV-STARTUP-SELF-TEST", "BHV-PACKAGE-OBSERVER-ABSENT", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "package"
+capabilities = ["production_observer_isolation"]
+fixture = "packaged_binary"
+estimated_cost_ms = 2500
+required_evidence = ["event_log", "stdout", "stderr", "process_tree"]
+actions = [{ type = "finish" }]
+checkpoints = [{ type = "exit_status", code = 0 }, { type = "resources_zero" }]

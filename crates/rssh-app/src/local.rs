@@ -3721,7 +3721,8 @@ fn encode_key_with_mode(key: KeyEvent, modes: InputModes) -> Option<Vec<u8>> {
 }
 
 fn encode_win32_key(key: KeyEvent) -> Option<Vec<u8>> {
-    let virtual_key = win32_virtual_key_code(key.code, key.state)?;
+    let virtual_key = win32_virtual_key_code(key.code, key.state)
+        .or_else(|| matches!(key.code, KeyCode::Char(_)).then_some(0))?;
     let unicode = if key.kind == KeyEventKind::Release {
         0
     } else {
@@ -5109,6 +5110,15 @@ mod tests {
             )
             .unwrap(),
             b"\x1b[187;0;43;1;16;1_"
+        );
+    }
+
+    #[test]
+    fn encodes_win32_input_mode_unicode_text_without_a_virtual_key() {
+        let event = Event::Key(KeyCode::Char('终').into());
+        assert_eq!(
+            encode_input_event(event, InputModes::default().with_win32_input_mode(true)).unwrap(),
+            b"\x1b[0;0;32456;1;0;1_"
         );
     }
 

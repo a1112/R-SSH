@@ -539,6 +539,14 @@ fn echo_connection(
                     error.kind(),
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                 ) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted
+                ) =>
+            {
+                return Ok(());
+            }
             Err(error) => return Err(error),
         }
     }

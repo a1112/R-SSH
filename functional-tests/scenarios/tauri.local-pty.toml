@@ -1,0 +1,10 @@
+schema = 1
+id = "tauri.local-pty"
+behavior_ids = ["BHV-TAURI-PTY", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-STARTED", "BHV-LIFECYCLE-EXITED", "BHV-ACTION-TYPE-TEXT", "BHV-ACTION-KEY", "BHV-ACTION-MOUSE-CLICK", "BHV-ACTION-MOUSE-DRAG", "BHV-ACTION-MOUSE-WHEEL", "BHV-ACTION-CLIPBOARD-PASTE", "BHV-ACTION-RESIZE", "BHV-ACTION-FOCUS", "BHV-ACTION-WINDOW-CONTROL", "BHV-LIFECYCLE-CLEANUP"]
+surface = "tauri"
+capabilities = ["real_os_keyboard", "real_os_pointer", "system_clipboard"]
+fixture = "web_pty"
+estimated_cost_ms = 9000
+required_evidence = ["event_log", "stdout", "stderr", "server_trace", "process_tree", "screenshot_on_failure"]
+actions = [{ type = "focus_window" }, { type = "mouse_click", x = 80, y = 80, button = "left" }, { type = "mouse_drag", from_x = 80, from_y = 80, to_x = 160, to_y = 80, button = "left" }, { type = "mouse_wheel", delta_x = 0, delta_y = -1 }, { type = "type_text", text = "echo tauri-probe" }, { type = "key", key = "Enter" }, { type = "clipboard_paste", text = "echo tauri-clipboard" }, { type = "key", key = "Enter" }, { type = "resize_window", width = 900, height = 620 }, { type = "window_control", operation = "minimize" }, { type = "window_control", operation = "restore" }, { type = "window_control", operation = "maximize" }, { type = "window_control", operation = "restore" }, { type = "window_control", operation = "close" }, { type = "finish" }]
+checkpoints = [{ type = "terminal_contains", text = "tauri-probe" }, { type = "terminal_contains", text = "tauri-clipboard" }, { type = "exit_status", code = 0 }, { type = "resources_zero" }]

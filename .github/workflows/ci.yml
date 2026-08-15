@@ -39,6 +39,11 @@ jobs:
       - name: Enforce shrinking Rust architecture budgets
         run: python scripts/ci/check-rust-architecture.py --policy scripts/ci/architecture-policy.json
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Verify production build excludes functional observers
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p rssh-app
+          python scripts/ci/check-functional-observer-isolation.py --binary target/release/rssh-app.exe
       - name: Run focused Web PTY tests
         run: cargo test --locked -p rssh-web --lib
       - run: cargo test --locked --workspace --all-targets
@@ -403,6 +408,8 @@ jobs:
         run: |
           npm --prefix web ci
           npm --prefix web run build
+      - name: Build transport runtime used by coverage contracts
+        run: cargo build --locked -p rssh-app
       - name: Generate and enforce coverage
         run: |
           cargo install cargo-llvm-cov --version 0.8.7 --locked
@@ -445,12 +452,14 @@ jobs:
           npm --prefix web run lint
           npm --prefix web test
           npm --prefix web run build
+      - name: Build functional Web assets for browser E2E
+        run: npm --prefix web run build:functional
       - name: Build loopback Web PTY bridge
         run: cargo build --locked -p rssh-web
       - name: Install Chromium
         run: npx --prefix web playwright install --with-deps chromium
       - name: Run browser E2E
-        run: npm --prefix web run test:e2e
+        run: npm --prefix web run test:e2e -- --project=chromium
       - name: Record Web evidence
         run: >-
           python3 scripts/ci/write-evidence-manifest.py
@@ -462,7 +471,7 @@ jobs:
           --command "npm --prefix web run lint"
           --command "npm --prefix web test"
           --command "npm --prefix web run build"
-          --command "npm --prefix web run test:e2e"
+          --command "npm --prefix web run test:e2e -- --project=chromium"
       - name: Upload Web evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

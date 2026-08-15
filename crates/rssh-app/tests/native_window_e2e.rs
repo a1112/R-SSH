@@ -28,6 +28,37 @@ fn native_window_e2e_presents_ten_frames_from_a_real_pty() {
 }
 
 #[test]
+fn native_window_frame_probe_keeps_its_marker_process_alive() {
+    let source = include_str!("common/mod.rs");
+    let start = source
+        .find("pub fn run_ten_frame_native_window_with_log(")
+        .expect("logged native window probe");
+    let end = source[start..]
+        .find("\nfn run_ten_frame_native_window_with_command(")
+        .map(|offset| start + offset)
+        .expect("native window command helper");
+
+    assert!(source[start..end].contains("platform_marker_command_for_window_frames"));
+}
+
+#[cfg(target_os = "windows")]
+#[test]
+fn scaled_native_window_probes_use_the_software_fallback_adapter() {
+    let source = include_str!("common/mod.rs");
+    let start = source
+        .find("fn run_ten_frame_native_window_with_command(")
+        .expect("native window command helper");
+    let end = source[start..]
+        .find("\npub fn assert_ten_frame_native_metrics(")
+        .map(|offset| start + offset)
+        .expect("native window metrics assertions");
+    let command_helper = &source[start..end];
+
+    assert!(command_helper.contains("if let Some(scale_factor) = scale_factor"));
+    assert!(command_helper.contains("RSSH_TEST_FORCE_FALLBACK_ADAPTER"));
+}
+
+#[test]
 #[ignore = "release-native-window scorecard probe"]
 fn native_window_release_performance_probe() {
     let _native_window = native_window_e2e_guard();
@@ -327,6 +358,9 @@ fn assert_native_window_scale(scale_factor: f64) {
     let probe = common::run_ten_frame_native_window_at_scale(&executable, Some(scale_factor));
     common::assert_ten_frame_native_metrics(&probe);
     assert_eq!(probe.metrics["runtime_api"], "v2-runtime-hub");
+    if cfg!(target_os = "windows") {
+        assert_eq!(probe.metrics["gpu_software_adapter"], true);
+    }
 }
 
 #[cfg(target_os = "windows")]

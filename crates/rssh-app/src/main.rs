@@ -10,6 +10,8 @@ mod bench;
 mod cli;
 mod config_lifecycle;
 mod diagnostics;
+#[cfg(feature = "functional-test-observer")]
+mod functional_observer;
 mod local;
 mod platform;
 mod profiles;
@@ -48,6 +50,8 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
+    #[cfg(feature = "functional-test-observer")]
+    functional_observer::initialize_from_environment()?;
     run_command(cli::parse_args(env::args()).map_err(io_error)?)
 }
 

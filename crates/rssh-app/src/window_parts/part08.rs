@@ -7,6 +7,20 @@ fn has_redundant_trailing_path_separator(path: &str) -> bool {
     !trimmed.is_empty() && !trimmed.ends_with(':')
 }
 
+fn effective_force_fallback_adapter(configured: bool, software_front_end: bool) -> bool {
+    let configured = configured || software_front_end;
+    #[cfg(debug_assertions)]
+    {
+        configured
+            || std::env::var_os("RSSH_TEST_FORCE_FALLBACK_ADAPTER").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        configured
+    }
+}
+
 fn terminal_runtime_snapshot(
     runtime: &TerminalRuntime,
     stable_viewport: PaneStableViewport,
@@ -1635,6 +1649,10 @@ impl NativeWindowApp {
         let requested = self.window_close_requested;
         self.window_close_requested = false;
         requested
+    }
+
+    const fn event_loop_exit_requested(&self) -> bool {
+        self.window_close_requested || self.application_quit_requested
     }
 
     fn take_application_quit_request(&mut self) -> bool {
@@ -7035,8 +7053,10 @@ impl NativeWindowApp {
             self.webgpu_power_preference,
             NativeWebGpuPowerPreference::HighPerformance
         );
-        let force_fallback_adapter = self.webgpu_force_fallback_adapter
-            || matches!(self.front_end, NativeRenderFrontEnd::Software);
+        let force_fallback_adapter = effective_force_fallback_adapter(
+            self.webgpu_force_fallback_adapter,
+            matches!(self.front_end, NativeRenderFrontEnd::Software),
+        );
         let gpu = pollster::block_on(WindowGpu::new(
             event_loop,
             Arc::clone(&window),
@@ -7344,6 +7364,10 @@ impl NativeWindowApp {
         })
     }
 
+    fn frame_limit_refresh_pending(&self) -> bool {
+        self.frame_limit_redraw_pending() || self.final_linkage_frame_is_reserved()
+    }
+
     fn final_linkage_frame_is_reserved(&self) -> bool {
         self.metrics.pty_linkage_enabled
             && !self.metrics.terminal_linkage_nonce_found
@@ -7368,7 +7392,7 @@ impl NativeWindowApp {
     }
 
     fn frame_limit_redraw_deadline(&self, now: Instant) -> Option<Instant> {
-        self.frame_limit_redraw_pending().then(|| {
+        self.frame_limit_refresh_pending().then(|| {
             self.last_redraw_request_at
                 .map_or(now, |last| last + self.redraw_request_interval())
         })

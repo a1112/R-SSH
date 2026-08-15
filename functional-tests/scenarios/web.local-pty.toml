@@ -1,0 +1,10 @@
+schema = 1
+id = "web.local-pty"
+behavior_ids = ["BHV-WEB-PTY", "BHV-ACTION-TYPE-TEXT", "BHV-ACTION-KEY", "BHV-ACTION-MOUSE-CLICK", "BHV-ACTION-CLIPBOARD-PASTE", "BHV-ACTION-RESIZE", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-STARTED", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "web"
+capabilities = []
+fixture = "web_pty"
+estimated_cost_ms = 6000
+required_evidence = ["event_log", "stdout", "stderr", "server_trace", "screenshot_on_failure"]
+actions = [{ type = "type_text", text = "web-probe" }, { type = "key", key = "Enter" }, { type = "finish" }]
+checkpoints = [{ type = "terminal_contains", text = "web-probe" }, { type = "resources_zero" }]

@@ -4824,6 +4824,7 @@
         app.rendered_frames = 9;
 
         assert!(!app.frame_limit_redraw_pending());
+        assert!(app.frame_limit_redraw_deadline(Instant::now()).is_some());
 
         app.metrics.terminal_linkage_nonce_found = true;
 
@@ -4849,6 +4850,16 @@
         assert!(app.command_palette_execute(WindowCommand::CloseTab));
         assert!(app.command_palette.is_none());
         assert!(app.window_close_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_event_loop_exit_check_preserves_manager_owned_close_request() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.request_window_close();
+
+        assert!(app.event_loop_exit_requested());
+        assert!(app.take_window_close_request());
     }
 
     #[test]
@@ -5692,4 +5703,3 @@
             )]
         );
     }
-

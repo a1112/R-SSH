@@ -1,0 +1,10 @@
+schema = 1
+id = "window.forced-close-cleanup"
+behavior_ids = ["BHV-CMD-WINDOW", "BHV-WINDOW-INTERACTION", "BHV-FAULT-BLOCKED-IO", "BHV-ACTION-FOCUS", "BHV-ACTION-WINDOW-CONTROL", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-STARTED", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "native_window"
+capabilities = ["real_os_keyboard"]
+fixture = "forced_close"
+estimated_cost_ms = 4500
+required_evidence = ["event_log", "final_snapshot", "process_tree", "screenshot_on_failure"]
+actions = [{ type = "focus_window" }, { type = "window_control", operation = "close" }, { type = "finish" }]
+checkpoints = [{ type = "exit_status", code = 0 }, { type = "resources_zero" }]

@@ -79,6 +79,18 @@ mod tests {
         }
     }
 
+    struct FailingTestWriter;
+
+    impl Write for FailingTestWriter {
+        fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("injected PTY write failure"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Err(std::io::Error::other("injected PTY flush failure"))
+        }
+    }
+
     struct InterruptedThenCursor {
         interrupted: bool,
     }
@@ -199,6 +211,25 @@ mod tests {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn speculative_close_reply_failure_is_not_a_cleanup_failure() {
+        let close_io = PtyCloseIo::new(Box::new(FailingTestWriter));
+
+        close_io.begin_close(true);
+
+        assert!(close_io.error().is_none());
+    }
+
+    #[test]
+    fn observed_query_reply_failure_remains_a_cleanup_failure() {
+        let close_io = PtyCloseIo::new(Box::new(FailingTestWriter));
+        close_io.observe_reader_queries(1);
+
+        close_io.begin_close(true);
+
+        assert!(close_io.error().is_some());
     }
 
     #[test]
@@ -2618,13 +2649,14 @@ impl PtyCloseIo {
     fn supplement_cursor_responses(&self, state: &mut PtyCloseState, allow_speculative: bool) {
         const RESPONSE: &[u8] = b"\x1b[1;1R";
         let missing = state.queries_seen.saturating_sub(state.replies_seen);
-        let count = if missing > 0 {
-            missing
-        } else if allow_speculative
+        let speculative = missing == 0
+            && allow_speculative
             && state.queries_seen == 0
             && state.replies_seen == 0
-            && !state.speculative_reply_sent
-        {
+            && !state.speculative_reply_sent;
+        let count = if missing > 0 {
+            missing
+        } else if speculative {
             state.speculative_reply_sent = true;
             1
         } else {
@@ -2649,6 +2681,7 @@ impl PtyCloseIo {
         pty_close_trace(&format!("cursor-response-result={:?}", result.as_ref()));
         match result {
             Ok(()) => state.replies_seen = state.replies_seen.saturating_add(count),
+            Err(_) if speculative => {}
             Err(error) => self.record_error(error),
         }
     }

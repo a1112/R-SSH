@@ -112,22 +112,32 @@ impl NativeWindowApp {
         self.reconcile_active_terminal_mutation();
         self.write_session_log(delta.visible_bytes())?;
         for message in delta.diagnostics() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("diagnostic");
             self.record_unknown_escape_sequence_warning(self.app_shell.active_pane_id(), message);
         }
         for response in delta.responses() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("transport_write");
             self.write_pty_bytes(response)?;
         }
         for (_, contents) in delta.clipboard_writes() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("clipboard_write");
             if self.osc52_policy.allows_write() {
                 self.write_clipboard_text(contents);
             }
         }
         for selection in delta.clipboard_reads() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("clipboard_read");
             if self.osc52_policy.allows_query() {
                 self.answer_clipboard_query(selection)?;
             }
         }
         for (title, body) in delta.notifications() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("notification");
             let notification = TerminalNotification {
                 title: title.map(str::to_owned),
                 body: body.to_owned(),
@@ -155,6 +165,10 @@ impl NativeWindowApp {
         self.metrics.record_damage(delta.damage());
         self.refresh_snapshot_after_terminal_damage(delta.damage());
         self.record_pane_bells(self.app_shell.active_pane_id(), delta.bell_count());
+        #[cfg(feature = "functional-test-observer")]
+        if delta.bell_count() > 0 {
+            crate::functional_observer::record_effect("bell");
+        }
         self.metrics.record_bells(delta.bell_count());
         self.dispatch_bells(self.app_shell.active_pane_id(), delta.bell_count());
         let snapshot_is_empty = self.snapshot.cells().is_empty();
@@ -355,44 +369,7 @@ impl NativeWindowApp {
             runtime.snapshot =
                 terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
         }
-        for message in delta.diagnostics() {
-            self.record_unknown_escape_sequence_warning(pane_id, message);
-        }
-        for response in delta.responses() {
-            if let Some(writer) = runtime.writer.as_mut() {
-                let response_started = Instant::now();
-                writer.write_all(response)?;
-                writer.flush()?;
-                self.metrics
-                    .record_input_write(response.len(), response_started.elapsed());
-            }
-        }
-        for (_, contents) in delta.clipboard_writes() {
-            if self.osc52_policy.allows_write() {
-                self.write_clipboard_text(contents);
-            }
-        }
-        for selection in delta.clipboard_reads() {
-            if self.osc52_policy.allows_query()
-                && let Some(text) = self.read_clipboard_text()
-            {
-                let response = encode_osc52_clipboard_response(selection, &text);
-                if let Some(writer) = runtime.writer.as_mut() {
-                    let response_started = Instant::now();
-                    writer.write_all(&response)?;
-                    writer.flush()?;
-                    self.metrics
-                        .record_input_write(response.len(), response_started.elapsed());
-                }
-            }
-        }
-        for (title, body) in delta.notifications() {
-            let notification = TerminalNotification {
-                title: title.map(str::to_owned),
-                body: body.to_owned(),
-            };
-            self.dispatch_notification(pane_id, &notification);
-        }
+        self.apply_inactive_pane_host_effects(pane_id, runtime, &delta)?;
         if let Some(has_unseen_output) = has_unseen_output {
             self.sync_pane_has_unseen_output_from_value(pane_id, has_unseen_output);
         }
@@ -430,13 +407,73 @@ impl NativeWindowApp {
             self.sync_pane_progress_from_value(pane_id, runtime.runtime.progress());
         }
         self.record_pane_bells(pane_id, delta.bell_count());
+        #[cfg(feature = "functional-test-observer")]
+        if delta.bell_count() > 0 {
+            crate::functional_observer::record_effect("bell");
+        }
         self.metrics.record_bells(delta.bell_count());
         self.dispatch_bells(pane_id, delta.bell_count());
         let snapshot_is_empty = self.snapshot.cells().is_empty();
-        self.metrics
-            .record_first_rendered_cell(snapshot_is_empty);
+        self.metrics.record_first_rendered_cell(snapshot_is_empty);
         if let Some(started) = started {
             self.metrics.record_pty_chunk_process(started.elapsed());
+        }
+        Ok(())
+    }
+
+    fn apply_inactive_pane_host_effects(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        runtime: &mut PaneRuntime,
+        delta: &rssh_runtime::RuntimeDelta<'_>,
+    ) -> io::Result<()> {
+        for message in delta.diagnostics() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("diagnostic");
+            self.record_unknown_escape_sequence_warning(pane_id, message);
+        }
+        for response in delta.responses() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("transport_write");
+            if let Some(writer) = runtime.writer.as_mut() {
+                let response_started = Instant::now();
+                writer.write_all(response)?;
+                writer.flush()?;
+                self.metrics
+                    .record_input_write(response.len(), response_started.elapsed());
+            }
+        }
+        for (_, contents) in delta.clipboard_writes() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("clipboard_write");
+            if self.osc52_policy.allows_write() {
+                self.write_clipboard_text(contents);
+            }
+        }
+        for selection in delta.clipboard_reads() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("clipboard_read");
+            if self.osc52_policy.allows_query()
+                && let Some(text) = self.read_clipboard_text()
+            {
+                let response = encode_osc52_clipboard_response(selection, &text);
+                if let Some(writer) = runtime.writer.as_mut() {
+                    let response_started = Instant::now();
+                    writer.write_all(&response)?;
+                    writer.flush()?;
+                    self.metrics
+                        .record_input_write(response.len(), response_started.elapsed());
+                }
+            }
+        }
+        for (title, body) in delta.notifications() {
+            #[cfg(feature = "functional-test-observer")]
+            crate::functional_observer::record_effect("notification");
+            let notification = TerminalNotification {
+                title: title.map(str::to_owned),
+                body: body.to_owned(),
+            };
+            self.dispatch_notification(pane_id, &notification);
         }
         Ok(())
     }

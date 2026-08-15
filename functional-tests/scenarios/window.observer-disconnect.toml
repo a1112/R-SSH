@@ -1,0 +1,10 @@
+schema = 1
+id = "window.observer-disconnect"
+behavior_ids = ["BHV-CMD-WINDOW", "BHV-OBSERVER-DISCONNECT", "BHV-ACTION-FOCUS", "BHV-ACTION-TYPE-TEXT", "BHV-ACTION-KEY", "BHV-ACTION-FINISH", "BHV-LIFECYCLE-EXITED", "BHV-LIFECYCLE-CLEANUP"]
+surface = "native_window"
+capabilities = ["real_os_keyboard"]
+fixture = "observer_disconnect"
+estimated_cost_ms = 3500
+required_evidence = ["event_log", "stdout", "stderr", "process_tree", "screenshot_on_failure"]
+actions = [{ type = "focus_window" }, { type = "type_text", text = "functional-exit" }, { type = "key", key = "Enter" }, { type = "finish" }]
+checkpoints = [{ type = "exit_status", code = 0 }, { type = "resources_zero" }]

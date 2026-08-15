@@ -3147,6 +3147,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.reap_retired_apps();
         if let Err(error) = self.materialize_pending_apps(event_loop) {
             eprintln!("window error: {error}");
             event_loop.exit();
@@ -3178,7 +3179,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         for app in self.windows.values_mut() {
             let mut regular_redraw_needed =
                 app.frame_needs_full_repaint || !app.pending_frame_damage.is_empty();
-            regular_redraw_needed |= app.frame_limit_redraw_pending();
+            regular_redraw_needed |= app.frame_limit_refresh_pending();
             regular_redraw_needed |= app.dispatch_update_status_if_due(now);
             let cursor_animation_changed = app.update_cursor_blink_phase_if_due(now);
             let text_animation_changed = app.update_text_blink_phase_if_due(now);
@@ -3211,6 +3212,10 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
                         .map_or(deadline, |earliest: Instant| earliest.min(deadline)),
                 );
             }
+        }
+        #[cfg(feature = "functional-test-observer")]
+        if let Some(app) = self.windows.values().next() {
+            crate::functional_observer::publish(app.functional_observer_snapshot());
         }
         if let Some(deadline) = next_frame_limit_redraw {
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
@@ -3252,14 +3257,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 self.reload_configuration();
             }
-            WindowUserEvent::RuntimeWakeWindow { .. } => match self.poll_active_v2_runtime() {
-                Ok(Some(true)) => event_loop.exit(),
-                Ok(Some(false) | None) => {}
-                Err(error) => {
-                    eprintln!("runtime V2 host error: {error}");
-                    event_loop.exit();
-                }
-            },
+            WindowUserEvent::RuntimeWakeWindow { .. } => {
+                self.handle_runtime_wake_window(event_loop);
+            }
             WindowUserEvent::Output {
                 pane_id,
                 runtime_generation,
@@ -3293,6 +3293,13 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     return;
                 }
                 let status = self.finish_pane_runtime_after_exit(pane_id, runtime_generation);
+                #[cfg(feature = "functional-test-observer")]
+                {
+                    crate::functional_observer::publish(self.functional_observer_snapshot());
+                    let _ = crate::functional_observer::wait_until_current_revision_delivered(
+                        Duration::from_millis(250),
+                    );
+                }
                 let close_window = self.apply_pane_exit_behavior_after_exit(pane_id, status);
                 if self.defer_automatic_close_for_frame_limit(close_window) {
                     event_loop.exit();
@@ -3353,9 +3360,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         match event {
             WindowEvent::CloseRequested => {
                 self.handle_window_close_requested();
-                if self.take_window_close_request() {
-                    event_loop.exit();
-                }
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let Err(error) = self.handle_keyboard_input(&event) {
@@ -3364,12 +3368,6 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     return;
                 }
                 self.update_ime_cursor_area();
-                if self.take_window_close_request() {
-                    event_loop.exit();
-                }
-                if self.take_application_quit_request() {
-                    event_loop.exit();
-                }
             }
             WindowEvent::Ime(winit::event::Ime::Commit(text)) => {
                 if let Err(error) = self.handle_ime_commit(&text) {
@@ -3457,13 +3455,16 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             }
             _ => {}
         }
+        if self.event_loop_exit_requested() {
+            event_loop.exit();
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
         let mut regular_redraw_needed =
             self.frame_needs_full_repaint || !self.pending_frame_damage.is_empty();
-        regular_redraw_needed |= self.frame_limit_redraw_pending();
+        regular_redraw_needed |= self.frame_limit_refresh_pending();
         regular_redraw_needed |= self.dispatch_update_status_if_due(now);
         let cursor_animation_changed = self.update_cursor_blink_phase_if_due(now);
         let text_animation_changed = self.update_text_blink_phase_if_due(now);
@@ -3471,6 +3472,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         regular_redraw_needed |= self.expire_visual_bells_if_due(now);
         regular_redraw_needed |= self.expire_key_table_stack_if_due(now);
         regular_redraw_needed |= self.expire_leader_key_if_due(now);
+
+        #[cfg(feature = "functional-test-observer")]
+        crate::functional_observer::publish(self.functional_observer_snapshot());
 
         let animation_active = self.has_active_animation_at(now);
         if regular_redraw_needed || (animation_changed && !animation_active) {
@@ -3483,6 +3487,28 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
+        }
+    }
+}
+
+impl NativeWindowApp {
+    fn handle_runtime_wake_window(&mut self, event_loop: &ActiveEventLoop) {
+        match self.poll_active_v2_runtime() {
+            Ok(Some(true)) => {
+                #[cfg(feature = "functional-test-observer")]
+                {
+                    crate::functional_observer::publish(self.functional_observer_snapshot());
+                    let _ = crate::functional_observer::wait_until_current_revision_delivered(
+                        Duration::from_millis(250),
+                    );
+                }
+                event_loop.exit();
+            }
+            Ok(Some(false) | None) => {}
+            Err(error) => {
+                eprintln!("runtime V2 host error: {error}");
+                event_loop.exit();
+            }
         }
     }
 }

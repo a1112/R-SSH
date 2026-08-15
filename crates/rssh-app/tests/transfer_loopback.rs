@@ -115,8 +115,9 @@ fn system_scp_upload_download_and_recursive_transfer_preserve_sha256_content() {
     let output = run(upload);
     assert!(
         output.status.success(),
-        "SCP upload: {:?}",
-        String::from_utf8_lossy(&output.stderr)
+        "SCP upload: {:?}; server events: {:?}",
+        String::from_utf8_lossy(&output.stderr),
+        server.events()
     );
 
     let downloaded = client.path().join("scp-downloaded.bin");

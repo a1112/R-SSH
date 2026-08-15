@@ -502,10 +502,10 @@ where
             }
             if forced_contention {
                 assert!(
-                    started.elapsed() < DEADLINE,
+                    started.elapsed() < PROCESS_DEADLINE,
                     "contended app forward did not report bind failure"
                 );
-                thread::yield_now();
+                thread::sleep(Duration::from_millis(20));
                 continue;
             }
             match readiness(port) {

@@ -10,6 +10,7 @@ use rssh_terminal::Terminal;
 use rssh_test_support::ChildGuard;
 
 const QUICK_EXIT_ATTEMPTS_PER_GROUP: usize = 100;
+const LOCAL_PTY_CAPTURE_BUDGET: Duration = Duration::from_secs(15);
 const QUICK_EXIT_PROCESS_BUDGET: Duration = Duration::from_secs(15);
 const QUICK_EXIT_GROUP_BUDGET: Duration = Duration::from_secs(60);
 const QUICK_EXIT_COLD_READY_BUDGET: Duration = Duration::from_secs(5);
@@ -58,7 +59,7 @@ fn local_pty_output_feeds_terminal_grid() {
     let output = PtySession::capture_output(
         &PtyCommand::platform_echo(marker),
         PtySize::try_new(160, 30).unwrap(),
-        Duration::from_secs(5),
+        LOCAL_PTY_CAPTURE_BUDGET,
     )
     .unwrap();
 

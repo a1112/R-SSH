@@ -145,6 +145,14 @@ fn should_apply_current_adapter_abandonment_workaround(
     )
 }
 
+fn should_abandon_current_adapter_after_native_close(
+    os: &str,
+    backend: &str,
+    vendor_id: u32,
+) -> bool {
+    os == "windows" && backend.eq_ignore_ascii_case("vulkan") && vendor_id == 0x10de
+}
+
 impl WindowGpu {
     pub(crate) async fn new(
         event_loop: &ActiveEventLoop,
@@ -338,7 +346,9 @@ impl WindowGpu {
         let Some(mut context) = self.context.take() else {
             return false;
         };
-        context.record_abandoned_lost_surface();
+        if self.replaced_device {
+            context.record_abandoned_lost_surface();
+        }
         self.final_metrics = Some(context.metrics().clone());
         if let Some(renderer) = self.renderer.take() {
             std::mem::forget(renderer);
@@ -350,6 +360,57 @@ impl WindowGpu {
         true
     }
 
+    /// Avoids a validation-layer crash after the final native close request
+    /// on the affected Windows NVIDIA Vulkan stack.
+    pub(crate) fn shutdown_after_native_window_close(&mut self) -> bool {
+        #[cfg(test)]
+        let os = self
+            .abandonment_workaround_os_override
+            .unwrap_or(std::env::consts::OS);
+        #[cfg(not(test))]
+        let os = std::env::consts::OS;
+        let should_abandon = self.context.as_ref().is_some_and(|context| {
+            #[cfg(test)]
+            let metrics = self
+                .current_adapter_metrics_override
+                .as_ref()
+                .unwrap_or_else(|| context.metrics());
+            #[cfg(not(test))]
+            let metrics = context.metrics();
+            should_abandon_current_adapter_after_native_close(
+                os,
+                &metrics.backend,
+                metrics.adapter_vendor_id,
+            )
+        });
+        if !should_abandon {
+            return self.shutdown_for_window_close();
+        }
+        if self.recovery.cancel_pending()
+            && let Some(context) = self.context.as_mut()
+        {
+            context.record_device_recovery_failure();
+        }
+        let Some(mut context) = self.context.take() else {
+            return false;
+        };
+        if self.replaced_device {
+            context.record_abandoned_lost_surface();
+        }
+        self.final_metrics = Some(context.metrics().clone());
+        if let Some(renderer) = self.renderer.take() {
+            std::mem::forget(renderer);
+        }
+        for renderer in self.retired_renderers.drain(..) {
+            std::mem::forget(renderer);
+        }
+        std::mem::forget(context);
+        eprintln!(
+            "preserving Windows NVIDIA Vulkan GPU resources after native window close to avoid an unsafe driver shutdown"
+        );
+        true
+    }
+
     #[cfg(test)]
     pub(crate) fn for_manager_close_test(
         abandonment_workaround_adapter_match: bool,
@@ -357,6 +418,13 @@ impl WindowGpu {
     ) -> Self {
         let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
             .expect("manager close test context");
+        let mut current = GpuPresentationMetrics::uninitialized();
+        current.backend = "Vulkan".to_owned();
+        current.adapter_vendor_id = if abandonment_workaround_adapter_match {
+            0x10de
+        } else {
+            0x1002
+        };
         Self {
             context: Some(context),
             renderer: None,
@@ -369,8 +437,8 @@ impl WindowGpu {
             abandonment_workaround_adapter_match_override: Some(
                 abandonment_workaround_adapter_match,
             ),
-            current_adapter_metrics_override: None,
-            abandonment_workaround_os_override: None,
+            current_adapter_metrics_override: Some(current),
+            abandonment_workaround_os_override: Some("windows"),
             #[cfg(debug_assertions)]
             test_device_loss_injected: false,
         }
@@ -443,9 +511,22 @@ impl Drop for WindowGpu {
         {
             context.record_device_recovery_failure();
         }
-        // No resource is forgotten here. Ordinary window closure always
-        // releases active and retired wgpu objects through their normal Drop.
+        release_renderers_before_context(
+            &mut self.renderer,
+            &mut self.retired_renderers,
+            &mut self.context,
+        );
     }
+}
+
+fn release_renderers_before_context<Renderer, Context>(
+    renderer: &mut Option<Renderer>,
+    retired_renderers: &mut Vec<Renderer>,
+    context: &mut Option<Context>,
+) {
+    drop(renderer.take());
+    retired_renderers.clear();
+    drop(context.take());
 }
 
 fn bundled_emergency_text_backend(
@@ -639,7 +720,10 @@ fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::{Cell, RefCell};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
 
     use rssh_core::TerminalSize;
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -771,6 +855,45 @@ mod tests {
     }
 
     #[test]
+    fn window_gpu_releases_every_renderer_before_its_context() {
+        #[derive(Debug)]
+        struct TrackedDrop {
+            label: &'static str,
+            drops: Rc<RefCell<Vec<&'static str>>>,
+        }
+
+        impl Drop for TrackedDrop {
+            fn drop(&mut self) {
+                self.drops.borrow_mut().push(self.label);
+            }
+        }
+
+        let drops = Rc::new(RefCell::new(Vec::new()));
+        let mut renderer = Some(TrackedDrop {
+            label: "active-renderer",
+            drops: Rc::clone(&drops),
+        });
+        let mut retired_renderers = vec![TrackedDrop {
+            label: "retired-renderer",
+            drops: Rc::clone(&drops),
+        }];
+        let mut context = Some(TrackedDrop {
+            label: "context",
+            drops: Rc::clone(&drops),
+        });
+
+        release_renderers_before_context(&mut renderer, &mut retired_renderers, &mut context);
+
+        assert_eq!(
+            drops.borrow().as_slice(),
+            ["active-renderer", "retired-renderer", "context"]
+        );
+        assert!(renderer.is_none());
+        assert!(retired_renderers.is_empty());
+        assert!(context.is_none());
+    }
+
+    #[test]
     fn abandonment_workaround_requires_proven_adapter_and_explicit_final_shutdown() {
         assert!(should_abandon_recovered_window_surface(
             "windows", "Vulkan", 0x10de, true, true
@@ -789,6 +912,22 @@ mod tests {
                 !should_abandon_recovered_window_surface(os, backend, vendor, shutdown, replaced),
                 "{os}/{backend}/{vendor:#x} shutdown={shutdown} replaced={replaced}"
             );
+        }
+    }
+
+    #[test]
+    fn native_close_abandons_only_windows_nvidia_vulkan_devices() {
+        assert!(should_abandon_current_adapter_after_native_close(
+            "windows", "Vulkan", 0x10de
+        ));
+        for (os, backend, vendor) in [
+            ("linux", "Vulkan", 0x10de),
+            ("windows", "Dx12", 0x10de),
+            ("windows", "Vulkan", 0x1002),
+        ] {
+            assert!(!should_abandon_current_adapter_after_native_close(
+                os, backend, vendor
+            ));
         }
     }
 

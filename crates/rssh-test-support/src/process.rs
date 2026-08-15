@@ -11,6 +11,7 @@ use std::{
 
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_GRACE: Duration = Duration::from_millis(500);
+const EXPLICIT_TERMINATION_GRACE: Duration = Duration::from_secs(2);
 const REAPER_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const CAPTURE_LIMIT: usize = 256 * 1024;
 const OMISSION_RESERVE: usize = 96;
@@ -248,6 +249,12 @@ where
     }
 }
 
+fn explicit_termination_grace(deadline: Instant, now: Instant) -> Duration {
+    deadline
+        .saturating_duration_since(now)
+        .min(EXPLICIT_TERMINATION_GRACE)
+}
+
 struct CaptureFile {
     file: tempfile::NamedTempFile,
 }
@@ -287,6 +294,18 @@ impl ChildGuard {
     #[must_use]
     pub fn process_id(&self) -> Option<u32> {
         self.child.as_ref().map(Child::id)
+    }
+
+    /// Caps the remaining child deadline from the current instant.
+    ///
+    /// This can only shorten the original bound. It is intended for callers
+    /// that have completed their interaction phase and are entering a tighter
+    /// cleanup budget.
+    pub fn cap_remaining_timeout(&mut self, timeout: Duration) {
+        let now = Instant::now();
+        let requested = now.checked_add(timeout).unwrap_or(now);
+        self.deadline = self.deadline.min(requested);
+        self.timeout = self.deadline.saturating_duration_since(now);
     }
 
     /// Spawns `command` with stdout and stderr redirected to bounded diagnostics.
@@ -368,6 +387,59 @@ impl ChildGuard {
             stderr,
             redactions,
         })
+    }
+
+    /// Terminates the child and waits for synchronous reaping within the cleanup grace period.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O or capture error after reaping, or
+    /// [`ChildGuardError::CleanupDeferred`] if ownership had to move to the background reaper.
+    pub fn terminate(mut self) -> Result<ChildOutput, ChildGuardError> {
+        let grace = explicit_termination_grace(self.deadline, Instant::now());
+        let Some(child) = self.child.as_mut() else {
+            return Err(missing_child_error("terminate and reap"));
+        };
+        match bounded_cleanup(child, grace, &mut SystemCleanupClock) {
+            CleanupOutcome::Reaped { status, last_error } => {
+                self.child.take();
+                let (output, capture_error) = self.capture_output(status, true);
+                match (last_error, capture_error) {
+                    (None, None) => Ok(output),
+                    (Some(source), secondary) => Err(ChildGuardError::Io {
+                        operation: "terminate and reap",
+                        source,
+                        secondary,
+                        output: Some(output),
+                    }),
+                    (None, Some(source)) => Err(build_completed_capture_error(
+                        output,
+                        source,
+                        &self.redactions,
+                    )),
+                }
+            }
+            CleanupOutcome::Deferred { last_error } => {
+                let (stdout, stderr, capture_error) = self.capture_diagnostics(true);
+                let child = self
+                    .child
+                    .take()
+                    .ok_or_else(|| missing_child_error("defer explicit termination cleanup"))?;
+                self.reaper.enqueue(child);
+                Err(ChildGuardError::CleanupDeferred {
+                    operation: "explicit termination cleanup delegated to background reaper",
+                    source: last_error.unwrap_or_else(|| {
+                        io::Error::new(
+                            io::ErrorKind::TimedOut,
+                            "child remained unreaped after explicit termination",
+                        )
+                    }),
+                    secondary: capture_error,
+                    stdout,
+                    stderr,
+                })
+            }
+        }
     }
 
     /// Waits until the child exits or its deadline expires.
@@ -863,8 +935,9 @@ mod tests {
 
     use super::{
         CAPTURE_LIMIT, CaptureFile, ChildGuard, ChildGuardError, CleanupClock, CleanupOutcome,
-        CleanupTarget, bounded_cleanup, build_completed_capture_error, build_observation_error,
-        build_timeout_error, command_redactions, global_reaper, read_bounded,
+        CleanupTarget, EXPLICIT_TERMINATION_GRACE, bounded_cleanup, build_completed_capture_error,
+        build_observation_error, build_timeout_error, command_redactions,
+        explicit_termination_grace, global_reaper, read_bounded,
     };
     use crate::{TempHome, platform_marker_command};
 
@@ -989,6 +1062,56 @@ mod tests {
         assert!(output.status.success());
         assert_eq!(output.stdout, b"ready-before-deadline");
         assert!(output.stderr.is_empty());
+    }
+
+    #[test]
+    fn child_guard_cleanup_cap_only_shortens_the_original_deadline() {
+        let mut guard =
+            ChildGuard::spawn(timeout_command(), Duration::from_secs(30)).expect("spawn helper");
+        let original = guard.deadline;
+        let before_cap = Instant::now();
+
+        guard.cap_remaining_timeout(Duration::from_millis(100));
+
+        assert!(guard.deadline < original);
+        assert!(guard.deadline <= before_cap + Duration::from_millis(150));
+        let shortened = guard.deadline;
+        guard.cap_remaining_timeout(Duration::from_secs(60));
+        assert_eq!(guard.deadline, shortened);
+    }
+
+    #[test]
+    fn explicit_termination_grace_uses_remaining_budget_with_a_two_second_ceiling() {
+        let now = Instant::now();
+
+        assert_eq!(
+            explicit_termination_grace(now + Duration::from_millis(100), now),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            explicit_termination_grace(now + Duration::from_secs(60), now),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            explicit_termination_grace(
+                now.checked_sub(Duration::from_millis(1))
+                    .expect("one millisecond before now is representable"),
+                now,
+            ),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn child_guard_explicit_termination_reaps_a_live_child() {
+        let guard =
+            ChildGuard::spawn(timeout_command(), Duration::from_secs(30)).expect("spawn helper");
+        let started = Instant::now();
+
+        let output = guard.terminate().expect("terminate and reap helper");
+
+        assert!(started.elapsed() < EXPLICIT_TERMINATION_GRACE + Duration::from_secs(1));
+        assert!(!output.status.success());
     }
 
     #[test]

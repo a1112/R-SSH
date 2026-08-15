@@ -208,6 +208,7 @@ T23-COMPATIBILITY-fb3bdd683cd1|crates/rssh-app/src/config_lifecycle.rs|every_att
 T23-COMPATIBILITY-7b3074328257|crates/rssh-app/src/config_lifecycle.rs|loader_removes_exactly_one_utf8_bom|1|rssh-app|config_lifecycle::tests|compatibility
 T23-COMPATIBILITY-62d36267d260|crates/rssh-app/src/config_lifecycle.rs|invalid_utf8_and_parser_errors_carry_preferred_path_diagnostic|1|rssh-app|config_lifecycle::tests|compatibility
 T23-RUNTIME-68f8b1a42f80|crates/rssh-app/src/config_lifecycle.rs|successful_initial_file_install_advances_generation_and_publishes_source|1|rssh-app|config_lifecycle::tests|runtime
+T23-TABS-1f21fcd2b386|crates/rssh-app/src/config_lifecycle.rs|duplicate_valid_runtime_notification_keeps_generation_stable|1|rssh-app|config_lifecycle::tests|tabs
 T23-COMPATIBILITY-8af763b49184|crates/rssh-app/src/config_lifecycle.rs|non_utf8_source_path_is_diagnostic_and_never_installed|1|rssh-app|config_lifecycle::tests|compatibility
 T23-COMPATIBILITY-aeeafa0c9af9|crates/rssh-app/src/config_lifecycle.rs|missing_optional_non_utf8_path_still_falls_through|1|rssh-app|config_lifecycle::tests|compatibility
 T23-OVERLAYS-43e29631baf0|crates/rssh-app/src/diagnostics.rs|diagnoses_required_console_tools_from_search_paths|1|rssh-app|diagnostics::tests|overlays
@@ -242,6 +243,7 @@ T23-INPUT-f39c5d6366d0|crates/rssh-app/src/local.rs|encodes_menu_key_as_legacy_f
 T23-COMPATIBILITY-9b3b28f8479b|crates/rssh-app/src/local.rs|encodes_alt_text_with_escape_prefix|1|rssh-app|local::tests|compatibility
 T23-INPUT-b5b92f7b09df|crates/rssh-app/src/local.rs|encodes_win32_input_mode_key_release_events|1|rssh-app|local::tests|input
 T23-INPUT-3b5f46002246|crates/rssh-app/src/local.rs|encodes_win32_input_mode_oem_punctuation_keys|1|rssh-app|local::tests|input
+T23-INPUT-7e7e4e001f61|crates/rssh-app/src/local.rs|encodes_win32_input_mode_unicode_text_without_a_virtual_key|1|rssh-app|local::tests|input
 T23-INPUT-2f620f2d39e2|crates/rssh-app/src/local.rs|encodes_win32_input_mode_keypad_virtual_keys|1|rssh-app|local::tests|input
 T23-INPUT-780e705ff6cc|crates/rssh-app/src/local.rs|encodes_win32_input_mode_extended_function_keys|1|rssh-app|local::tests|input
 T23-INPUT-4c3b6933b241|crates/rssh-app/src/local.rs|encodes_win32_input_mode_modifier_virtual_keys|1|rssh-app|local::tests|input
@@ -547,6 +549,7 @@ T23-INPUT-86c6539f8ab2|crates/rssh-app/src/terminal_input.rs|encodes_navigation_
 T23-INPUT-affbc6cf3eaf|crates/rssh-app/src/terminal_input.rs|encodes_extended_control_keys|1|rssh-app|terminal_input::tests|input
 T23-TABS-3a54b56727ff|crates/rssh-app/src/terminal_input.rs|encodes_backtab_and_function_keys|1|rssh-app|terminal_input::tests|tabs
 T23-COMPATIBILITY-5c9a9bab25ed|crates/rssh-app/src/terminal_runtime.rs|process_cwd_probe_is_throttled_and_invalidated_by_process_id|1|rssh-app|terminal_runtime::tests|compatibility
+T23-PERFORMANCE-3574b431cac1|crates/rssh-app/src/terminal_runtime.rs|process_cwd_probe_interval_starts_after_the_probe_completes|1|rssh-app|terminal_runtime::tests|performance
 T23-PRESENTATION-7a4ec5031d8b|crates/rssh-app/src/terminal_runtime.rs|presentation_snapshot_reuses_the_worker_terminal_arc|1|rssh-app|terminal_runtime::tests|presentation
 T23-COMPATIBILITY-a0657d07b2d7|crates/rssh-app/src/version.rs|version_report_json_includes_console_release_identity|1|rssh-app|version::tests|compatibility
 T23-COMPATIBILITY-440e76c3c3a9|crates/rssh-app/src/version.rs|version_text_includes_version_and_backends|1|rssh-app|version::tests|compatibility
@@ -2084,6 +2087,7 @@ T23-CONFIG-35c12a4e0a4b|crates/rssh-app/src/window_compat_tests/part10_tests.rs|
 T23-PLATFORM-05f6f08e1d63|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_collects_spawn_window_app_from_default_shortcut|1|rssh-app|window::tests|platform
 T23-PLATFORM-67586ed0c193|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_quit_application_drops_startup_and_pending_apps|1|rssh-app|window::tests|platform
 T23-PLATFORM-8782342d556e|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_can_keep_running_after_last_window_closes|1|rssh-app|window::tests|platform
+T23-PLATFORM-d4a6e23125e6|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_defers_closed_gpu_destruction_until_a_safe_event_loop_point|1|rssh-app|window::tests|platform
 T23-PLATFORM-7bdf4ceb4240|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_abandons_recovered_eligible_window_while_another_window_remains_active|1|rssh-app|window::tests|platform
 T23-RUNTIME-fe2a6f5812c4|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_aggregates_closed_and_all_live_gpu_abandonments_on_application_exit|1|rssh-app|window::tests|runtime
 T23-PANES-c512f1e1875c|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_pane_select_cancel_keys_exit_without_focusing|1|rssh-app|window::tests|panes
@@ -3583,6 +3587,7 @@ T23-PRESENTATION-3889e32d1b42|crates/rssh-app/src/window_compat_tests/part18_tes
 T23-PRESENTATION-79118f1fbbcb|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_frame_limit_reserves_the_final_frame_for_requested_linkage|1|rssh-app|window::tests|presentation
 T23-PRESENTATION-045599135ec1|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_without_frame_limit_keeps_automatic_close_behavior|1|rssh-app|window::tests|presentation
 T23-TABS-ea4e40145b92|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_palette_close_tab_requests_window_close_for_last_tab|1|rssh-app|window::tests|tabs
+T23-RUNTIME-b59bb0b3a175|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_event_loop_exit_check_preserves_manager_owned_close_request|1|rssh-app|window::tests|runtime
 T23-TABS-b91d40c1f087|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_dispatches_palette_close_workspace_command|1|rssh-app|window::tests|tabs
 T23-TABS-2d7a3bdede02|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_rejects_palette_close_workspace_with_single_workspace|1|rssh-app|window::tests|tabs
 T23-OVERLAYS-3a4ccdf03661|crates/rssh-app/src/window_compat_tests/part18_tests.rs|window_app_native_search_current_selection_joins_multiline_selection|1|rssh-app|window::tests|overlays
@@ -3870,7 +3875,9 @@ T23-CONFIG-411cd1006f55|crates/rssh-app/src/window_gpu.rs|emergency_font_catalog
 T23-CONFIG-f841a5a283e6|crates/rssh-app/src/window_gpu.rs|emergency_font_catalog_covers_mac_cjk_fallback|1|rssh-app|window_gpu::tests|config
 T23-CONFIG-ceb04b825f7a|crates/rssh-app/src/window_gpu.rs|modern_default_font_prefers_cascadia_mono_and_preserves_terminal_cells|1|rssh-app|window_gpu::tests|config
 T23-INPUT-5f62fc0b0396|crates/rssh-app/src/window_gpu.rs|native_app_manifest_has_no_pixels_runtime_dependency|1|rssh-app|window_gpu::tests|input
+T23-PRESENTATION-444b587e8fd9|crates/rssh-app/src/window_gpu.rs|window_gpu_releases_every_renderer_before_its_context|1|rssh-app|window_gpu::tests|presentation
 T23-COMPATIBILITY-97f375754f23|crates/rssh-app/src/window_gpu.rs|abandonment_workaround_requires_proven_adapter_and_explicit_final_shutdown|1|rssh-app|window_gpu::tests|compatibility
+T23-PLATFORM-27295046e70f|crates/rssh-app/src/window_gpu.rs|native_close_abandons_only_windows_nvidia_vulkan_devices|1|rssh-app|window_gpu::tests|platform
 T23-COMPATIBILITY-54f65884143c|crates/rssh-app/src/window_gpu.rs|abandonment_eligibility_tracks_the_recovered_current_adapter|1|rssh-app|window_gpu::tests|compatibility
 T23-RUNTIME-d56f44886582|crates/rssh-app/src/window_gpu.rs|window_gpu_records_abandonment_only_when_exit_shutdown_actually_forgets_resources|1|rssh-app|window_gpu::tests|runtime
 T23-COMPATIBILITY-85d3c27e8d75|crates/rssh-app/src/window_gpu.rs|current_adapter_shutdown_path_is_idempotent_after_context_is_taken|1|rssh-app|window_gpu::tests|compatibility
@@ -3897,6 +3904,7 @@ T23-PANES-9418bbd05dee|crates/rssh-app/src/window_inspect_pane_tests.rs|direct_r
 T23-PANES-644ed37a1f15|crates/rssh-app/src/window_inspect_pane_tests.rs|inspect_refuses_global_and_other_visible_pane_overlays_but_palette_execute_opens_after_exit|1|rssh-app|window::window_inspect_pane_tests|panes
 T23-PANES-d83376624147|crates/rssh-app/src/window_inspect_pane_tests.rs|pane_overlays_and_modals_opened_after_inspect_take_priority_by_cancelling_it|1|rssh-app|window::window_inspect_pane_tests|panes
 T23-PANES-b1c870698d41|crates/rssh-app/src/window_inspect_pane_tests.rs|inspect_reads_restarted_runtime_metadata_without_replacing_the_stable_target|1|rssh-app|window::window_inspect_pane_tests|panes
+T23-PRESENTATION-c9ebdbb92e8a|crates/rssh-app/src/window_parts/functional_observer.rs|snapshot_projects_terminal_layout_modes_and_lifecycle_without_credentials|1|rssh-app|functional_observer::tests|presentation
 T23-PANES-71512c6c3380|crates/rssh-app/src/window_restart_pane_tests.rs|window_app_recognizes_restart_pane_typed_action_query|1|rssh-app|window::window_restart_pane_tests|panes
 T23-PANES-1ba7c8dc4ea2|crates/rssh-app/src/window_restart_pane_tests.rs|restart_pane_command_has_palette_metadata_and_records_frecency|1|rssh-app|window::window_restart_pane_tests|panes
 T23-CONFIG-94b98a2432a4|crates/rssh-app/src/window_restart_pane_tests.rs|restart_pane_does_not_replace_reload_configuration_shortcut|1|rssh-app|window::window_restart_pane_tests|config

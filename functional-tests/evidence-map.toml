@@ -1,0 +1,296 @@
+schema = 1
+
+[[evidence]]
+behavior_id = "BHV-STARTUP-VERSION"
+source = "libtest"
+identity = "run_executes_a_real_entrypoint_and_writes_required_evidence"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-INTERACTION"
+source = "libtest"
+identity = "pty_driver_round_trips_unicode_and_answers_terminal_queries_without_sleep"
+
+[[evidence]]
+behavior_id = "BHV-WEB-PTY"
+source = "playwright"
+identity = "terminal.spec.ts › redeems the bootstrap ticket and opens a real PTY session"
+
+[[evidence]]
+behavior_id = "BHV-ACTION-FIXTURE-DISCONNECT"
+source = "libtest"
+identity = "ssh_adapter_reports_clean_disconnect_without_inventing_exit_metadata"
+
+[[evidence]]
+behavior_id = "BHV-LIFECYCLE-DISCONNECTED"
+source = "libtest"
+identity = "ssh_adapter_reports_clean_disconnect_without_inventing_exit_metadata"
+
+[[evidence]]
+behavior_id = "BHV-ACTION-FIXTURE-RECONNECT"
+source = "libtest"
+identity = "runtime_hub_reconnects_ssh_with_a_fresh_generation_and_no_stale_output"
+
+[[evidence]]
+behavior_id = "BHV-LIFECYCLE-RECONNECTED"
+source = "libtest"
+identity = "runtime_hub_reconnects_ssh_with_a_fresh_generation_and_no_stale_output"
+
+[[evidence]]
+behavior_id = "BHV-LIFECYCLE-ERROR"
+source = "libtest"
+identity = "runner_enforces_declared_artifacts_and_captures_failure_diagnostics_without_retries"
+
+[[evidence]]
+behavior_id = "BHV-EFFECT-HOST-STREAM"
+source = "libtest"
+identity = "explicitly_enabled_host_stream_is_published_losslessly_and_in_order"
+
+[[evidence]]
+behavior_id = "BHV-EFFECT-VISIBLE-OUTPUT"
+source = "libtest"
+identity = "explicitly_enabled_visible_output_is_published_without_terminal_controls"
+
+[[evidence]]
+behavior_id = "BHV-EFFECT-MODE-CHANGE"
+source = "libtest"
+identity = "delta_exposes_legacy_host_phase_views_without_losing_source_order"
+
+[[evidence]]
+behavior_id = "BHV-EFFECT-CLIPBOARD-READ"
+source = "libtest"
+identity = "delta_exposes_legacy_host_phase_views_without_losing_source_order"
+
+[[evidence]]
+behavior_id = "BHV-EFFECT-DIAGNOSTIC"
+source = "libtest"
+identity = "delta_exposes_legacy_host_phase_views_without_losing_source_order"
+
+[[evidence]]
+behavior_id = "BHV-CONFIG-PRECEDENCE"
+source = "libtest"
+identity = "source_precedence_matches_explicit_environment_portable_home_and_xdg_order"
+
+[[evidence]]
+behavior_id = "BHV-SSH-AUTH-HOST-KEY"
+source = "libtest"
+identity = "rssh_app_required_matrix_enforces_auth_host_key_and_nonzero_remote_status"
+
+[[evidence]]
+behavior_id = "BHV-SSH-RECONNECT"
+source = "libtest"
+identity = "rssh_app_native_ssh_disconnects_and_reconnects_with_closed_lifecycle"
+
+[[evidence]]
+behavior_id = "BHV-SSH-FORWARD-LDR"
+source = "libtest"
+identity = "rssh_app_openssh_local_dynamic_and_remote_forwarding_bridge_real_loopback_tcp"
+
+[[evidence]]
+behavior_id = "BHV-SSH-NONZERO-EXIT"
+source = "libtest"
+identity = "rssh_app_required_matrix_enforces_auth_host_key_and_nonzero_remote_status"
+
+[[evidence]]
+behavior_id = "BHV-TRANSFER-RECURSIVE"
+source = "libtest"
+identity = "system_scp_upload_download_and_recursive_transfer_preserve_sha256_content"
+
+[[evidence]]
+behavior_id = "BHV-WEB-BOOTSTRAP-TICKET"
+source = "libtest"
+identity = "server::tests::bootstrap_ticket_is_single_use_and_rotates_into_a_session_token"
+
+[[evidence]]
+behavior_id = "BHV-WEB-ORIGIN-POLICY"
+source = "libtest"
+identity = "server::tests::websocket_authentication_requires_exact_host_and_origin"
+
+[[evidence]]
+behavior_id = "BHV-WEB-SESSION-LIMIT"
+source = "libtest"
+identity = "server::tests::second_authenticated_websocket_is_rejected_at_the_session_limit"
+
+[[evidence]]
+behavior_id = "BHV-FAULT-GPU-SURFACE"
+source = "libtest"
+identity = "surface_fault_policy_reconfigures_lost_and_outdated_surfaces"
+
+[[evidence]]
+behavior_id = "BHV-FAULT-BLOCKED-IO"
+source = "libtest"
+identity = "expired_close_interrupts_blocked_writer_and_hands_join_to_reaper"
+
+[[evidence]]
+behavior_id = "BHV-FAULT-IDEMPOTENT-SHUTDOWN"
+source = "libtest"
+identity = "finish_releases_synchronized_damage_and_is_idempotent"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-RESIZE"
+source = "libtest"
+identity = "local_adapter_spawns_reads_resizes_and_preserves_exit_status"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-INPUT-MODES"
+source = "libtest"
+identity = "local::tests::tracks_combined_mouse_reporting_modes_from_pty_output"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-INPUT-MODES"
+source = "libtest"
+identity = "local::tests::encodes_focus_events_when_focus_reporting_is_enabled"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-INPUT-MODES"
+source = "libtest"
+identity = "local::tests::encodes_paste_event_as_bracketed_paste_when_enabled"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-OSC52"
+source = "libtest"
+identity = "local::tests::terminal_output_filter_writes_osc52_clipboard_text"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-OSC52"
+source = "libtest"
+identity = "local::tests::terminal_output_filter_answers_osc52_clipboard_query"
+
+[[evidence]]
+behavior_id = "BHV-CONSOLE-SESSION-LOG"
+source = "libtest"
+identity = "local::tests::session_log_writer_records_visible_output"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TABS-PANES-SPLITS"
+source = "libtest"
+identity = "window::tests::window_app_dispatches_native_split_pane_action_payload"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TABS-PANES-SPLITS"
+source = "libtest"
+identity = "window::tests::new_split_and_tab_launches_use_reloaded_defaults"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-SELECTION-COPY-MODE"
+source = "libtest"
+identity = "window::tests::window_app_alternate_copy_projection_keeps_retained_cursor_identity"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-SELECTION-COPY-MODE"
+source = "libtest"
+identity = "window::tests::window_app_copy_search_mode_and_editing_state_change_atomically"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-SCROLL-SEARCH"
+source = "libtest"
+identity = "window::tests::window_search_finds_matches_in_scrollback"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-COMMAND-PALETTE"
+source = "libtest"
+identity = "window::tests::window_app_dispatches_palette_activate_command_palette_command"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TITLE-PROGRESS-CWD"
+source = "libtest"
+identity = "window::tests::modern_default_tab_bar_preserves_custom_osc_title"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TITLE-PROGRESS-CWD"
+source = "libtest"
+identity = "window::tests::window_app_tab_bar_shows_active_pane_progress"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-TITLE-PROGRESS-CWD"
+source = "libtest"
+identity = "window::tests::window_app_records_osc7_current_working_dir_on_active_pane_launch"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-SYNCHRONIZED-OUTPUT"
+source = "libtest"
+identity = "window::tests::window_app_pending_runtime_survives_sync_and_continues_output_until_materialized"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-ALTERNATE-SCREEN"
+source = "libtest"
+identity = "window::tests::window_app_main_viewport_restores_after_alternate_screen"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-IMAGE"
+source = "libtest"
+identity = "tests::pixel_renderer_draws_kitty_rgb_direct_inline_image"
+
+[[evidence]]
+behavior_id = "BHV-RENDER-STABLE-REGION"
+source = "libtest"
+identity = "headless_gpu_readback_matches_cpu_layering_invariants_with_tolerance"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-DPI"
+source = "libtest"
+identity = "window::tests::window_app_configured_dpi_overrides_detected_scale_factor"
+
+[[evidence]]
+behavior_id = "BHV-WINDOW-PANE-RESTART"
+source = "libtest"
+identity = "window::window_restart_pane_tests::window_app_restart_pane_installs_fresh_runtime_without_touching_other_owner"
+
+[[evidence]]
+behavior_id = "BHV-SSH-PASSWORD-KEY-AGENT"
+source = "libtest"
+identity = "native_authentication_matrix_accepts_password_and_encrypted_ed25519_and_rejects_bad_password"
+
+[[evidence]]
+behavior_id = "BHV-SSH-PASSWORD-KEY-AGENT"
+source = "libtest"
+identity = "ssh::server::tests::real_ssh_authenticates_through_the_in_memory_agent_protocol"
+
+[[evidence]]
+behavior_id = "BHV-SSH-SHELL-EXEC-RESIZE"
+source = "libtest"
+identity = "native_exec_and_shell_preserve_pty_resize_output_and_exit_status"
+
+[[evidence]]
+behavior_id = "BHV-TRANSFER-ERROR-PATH"
+source = "libtest"
+identity = "ssh::sftp::tests::real_sftp_subsystem_rejects_traversal_absolute_and_directory_redirect_escape"
+
+[[evidence]]
+behavior_id = "BHV-TRANSFER-INTERRUPT-CLEANUP"
+source = "libtest"
+identity = "ssh::scp::tests::real_scp_sink_rejects_incomplete_control_record_at_eof"
+
+[[evidence]]
+behavior_id = "BHV-WEB-INPUT-PASTE-RESIZE-RESTART"
+source = "playwright"
+identity = "terminal.spec.ts › redeems the bootstrap ticket and opens a real PTY session"
+
+[[evidence]]
+behavior_id = "BHV-WEB-SECURITY-HEADERS"
+source = "libtest"
+identity = "server::tests::http_responses_emit_security_and_cache_headers"
+
+[[evidence]]
+behavior_id = "BHV-WEB-SECURITY-HEADERS"
+source = "playwright"
+identity = "terminal.spec.ts › redeems the bootstrap ticket and opens a real PTY session"
+
+[[evidence]]
+behavior_id = "BHV-WEB-BACKPRESSURE"
+source = "libtest"
+identity = "session::tests::bounded_input_queue_reports_backpressure_and_cleans_up"
+
+[[evidence]]
+behavior_id = "BHV-WEB-BACKPRESSURE"
+source = "libtest"
+identity = "server::tests::authenticated_websocket_reports_real_input_backpressure_and_cleans_up"
+
+[[evidence]]
+behavior_id = "BHV-FAULT-LISTENER-CONFLICT"
+source = "libtest"
+identity = "server::tests::second_server_cannot_bind_the_same_listener"
+
+[[evidence]]
+behavior_id = "BHV-FAULT-PTY-DISCONNECT"
+source = "libtest"
+identity = "local_adapter_interrupt_is_idempotent_and_releases_a_live_process"

@@ -305,10 +305,11 @@ async fn receive_sink(
                 if size > MAX_FILE_SIZE {
                     return Err(ScpProtocolError);
                 }
+                let name = portable_control_name(&name)?;
                 let path = if let Some(path) = forced_file.take() {
                     path
                 } else {
-                    let relative = child_relative(root, directories.last().unwrap(), &name)?;
+                    let relative = child_relative(root, directories.last().unwrap(), name)?;
                     resolve_for_create(root, &relative)?
                 };
                 wire.send_ack().await?;
@@ -512,7 +513,6 @@ fn parse_control(line: &[u8], kind: u8) -> Result<(u32, u64, String), ScpProtoco
         .parse::<u64>()
         .map_err(|_| ScpProtocolError)?;
     let name = fields.next().ok_or(ScpProtocolError)?.to_owned();
-    validate_name(&name)?;
     Ok((mode & 0o777, size, name))
 }
 
@@ -543,9 +543,26 @@ fn validate_name(name: &str) -> Result<(), ScpProtocolError> {
 }
 
 fn child_relative(root: &Path, directory: &Path, name: &str) -> Result<PathBuf, ScpProtocolError> {
-    validate_name(name)?;
+    let name = portable_control_name(name)?;
     let relative = directory.strip_prefix(root).map_err(|_| ScpProtocolError)?;
     Ok(relative.join(name))
+}
+
+fn portable_control_name(name: &str) -> Result<&str, ScpProtocolError> {
+    if validate_name(name).is_ok() {
+        return Ok(name);
+    }
+    let bytes = name.as_bytes();
+    if bytes.len() < 4
+        || !bytes[0].is_ascii_alphabetic()
+        || bytes[1] != b':'
+        || !matches!(bytes[2], b'\\' | b'/')
+    {
+        return Err(ScpProtocolError);
+    }
+    let leaf = name.rsplit(['\\', '/']).next().ok_or(ScpProtocolError)?;
+    validate_name(leaf)?;
+    Ok(leaf)
 }
 
 fn resolve_for_create(root: &Path, relative: &Path) -> Result<PathBuf, ScpProtocolError> {
@@ -808,6 +825,15 @@ mod tests {
             wire.finish().await
         });
         assert_ne!(control_status, 0);
+        let forced_control_status = runtime().block_on(async {
+            let mut wire = connect_scp(&server, "scp -t forced.bin").await;
+            wire.expect_ack().await;
+            wire.send(b"C0644 1 ../escape.txt\n").await;
+            assert_eq!(wire.read_byte().await, 2);
+            let _ = wire.read_line().await;
+            wire.finish().await
+        });
+        assert_ne!(forced_control_status, 0);
         assert_eq!(std::fs::read(outside_file).unwrap(), b"unchanged");
         assert!(!server.sftp().path().join("escape.txt").exists());
         server.stop(DEADLINE).unwrap();
@@ -906,6 +932,52 @@ mod tests {
             b"renamed"
         );
         assert!(!server.sftp().path().join("original.bin").exists());
+        server.stop(DEADLINE).unwrap();
+    }
+
+    #[test]
+    fn real_scp_sink_ignores_the_source_name_for_a_forced_file_destination() {
+        let server = HermeticSshServer::start(DEADLINE).expect("start SSH fixture");
+        runtime().block_on(async {
+            let mut wire = connect_scp(&server, "scp -t renamed.bin").await;
+            wire.expect_ack().await;
+            wire.send(b"C0644 7 C:\\Users\\runner\\source.bin\n").await;
+            wire.expect_ack().await;
+            wire.send(b"renamed\0").await;
+            wire.expect_ack().await;
+            wire.channel.eof().await.unwrap();
+            assert_eq!(wire.finish().await, 0);
+        });
+        assert_eq!(
+            std::fs::read(server.sftp().path().join("renamed.bin")).unwrap(),
+            b"renamed"
+        );
+        server.stop(DEADLINE).unwrap();
+    }
+
+    #[test]
+    fn real_scp_sink_uses_the_leaf_of_git_for_windows_recursive_source_names() {
+        let server = HermeticSshServer::start(DEADLINE).expect("start SSH fixture");
+        std::fs::create_dir(server.sftp().path().join("uploads")).unwrap();
+        runtime().block_on(async {
+            let mut wire = connect_scp(&server, "scp -r -t uploads").await;
+            wire.expect_ack().await;
+            wire.send(b"D0755 0 C:\\Users\\runner\\tree\n").await;
+            wire.expect_ack().await;
+            wire.send(b"C0644 7 C:\\Users\\runner\\tree\\data.bin\n")
+                .await;
+            wire.expect_ack().await;
+            wire.send(b"payload\0").await;
+            wire.expect_ack().await;
+            wire.send(b"E\n").await;
+            wire.expect_ack().await;
+            wire.channel.eof().await.unwrap();
+            assert_eq!(wire.finish().await, 0);
+        });
+        assert_eq!(
+            std::fs::read(server.sftp().path().join("uploads/tree/data.bin")).unwrap(),
+            b"payload"
+        );
         server.stop(DEADLINE).unwrap();
     }
 

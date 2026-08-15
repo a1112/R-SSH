@@ -70,6 +70,13 @@ impl TerminalRuntime {
         false
     }
 
+    pub(crate) fn complete_process_cwd_probe(&mut self, process_id: u32, now: Instant) {
+        let probe = &mut self.storage.process_cwd_probe;
+        if probe.process_id == Some(process_id) {
+            probe.next_probe_at = now.checked_add(PROCESS_CWD_PROBE_INTERVAL);
+        }
+    }
+
     pub(crate) fn reset_process_cwd_probe(&mut self) {
         self.storage.process_cwd_probe = ProcessCwdProbeState::default();
     }
@@ -114,6 +121,19 @@ mod tests {
 
         runtime.reset_process_cwd_probe();
         assert!(runtime.should_probe_process_cwd(11, now));
+    }
+
+    #[test]
+    fn process_cwd_probe_interval_starts_after_the_probe_completes() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+        let started = Instant::now();
+        let completed = started + PROCESS_CWD_PROBE_INTERVAL + Duration::from_millis(1);
+
+        assert!(runtime.should_probe_process_cwd(10, started));
+        runtime.complete_process_cwd_probe(10, completed);
+
+        assert!(!runtime.should_probe_process_cwd(10, completed));
+        assert!(runtime.should_probe_process_cwd(10, completed + PROCESS_CWD_PROBE_INTERVAL));
     }
 
     #[test]
