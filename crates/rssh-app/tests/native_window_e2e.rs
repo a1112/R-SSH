@@ -54,6 +54,7 @@ fn scaled_native_window_probes_use_deterministic_present_path() {
         .expect("native window metrics assertions");
     let command_helper = &source[start..end];
 
+    assert!(command_helper.contains("cfg!(target_os = \"windows\")"));
     assert!(command_helper.contains("if let Some(scale_factor) = scale_factor"));
     assert!(command_helper.contains("RSSH_TEST_PRESENT_MODE"));
     assert!(command_helper.contains("RSSH_TEST_FORCE_FALLBACK_ADAPTER"));
