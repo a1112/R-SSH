@@ -78,6 +78,10 @@ try {
     "native_window_e2e_preserves_gpu_text_at_scale_200",
     "native_window_local_pane_v2_writes_visible_session_log"
   )) {
+    $isScaledScenario = $scenario.StartsWith(
+      "native_window_e2e_preserves_gpu_text_at_scale_",
+      [StringComparison]::Ordinal
+    )
     $scenarioArguments = @(
       "test", "--locked", "-p", "rssh-app", "--test", "native_window_e2e"
     ) + $profileArguments + @(
@@ -90,16 +94,26 @@ try {
     )
     try {
       for ($attempt = 1; $attempt -le $nativeScenarioAttempts; $attempt++) {
-        if ($attempt -eq 1) {
+        if ($isScaledScenario -and $attempt -eq 1) {
+          # Fresh hosted Windows runners are more reliable when the scaled
+          # probe starts on the primary adapter. Keep the software fallback
+          # as a bounded alternate path for runners whose GPU stack wedges.
+          $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = "1"
+        } elseif ($isScaledScenario -and $attempt -eq 2) {
+          if ($null -eq $previousScaleAdapterOverride) {
+            Remove-Item Env:RSSH_TEST_NATIVE_SCALE_PRIMARY -ErrorAction SilentlyContinue
+          } else {
+            $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = $previousScaleAdapterOverride
+          }
+        } elseif ($attempt -eq 1) {
           if ($null -eq $previousScaleAdapterOverride) {
             Remove-Item Env:RSSH_TEST_NATIVE_SCALE_PRIMARY -ErrorAction SilentlyContinue
           } else {
             $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = $previousScaleAdapterOverride
           }
         } else {
-          # A hosted Windows runner can wedge either the WARP fallback or the
-          # primary DX12 adapter after a DPI probe. Retry once through the
-          # other adapter path instead of repeating the same 120s timeout.
+          # A non-scaled scenario still retries once through the alternate
+          # adapter path instead of repeating the same bounded timeout.
           $env:RSSH_TEST_NATIVE_SCALE_PRIMARY = "1"
         }
         try {

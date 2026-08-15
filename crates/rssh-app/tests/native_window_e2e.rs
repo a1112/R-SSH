@@ -454,6 +454,10 @@ fn windows_native_runner_retries_each_heavy_scenario_once_after_bounded_cleanup(
     for contract in [
         "$nativeScenarioAttempts = 2",
         "$attempt -le $nativeScenarioAttempts",
+        "$isScaledScenario = $scenario.StartsWith(",
+        "$isScaledScenario -and $attempt -eq 1",
+        "$isScaledScenario -and $attempt -eq 2",
+        "$env:RSSH_TEST_NATIVE_SCALE_PRIMARY = \"1\"",
         "catch",
         "$attempt -ge $nativeScenarioAttempts",
         "throw",
