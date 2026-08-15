@@ -15,7 +15,8 @@ use std::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener, SshConnectRequest,
+    AsyncHostKeyVerifier, HostKeyChallenge, HostKeyStatus, HostKeyVerifier, SshAuthMethod,
+    SshChannel, SshChannelOpenPlan, SshChannelOpener, SshConnectRequest, SshConnectionPhase,
     SshExitSignal, SshSessionError, SshSessionResult, SshSessionStartup, SshShellReader,
     SshShellWriter,
 };
@@ -23,6 +24,8 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RusshHostKeyPolicy {
     RejectUnknown,
+    /// Ask the configured [`HostKeyVerifier`] for unknown keys.
+    Prompt,
     TrustOnFirstUse,
     AcceptUnknown,
 }
@@ -594,13 +597,43 @@ impl RusshConnectPlan {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RusshChannelOpener {
     client_config: Arc<russh::client::Config>,
     host_key_policy: RusshHostKeyPolicy,
     known_hosts_path: Option<PathBuf>,
+    host_key_verifier: Option<HostKeyVerifier>,
+    phase_reporter: Option<ConnectionPhaseReporter>,
     operation_timeout: Duration,
     channel_inactivity_timeout: Option<Duration>,
+}
+
+#[derive(Clone)]
+struct ConnectionPhaseReporter {
+    callback: Arc<dyn Fn(SshConnectionPhase) + Send + Sync>,
+}
+
+impl std::fmt::Debug for ConnectionPhaseReporter {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ConnectionPhaseReporter(..)")
+    }
+}
+
+impl std::fmt::Debug for RusshChannelOpener {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RusshChannelOpener")
+            .field("host_key_policy", &self.host_key_policy)
+            .field("known_hosts_path", &self.known_hosts_path)
+            .field("host_key_verifier", &self.host_key_verifier)
+            .field("phase_reporter", &self.phase_reporter)
+            .field("operation_timeout", &self.operation_timeout)
+            .field(
+                "channel_inactivity_timeout",
+                &self.channel_inactivity_timeout,
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 const DEFAULT_SSH_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
@@ -616,6 +649,8 @@ impl Default for RusshChannelOpener {
             client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
+            host_key_verifier: None,
+            phase_reporter: None,
             operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
             channel_inactivity_timeout: None,
         }
@@ -629,6 +664,8 @@ impl RusshChannelOpener {
             client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
+            host_key_verifier: None,
+            phase_reporter: None,
             operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
             channel_inactivity_timeout: None,
         }
@@ -638,6 +675,47 @@ impl RusshChannelOpener {
     pub const fn with_host_key_policy(mut self, host_key_policy: RusshHostKeyPolicy) -> Self {
         self.host_key_policy = host_key_policy;
         self
+    }
+
+    /// Installs an asynchronous host-key verifier used by
+    /// [`RusshHostKeyPolicy::Prompt`]. Known keys still bypass the verifier;
+    /// changed keys are always rejected before it is called.
+    #[must_use]
+    pub fn with_host_key_verifier<V>(mut self, verifier: V) -> Self
+    where
+        V: AsyncHostKeyVerifier + 'static,
+    {
+        self.host_key_verifier = Some(HostKeyVerifier::new(verifier));
+        self
+    }
+
+    /// Installs a previously constructed cloneable verifier.
+    #[must_use]
+    pub fn with_host_key_verifier_handle(mut self, verifier: HostKeyVerifier) -> Self {
+        self.host_key_verifier = Some(verifier);
+        self
+    }
+
+    /// Installs a callback that receives connection milestones. The callback
+    /// runs on the async opener task and must remain non-blocking.
+    #[must_use]
+    pub fn with_phase_reporter<F>(mut self, reporter: F) -> Self
+    where
+        F: Fn(SshConnectionPhase) + Send + Sync + 'static,
+    {
+        self.phase_reporter = Some(ConnectionPhaseReporter {
+            callback: Arc::new(reporter),
+        });
+        self
+    }
+
+    /// Reports a milestone through the configured callback. This is public so
+    /// adapters that compose multiple startup operations can share the same
+    /// lifecycle stream without initiating a network operation.
+    pub fn report_phase(&self, phase: SshConnectionPhase) {
+        if let Some(reporter) = &self.phase_reporter {
+            (reporter.callback)(phase);
+        }
     }
 
     #[must_use]
@@ -685,12 +763,18 @@ impl RusshChannelOpener {
     }
 
     #[must_use]
+    pub fn host_key_verifier(&self) -> Option<&HostKeyVerifier> {
+        self.host_key_verifier.as_ref()
+    }
+
+    #[must_use]
     pub fn into_handler(self) -> RusshClientHandler {
         RusshClientHandler {
             host_key_policy: self.host_key_policy,
             host: None,
             port: None,
             known_hosts_path: self.known_hosts_path,
+            host_key_verifier: self.host_key_verifier,
             remote_forwards: Vec::new(),
             forward_cancellation: None,
             forward_task_tracker: None,
@@ -705,6 +789,7 @@ impl RusshChannelOpener {
             host: None,
             port: None,
             known_hosts_path: self.known_hosts_path.clone(),
+            host_key_verifier: self.host_key_verifier.clone(),
             remote_forwards: Vec::new(),
             forward_cancellation: None,
             forward_task_tracker: None,
@@ -719,6 +804,7 @@ impl RusshChannelOpener {
             host: Some(host.into()),
             port: Some(port),
             known_hosts_path: self.known_hosts_path.clone(),
+            host_key_verifier: self.host_key_verifier.clone(),
             remote_forwards: Vec::new(),
             forward_cancellation: None,
             forward_task_tracker: None,
@@ -758,6 +844,7 @@ impl RusshChannelOpener {
             host: Some(host.into()),
             port: Some(port),
             known_hosts_path: self.known_hosts_path.clone(),
+            host_key_verifier: self.host_key_verifier.clone(),
             remote_forwards: vec![remote_forward],
             forward_cancellation: Some(forward_cancellation),
             forward_task_tracker: Some(forward_task_tracker),
@@ -782,6 +869,7 @@ impl RusshChannelOpener {
         &self,
         request: SshConnectRequest,
     ) -> Result<russh::client::Handle<RusshClientHandler>, SshSessionError> {
+        self.report_phase(SshConnectionPhase::Connecting);
         let plan = self.connect_plan(&request);
         let (host, port) = plan.socket_addr();
         tokio::time::timeout(
@@ -810,6 +898,7 @@ impl RusshChannelOpener {
         handle: &mut russh::client::Handle<RusshClientHandler>,
         auth_plan: &RusshAuthPlan,
     ) -> Result<RusshAuthOutcome, SshSessionError> {
+        self.report_phase(SshConnectionPhase::Authenticating);
         let mut backend = RusshHandleAuthenticationBackend { handle };
         tokio::time::timeout(
             self.operation_timeout,
@@ -829,6 +918,7 @@ impl RusshChannelOpener {
         &self,
         handle: &russh::client::Handle<RusshClientHandler>,
     ) -> Result<russh::Channel<russh::client::Msg>, SshSessionError> {
+        self.report_phase(SshConnectionPhase::Opening);
         tokio::time::timeout(self.operation_timeout, handle.channel_open_session())
             .await
             .map_err(|_| self.operation_deadline_error("channel open"))?
@@ -1365,10 +1455,33 @@ pub struct RusshClientHandler {
     host: Option<String>,
     port: Option<u16>,
     known_hosts_path: Option<PathBuf>,
+    host_key_verifier: Option<HostKeyVerifier>,
     remote_forwards: Vec<ResolvedRemoteForward>,
     forward_cancellation: Option<RusshForwardCancellation>,
     forward_task_tracker: Option<Arc<RemoteForwardTaskTracker>>,
     forward_deadlines: Option<RusshForwardDeadlines>,
+}
+
+fn known_hosts_contains_endpoint(path: &Path, host: &str, port: u16) -> bool {
+    let endpoint = if port == 22 {
+        host.to_owned()
+    } else {
+        format!("[{host}]:{port}")
+    };
+    let Ok(contents) = std::fs::read_to_string(path) else {
+        return false;
+    };
+
+    contents
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .any(|hosts| {
+            hosts.split(',').any(|candidate| {
+                candidate == endpoint
+                    || (port == 22 && candidate == host)
+                    || (port == 22 && candidate == format!("[{host}]:22"))
+            })
+        })
 }
 
 impl RusshClientHandler {
@@ -1385,32 +1498,87 @@ impl russh::client::Handler for RusshClientHandler {
         &mut self,
         server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        if self.accepts_unknown_host_keys() {
-            return Ok(true);
-        }
-
         let (Some(host), Some(port)) = (self.host.as_deref(), self.port) else {
             return Ok(false);
         };
 
-        let matches = if let Some(path) = &self.known_hosts_path {
+        let (status, known_hosts) = if let Some(path) = &self.known_hosts_path {
             let known_hosts = RusshKnownHosts::new(path.clone());
-            match known_hosts.matches(host, port, server_public_key) {
-                Ok(false)
-                    if matches!(self.host_key_policy, RusshHostKeyPolicy::TrustOnFirstUse) =>
-                {
+            let status = match known_hosts.matches(host, port, server_public_key) {
+                Ok(true) => HostKeyStatus::Known,
+                Ok(false) => {
+                    if known_hosts_contains_endpoint(path, host, port) {
+                        HostKeyStatus::Changed
+                    } else {
+                        HostKeyStatus::Unknown
+                    }
+                }
+                Err(_) => return Ok(false),
+            };
+            (status, Some(known_hosts))
+        } else {
+            let status =
+                match russh::keys::known_hosts::check_known_hosts(host, port, server_public_key) {
+                    Ok(true) => HostKeyStatus::Known,
+                    Ok(false) => HostKeyStatus::Unknown,
+                    Err(_) => return Ok(false),
+                };
+            (status, None)
+        };
+
+        if status == HostKeyStatus::Known {
+            return Ok(true);
+        }
+        // A changed key must never be accepted by an interactive prompt or by
+        // the permissive unknown-key policy. This protects an existing trust
+        // record from being silently replaced.
+        if status == HostKeyStatus::Changed {
+            return Ok(false);
+        }
+
+        match self.host_key_policy {
+            RusshHostKeyPolicy::RejectUnknown => Ok(false),
+            RusshHostKeyPolicy::AcceptUnknown => Ok(true),
+            RusshHostKeyPolicy::TrustOnFirstUse => {
+                let Some(known_hosts) = known_hosts else {
+                    return Ok(false);
+                };
+                known_hosts
+                    .learn(host, port, server_public_key)
+                    .map_err(russh::Error::from)?;
+                Ok(true)
+            }
+            RusshHostKeyPolicy::Prompt => {
+                let Some(verifier) = &self.host_key_verifier else {
+                    return Ok(false);
+                };
+                let mut challenge = HostKeyChallenge::new(
+                    host,
+                    port,
+                    server_public_key.algorithm().to_string(),
+                    server_public_key
+                        .fingerprint(russh::keys::HashAlg::Sha256)
+                        .to_string(),
+                    status,
+                );
+                if let Some(path) = &self.known_hosts_path {
+                    challenge = challenge.with_known_hosts_path(path.clone());
+                }
+                let decision = verifier.verify(challenge).await;
+                if !decision.accepts() {
+                    return Ok(false);
+                }
+                if decision.stores() {
+                    let Some(known_hosts) = known_hosts else {
+                        return Ok(false);
+                    };
                     known_hosts
                         .learn(host, port, server_public_key)
                         .map_err(russh::Error::from)?;
-                    return Ok(true);
                 }
-                result => result,
+                Ok(true)
             }
-        } else {
-            russh::keys::known_hosts::check_known_hosts(host, port, server_public_key)
-        };
-
-        Ok(matches.unwrap_or(false))
+        }
     }
 
     async fn server_channel_open_forwarded_tcpip(
@@ -2315,6 +2483,7 @@ impl SshChannelOpener for RusshChannelOpener {
                     .await?;
                 let channel = self.open_session_channel_async(&handle).await?;
                 self.start_channel_async(&channel, &startup_plan).await?;
+                self.report_phase(SshConnectionPhase::Connected);
 
                 Ok::<_, SshSessionError>((handle, channel))
             })

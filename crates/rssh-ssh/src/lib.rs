@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use rssh_core::TerminalSize;
 
@@ -10,6 +10,150 @@ pub use russh_client::{
     RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy, RusshKnownHosts,
     RusshPrivateKeyAuth, RusshRemoteTcpIpForward, RusshRemoteTcpIpForwardPlan, RusshSshChannel,
 };
+
+/// The outcome of an asynchronous host-key prompt.
+///
+/// `AcceptOnce` keeps the key in memory for the current connection, while
+/// `AcceptAndStore` also asks the native backend to append the key to its
+/// configured `known_hosts` file. `Reject` and `Cancel` are intentionally
+/// separate names for callers that want to distinguish a negative choice
+/// from dismissing a prompt; both deny the connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostKeyDecision {
+    AcceptOnce,
+    AcceptAndStore,
+    Reject,
+    Cancel,
+}
+
+impl HostKeyDecision {
+    #[must_use]
+    pub const fn accepts(self) -> bool {
+        matches!(self, Self::AcceptOnce | Self::AcceptAndStore)
+    }
+
+    #[must_use]
+    pub const fn stores(self) -> bool {
+        matches!(self, Self::AcceptAndStore)
+    }
+}
+
+/// Whether the key supplied in a [`HostKeyChallenge`] is already trusted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostKeyStatus {
+    /// The key matches the configured known-hosts entry.
+    Known,
+    /// No known-hosts entry exists for this host and port.
+    Unknown,
+    /// An entry exists for this host and port, but its key changed.
+    Changed,
+}
+
+/// Non-secret information supplied to an asynchronous host-key verifier.
+///
+/// The challenge deliberately contains no authentication material or channel
+/// data. It is safe to pass to a GUI prompt and to retain only for the prompt
+/// lifetime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostKeyChallenge {
+    pub host: String,
+    pub port: u16,
+    pub algorithm: String,
+    pub fingerprint: String,
+    pub status: HostKeyStatus,
+    pub known_hosts_path: Option<PathBuf>,
+}
+
+impl HostKeyChallenge {
+    #[must_use]
+    pub fn new(
+        host: impl Into<String>,
+        port: u16,
+        algorithm: impl Into<String>,
+        fingerprint: impl Into<String>,
+        status: HostKeyStatus,
+    ) -> Self {
+        Self {
+            host: host.into(),
+            port,
+            algorithm: algorithm.into(),
+            fingerprint: fingerprint.into(),
+            status,
+            known_hosts_path: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_known_hosts_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.known_hosts_path = Some(path.into());
+        self
+    }
+}
+
+/// Future returned by an asynchronous host-key verifier.
+pub type HostKeyVerificationFuture = Pin<Box<dyn Future<Output = HostKeyDecision> + Send>>;
+
+/// Async callback contract used by [`HostKeyVerifier`].
+pub trait AsyncHostKeyVerifier: Send + Sync {
+    fn verify(&self, challenge: HostKeyChallenge) -> HostKeyVerificationFuture;
+}
+
+impl<F, Fut> AsyncHostKeyVerifier for F
+where
+    F: Fn(HostKeyChallenge) -> Fut + Send + Sync,
+    Fut: Future<Output = HostKeyDecision> + Send + 'static,
+{
+    fn verify(&self, challenge: HostKeyChallenge) -> HostKeyVerificationFuture {
+        Box::pin(self(challenge))
+    }
+}
+
+/// Cloneable asynchronous host-key verifier.
+#[derive(Clone)]
+pub struct HostKeyVerifier {
+    inner: Arc<dyn AsyncHostKeyVerifier>,
+}
+
+impl HostKeyVerifier {
+    #[must_use]
+    pub fn new<V>(verifier: V) -> Self
+    where
+        V: AsyncHostKeyVerifier + 'static,
+    {
+        Self {
+            inner: Arc::new(verifier),
+        }
+    }
+
+    #[must_use]
+    pub fn verify(&self, challenge: HostKeyChallenge) -> HostKeyVerificationFuture {
+        self.inner.verify(challenge)
+    }
+}
+
+impl std::fmt::Debug for HostKeyVerifier {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("HostKeyVerifier(..)")
+    }
+}
+
+impl AsyncHostKeyVerifier for HostKeyVerifier {
+    fn verify(&self, challenge: HostKeyChallenge) -> HostKeyVerificationFuture {
+        self.verify(challenge)
+    }
+}
+
+/// Connection milestones emitted by the native opener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshConnectionPhase {
+    Connecting,
+    Authenticating,
+    Opening,
+    Connected,
+}
+
+/// Compatibility alias for clients that call these milestones stages.
+pub use SshConnectionPhase as SshConnectionStage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshConfigError {
@@ -333,6 +477,10 @@ pub struct SshSessionResult {
 pub enum SshInputEvent {
     /// Bytes to write to the remote input stream.
     Data(Vec<u8>),
+    /// Resize the remote PTY without writing terminal bytes.
+    Resize(TerminalSize),
+    /// Cancel the active connection and stop both input and output pumps.
+    Cancel,
     /// Local input ended cleanly; send SSH channel EOF.
     Eof,
     /// Local input failed before EOF.
@@ -1009,6 +1157,14 @@ fn pump_input_events(
                 }
                 input_bytes = input_bytes.saturating_add(bytes.len() as u64);
             }
+            SshInputPoll::Event(SshInputEvent::Resize(size)) => {
+                writer.resize(size)?;
+            }
+            SshInputPoll::Event(SshInputEvent::Cancel) => {
+                cancellation.cancel();
+                writer.close()?;
+                return Ok(input_bytes);
+            }
             SshInputPoll::Event(SshInputEvent::Eof) => {
                 writer.finish_input()?;
                 return Ok(input_bytes);
@@ -1111,10 +1267,112 @@ mod tests {
     };
 
     use crate::{
-        RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan,
-        RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy, RusshKnownHosts,
-        RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan,
+        HostKeyChallenge, HostKeyDecision, HostKeyStatus, HostKeyVerifier, RusshAuthOutcome,
+        RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan, RusshChannelStartupRequest,
+        RusshConnectPlan, RusshHostKeyPolicy, RusshKnownHosts, RusshPrivateKeyAuth,
+        RusshRemoteTcpIpForwardPlan, SshConnectionPhase,
     };
+
+    #[test]
+    fn host_key_prompt_policy_exposes_a_non_secret_challenge() {
+        let challenge = HostKeyChallenge::new(
+            "ssh.example.com",
+            2222,
+            "ssh-ed25519",
+            "SHA256:example",
+            HostKeyStatus::Unknown,
+        )
+        .with_known_hosts_path("C:/Users/test/.ssh/known_hosts");
+
+        assert_eq!(challenge.host, "ssh.example.com");
+        assert_eq!(challenge.port, 2222);
+        assert_eq!(challenge.algorithm, "ssh-ed25519");
+        assert_eq!(challenge.fingerprint, "SHA256:example");
+        assert_eq!(challenge.status, HostKeyStatus::Unknown);
+        assert_eq!(
+            challenge.known_hosts_path.as_deref(),
+            Some(std::path::Path::new("C:/Users/test/.ssh/known_hosts"))
+        );
+        assert!(!format!("{challenge:?}").contains("password"));
+    }
+
+    #[test]
+    fn async_host_key_verifier_can_choose_accept_once() {
+        let verifier = HostKeyVerifier::new(|challenge: HostKeyChallenge| async move {
+            assert_eq!(challenge.status, HostKeyStatus::Unknown);
+            HostKeyDecision::AcceptOnce
+        });
+        let challenge = HostKeyChallenge::new(
+            "ssh.example.com",
+            22,
+            "ssh-ed25519",
+            "SHA256:example",
+            HostKeyStatus::Unknown,
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let decision = runtime.block_on(verifier.verify(challenge));
+
+        assert_eq!(decision, HostKeyDecision::AcceptOnce);
+    }
+
+    #[test]
+    fn input_events_include_resize_and_cancel_without_losing_legacy_variants() {
+        let resize = SshInputEvent::Resize(TerminalSize::new(120, 40));
+        let cancel = SshInputEvent::Cancel;
+
+        assert_eq!(resize, SshInputEvent::Resize(TerminalSize::new(120, 40)));
+        assert_eq!(cancel, SshInputEvent::Cancel);
+        assert_eq!(
+            SshInputEvent::Data(vec![1, 2]),
+            SshInputEvent::Data(vec![1, 2])
+        );
+    }
+
+    #[test]
+    fn input_event_pump_applies_resize_and_stops_on_cancel() {
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut writer = MockRunnerWriter {
+            state: Arc::clone(&state),
+        };
+        let (input_tx, input_rx) = ssh_input_event_channel(3);
+        input_tx
+            .send(SshInputEvent::Resize(TerminalSize::new(132, 43)))
+            .unwrap();
+        input_tx.send(SshInputEvent::Data(b"abc".to_vec())).unwrap();
+        input_tx.send(SshInputEvent::Cancel).unwrap();
+
+        let cancellation = super::SshCancellation::new();
+        let input_bytes = super::pump_input_events(&input_rx, &cancellation, &mut writer).unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(input_bytes, 3);
+        assert_eq!(state.written, b"abc");
+        assert_eq!(state.resized, vec![TerminalSize::new(132, 43)]);
+        assert!(state.closed);
+        assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn phase_reporter_can_observe_connection_lifecycle() {
+        let phases = Arc::new(Mutex::new(Vec::new()));
+        let observed = Arc::clone(&phases);
+        let opener = super::RusshChannelOpener::default().with_phase_reporter(move |phase| {
+            observed.lock().unwrap().push(phase);
+        });
+
+        // The reporter is intentionally exercised through the public callback
+        // helper so callers can wire it before the first network operation.
+        opener.report_phase(SshConnectionPhase::Connecting);
+
+        assert_eq!(
+            phases.lock().unwrap().as_slice(),
+            &[SshConnectionPhase::Connecting]
+        );
+    }
 
     #[test]
     fn session_config_keeps_terminal_size() {
@@ -1822,6 +2080,79 @@ mod tests {
     }
 
     #[test]
+    fn russh_handler_prompt_can_accept_once_or_store_unknown_host_key() {
+        let path = temp_known_hosts_path("prompt-store");
+        let _ = std::fs::remove_file(&path);
+        let key = test_public_key();
+        let verifier = HostKeyVerifier::new(|challenge: HostKeyChallenge| async move {
+            assert_eq!(challenge.status, HostKeyStatus::Unknown);
+            assert_eq!(challenge.port, 2222);
+            HostKeyDecision::AcceptAndStore
+        });
+        let mut handler = super::RusshChannelOpener::default()
+            .with_host_key_policy(RusshHostKeyPolicy::Prompt)
+            .with_host_key_verifier(verifier)
+            .with_known_hosts_path(path.clone())
+            .handler_for_host("ssh.example.com", 2222);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let accepted = runtime
+            .block_on(russh::client::Handler::check_server_key(&mut handler, &key))
+            .unwrap();
+
+        assert!(accepted);
+        assert!(
+            RusshKnownHosts::new(path.clone())
+                .matches("ssh.example.com", 2222, &key)
+                .unwrap()
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn russh_handler_prompt_rejects_changed_host_key_even_when_verifier_accepts() {
+        let path = temp_known_hosts_path("prompt-changed");
+        let _ = std::fs::remove_file(&path);
+        let known_key = test_public_key();
+        let changed_key = test_public_key_alt();
+        RusshKnownHosts::new(path.clone())
+            .learn("ssh.example.com", 2222, &known_key)
+            .unwrap();
+        let verifier_calls = Arc::new(Mutex::new(0_u32));
+        let observed_calls = Arc::clone(&verifier_calls);
+        let verifier = HostKeyVerifier::new(move |_challenge: HostKeyChallenge| {
+            let observed_calls = Arc::clone(&observed_calls);
+            async move {
+                *observed_calls.lock().unwrap() += 1;
+                HostKeyDecision::AcceptOnce
+            }
+        });
+        let mut handler = super::RusshChannelOpener::default()
+            .with_host_key_policy(RusshHostKeyPolicy::Prompt)
+            .with_host_key_verifier(verifier)
+            .with_known_hosts_path(path.clone())
+            .handler_for_host("ssh.example.com", 2222);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let accepted = runtime
+            .block_on(russh::client::Handler::check_server_key(
+                &mut handler,
+                &changed_key,
+            ))
+            .unwrap();
+
+        assert!(!accepted);
+        assert_eq!(*verifier_calls.lock().unwrap(), 0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn russh_connect_plan_builds_socket_address_and_username_from_request() {
         let request = SshConnectRequest::agent(
             SshSessionConfig::try_new(
@@ -2234,6 +2565,13 @@ mod tests {
         .unwrap()
     }
 
+    fn test_public_key_alt() -> russh::keys::ssh_key::PublicKey {
+        russh::keys::parse_public_key_base64(
+            "AAAAC3NzaC1lZDI1NTE5AAAAILagOJFgwaMNhBWQINinKOXmqS4Gh5NgxgriXwdOoINJ",
+        )
+        .unwrap()
+    }
+
     const TEST_ED25519_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n-----END PRIVATE KEY-----\n";
 
     const TEST_ENCRYPTED_ED25519_PRIVATE_KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABD1phlku5\nA2G7Q9iP+DcOc9AAAAEAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIHeLC1lWiCYrXsf/\n85O/pkbUFZ6OGIt49PX3nw8iRoXEAAAAkKRF0st5ZI7xxo9g6A4m4l6NarkQre3mycqNXQ\ndP3jryYgvsCIBAA5jMWSjrmnOTXhidqcOy4xYCrAttzSnZ/cUadfBenL+DQq6neffw7j8r\n0tbCxVGp6yCQlKrgSZf6c0Hy7dNEIU2bJFGxLe6/kWChcUAt/5Ll5rI7DVQPJdLgehLzvv\nsJWR7W+cGvJ/vLsw==\n-----END OPENSSH PRIVATE KEY-----\n";
@@ -2375,6 +2713,7 @@ mod tests {
     struct MockRunnerState {
         last_request: Option<SshConnectRequest>,
         written: Vec<u8>,
+        resized: Vec<TerminalSize>,
         closed: bool,
     }
 
@@ -2434,7 +2773,8 @@ mod tests {
             Ok(bytes.len())
         }
 
-        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+        fn resize(&mut self, size: TerminalSize) -> Result<(), super::SshSessionError> {
+            self.state.lock().unwrap().resized.push(size);
             Ok(())
         }
 
@@ -2475,7 +2815,8 @@ mod tests {
             Ok(bytes.len())
         }
 
-        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+        fn resize(&mut self, size: TerminalSize) -> Result<(), super::SshSessionError> {
+            self.state.lock().unwrap().resized.push(size);
             Ok(())
         }
 
