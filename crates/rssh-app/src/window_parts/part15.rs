@@ -4040,6 +4040,8 @@ mod window_inspect_pane_tests;
 
 #[path = "../window_runtime_v2.rs"]
 mod window_runtime_v2;
+#[path = "../window_ssh_gui.rs"]
+mod window_ssh_gui;
 #[path = "../window_runtime_exit.rs"]
 mod window_runtime_exit;
 

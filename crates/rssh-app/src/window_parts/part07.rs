@@ -1442,7 +1442,7 @@ struct NativeWindowApp {
     // SSH pane cannot overwrite another pane's independent connection.
     ssh_host_key_prompts: HashMap<
         rssh_core::PaneId,
-        (HostKeyChallenge, mpsc::Sender<HostKeyDecision>),
+        (HostKeyChallenge, mpsc::SyncSender<HostKeyDecision>),
     >,
     ssh_secret_prompts: HashMap<rssh_core::PaneId, SshSecretPromptState>,
     gpu: Option<Box<WindowGpu>>,
@@ -2367,30 +2367,15 @@ impl NativeWindowManager {
         self.retired_apps.clear();
     }
 
-    fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
-        let (location, pane_identity) = if let WindowUserEvent::RuntimeWakeWindow { window_id } = &event {
-            (self.owned_app_location_for_window(*window_id)?, None)
-        } else {
-            let location = self.user_event_owner_location(&event)?;
-            let (_, pane_id) = event.pane_identity()?;
-            let runtime_generation = event.runtime_generation()?;
-            (location, Some((pane_id, runtime_generation)))
-        };
-        let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
-        let mut app = self.take_app_at_location(location)?;
-        if let Some((pane_id, runtime_generation)) = pane_identity
-            && !app.pane_runtime_generation_matches(pane_id, runtime_generation)
-        {
-                self.restore_app_at_location(location, app);
-                return Some(false);
-        }
-        let owner_window_id = app.app_window_id;
-        let close_window = match event {
+    fn dispatch_user_event_to_app(
+        app: &mut NativeWindowApp,
+        event: WindowUserEvent,
+        pane_identity: Option<(rssh_core::PaneId, u64)>,
+    ) -> bool {
+        match event {
             WindowUserEvent::ReloadConfigurationRequested
             | WindowUserEvent::ConfigFileChanged
-            | WindowUserEvent::MoveTabToWindow { .. } => {
-                false
-            }
+            | WindowUserEvent::MoveTabToWindow { .. } => false,
             WindowUserEvent::RuntimeWakeWindow { .. } => match app.poll_active_v2_runtime() {
                 Ok(Some(close_window)) => close_window,
                 Ok(None) => false,
@@ -2416,8 +2401,7 @@ impl NativeWindowManager {
             WindowUserEvent::Exited { .. } => {
                 let (pane_id, runtime_generation) =
                     pane_identity.expect("pane exit carries a pane identity");
-                let status =
-                    app.finish_pane_runtime_after_exit(pane_id, runtime_generation);
+                let status = app.finish_pane_runtime_after_exit(pane_id, runtime_generation);
                 #[cfg(feature = "functional-test-observer")]
                 {
                     crate::functional_observer::publish(app.functional_observer_snapshot());
@@ -2475,7 +2459,29 @@ impl NativeWindowManager {
                 }
                 false
             }
-        };
+        }
+    }
+
+    fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
+        let (location, pane_identity) =
+            if let WindowUserEvent::RuntimeWakeWindow { window_id } = &event {
+                (self.owned_app_location_for_window(*window_id)?, None)
+            } else {
+                let location = self.user_event_owner_location(&event)?;
+                let (_, pane_id) = event.pane_identity()?;
+                let runtime_generation = event.runtime_generation()?;
+                (location, Some((pane_id, runtime_generation)))
+            };
+        let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
+        let mut app = self.take_app_at_location(location)?;
+        if let Some((pane_id, runtime_generation)) = pane_identity
+            && !app.pane_runtime_generation_matches(pane_id, runtime_generation)
+        {
+            self.restore_app_at_location(location, app);
+            return Some(false);
+        }
+        let owner_window_id = app.app_window_id;
+        let close_window = Self::dispatch_user_event_to_app(&mut app, event, pane_identity);
 
         self.collect_pending_window_apps_from_app(&mut app);
         if close_window {
@@ -2813,7 +2819,7 @@ enum NativeSshCommand {
 
 struct SshSecretPromptState {
     prompt: SecretPrompt,
-    response: mpsc::Sender<Option<String>>,
+    response: mpsc::SyncSender<Option<String>>,
     input: String,
 }
 
@@ -2894,14 +2900,14 @@ pub(crate) enum WindowUserEvent {
         pane_id: rssh_core::PaneId,
         runtime_generation: u64,
         challenge: HostKeyChallenge,
-        decision: mpsc::Sender<HostKeyDecision>,
+        decision: mpsc::SyncSender<HostKeyDecision>,
     },
     SecretPrompt {
         window_id: rssh_core::WindowId,
         pane_id: rssh_core::PaneId,
         runtime_generation: u64,
         prompt: SecretPrompt,
-        response: mpsc::Sender<Option<String>>,
+        response: mpsc::SyncSender<Option<String>>,
     },
 }
 
