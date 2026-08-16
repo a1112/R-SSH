@@ -16,6 +16,7 @@ impl NativeWindowApp {
                 .or(observed_status);
         }
 
+        self.cancel_ssh_runtime(pane_id);
         let mut runtime = self.pane_runtimes.remove(&pane_id)?;
         if let Err(error) = self.finish_inactive_pane_output(pane_id, &mut runtime) {
             eprintln!("inactive pane terminal finish failed: {error}");

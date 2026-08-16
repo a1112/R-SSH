@@ -30,6 +30,7 @@ rssh-ssh = { path = "../rssh-ssh", version = "0.1.0" }
 rssh-terminal = { path = "../rssh-terminal", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+softbuffer = "=0.4.8"
 sysinfo = { version = "=0.36.1", default-features = false, features = ["system"] }
 toml = "0.8"
 unicode_names2 = "3.1"

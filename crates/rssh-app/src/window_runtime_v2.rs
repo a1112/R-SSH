@@ -1,6 +1,6 @@
 use super::{
-    ActiveV2Close, Error, NativeWindowApp, PhysicalSize, PtyExitStatus, PtySize, RuntimeHostEvent,
-    TerminalNotification, TerminalResizeOutcome, TerminalSize,
+    ActiveV2Close, Error, NativeSshCommand, NativeWindowApp, PhysicalSize, PtyExitStatus, PtySize,
+    RuntimeHostEvent, TerminalNotification, TerminalResizeOutcome, TerminalSize,
     terminal_progress_from_runtime, terminal_size_from_window_pixels_with_padding,
 };
 
@@ -297,6 +297,7 @@ impl NativeWindowApp {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(super) fn handle_window_resize(
         &mut self,
         size: PhysicalSize<u32>,
@@ -352,13 +353,25 @@ impl NativeWindowApp {
             active_resize_outcome == TerminalResizeOutcome::AlternateScreenResized,
         );
 
+        let inactive_pane_ids = self.pane_runtimes.keys().copied().collect::<Vec<_>>();
         for runtime in self.pane_runtimes.values_mut() {
             if let Some(session) = runtime.session.as_mut() {
                 session.resize(pty_size)?;
             }
         }
+        for pane_id in inactive_pane_ids {
+            if let Some(sender) = self.ssh_writer_senders.get(&pane_id) {
+                let _ = sender.send(NativeSshCommand::Resize(terminal_size));
+            }
+        }
         if let Some(session) = self.session.as_mut() {
             session.resize(pty_size)?;
+        }
+        if let Some(sender) = self
+            .ssh_writer_senders
+            .get(&self.app_shell.active_pane_id())
+        {
+            let _ = sender.send(NativeSshCommand::Resize(terminal_size));
         }
         let resize = self.native_window_resize_event(size.width, size.height, terminal_size);
         self.dispatch_resize(&resize);

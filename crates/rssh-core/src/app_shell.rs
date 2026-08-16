@@ -9,21 +9,194 @@ const PANE_DIRECTION_LAYOUT_ROWS: i32 = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneLaunch {
+    domain: PaneLaunchDomain,
     program: String,
     args: Vec<String>,
     cwd: Option<String>,
     environment: HashMap<String, String>,
 }
 
+/// Identifies the transport used to create a pane.
+///
+/// The local variant preserves the historical `PaneLaunch` behavior. The SSH
+/// variant contains only connection metadata; interactive secrets are always
+/// requested by the runtime and are deliberately not representable here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PaneLaunchDomain {
+    Local,
+    Ssh(SshPaneLaunch),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshPaneLaunch {
+    target: String,
+    target_kind: SshTargetKind,
+    username: Option<String>,
+    port: Option<u16>,
+    auth: SshAuthDescription,
+    known_hosts_policy: SshKnownHostsPolicy,
+    remote_command: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshTargetKind {
+    Direct,
+    OpenSsh,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SshAuthDescription {
+    Agent,
+    PasswordPrompt,
+    PrivateKey { path: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshKnownHostsPolicy {
+    RejectUnknown,
+    Prompt,
+    TrustOnFirstUse,
+    AcceptUnknown,
+}
+
+impl SshPaneLaunch {
+    #[must_use]
+    pub fn new(
+        target: impl Into<String>,
+        auth: SshAuthDescription,
+        known_hosts_policy: SshKnownHostsPolicy,
+    ) -> Self {
+        Self {
+            target: target.into(),
+            target_kind: SshTargetKind::Direct,
+            username: None,
+            port: None,
+            auth,
+            known_hosts_policy,
+            remote_command: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn openssh(
+        target: impl Into<String>,
+        auth: SshAuthDescription,
+        known_hosts_policy: SshKnownHostsPolicy,
+    ) -> Self {
+        Self {
+            target: target.into(),
+            target_kind: SshTargetKind::OpenSsh,
+            username: None,
+            port: None,
+            auth,
+            known_hosts_policy,
+            remote_command: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_remote_command<I, S>(mut self, command: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.remote_command = command.into_iter().map(Into::into).collect();
+        self
+    }
+
+    #[must_use]
+    pub fn target(&self) -> &str {
+        &self.target
+    }
+
+    #[must_use]
+    pub const fn target_kind(&self) -> SshTargetKind {
+        self.target_kind
+    }
+
+    /// Applies explicit OpenSSH user/port overrides without retaining any
+    /// authentication secret. The values are resolved by the native worker
+    /// after the bootstrap frame has been presented.
+    #[must_use]
+    pub fn with_target_overrides(mut self, username: Option<String>, port: Option<u16>) -> Self {
+        self.username = username;
+        self.port = port;
+        self
+    }
+
+    #[must_use]
+    pub fn username(&self) -> Option<&str> {
+        self.username.as_deref()
+    }
+
+    #[must_use]
+    pub const fn port(&self) -> Option<u16> {
+        self.port
+    }
+
+    #[must_use]
+    pub fn auth(&self) -> &SshAuthDescription {
+        &self.auth
+    }
+
+    #[must_use]
+    pub const fn known_hosts_policy(&self) -> SshKnownHostsPolicy {
+        self.known_hosts_policy
+    }
+
+    #[must_use]
+    pub fn remote_command(&self) -> &[String] {
+        &self.remote_command
+    }
+}
+
 impl PaneLaunch {
     #[must_use]
     pub fn local(program: impl Into<String>) -> Self {
         Self {
+            domain: PaneLaunchDomain::Local,
             program: program.into(),
             args: Vec::new(),
             cwd: None,
             environment: HashMap::new(),
         }
+    }
+
+    #[must_use]
+    pub fn ssh(launch: SshPaneLaunch) -> Self {
+        Self {
+            domain: PaneLaunchDomain::Ssh(launch),
+            program: String::new(),
+            args: Vec::new(),
+            cwd: None,
+            environment: HashMap::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn domain(&self) -> &PaneLaunchDomain {
+        &self.domain
+    }
+
+    /// Returns the launch metadata inherited by a newly created tab, split,
+    /// or window. SSH targets are carried over, but an explicit remote
+    /// command is intentionally not repeated: child panes start a shell
+    /// unless the caller supplied a new command.
+    #[must_use]
+    pub fn for_child_pane(&self) -> Self {
+        let PaneLaunchDomain::Ssh(ssh) = &self.domain else {
+            return self.clone();
+        };
+
+        Self::ssh(SshPaneLaunch {
+            target: ssh.target.clone(),
+            target_kind: ssh.target_kind,
+            username: ssh.username.clone(),
+            port: ssh.port,
+            auth: ssh.auth.clone(),
+            known_hosts_policy: ssh.known_hosts_policy,
+            remote_command: Vec::new(),
+        })
     }
 
     #[must_use]
@@ -819,7 +992,7 @@ impl AppShell {
     }
 
     fn apply_new_tab(&mut self, launch: Option<PaneLaunch>) {
-        let launch = launch.unwrap_or_else(|| self.active_pane().launch.clone());
+        let launch = launch.unwrap_or_else(|| self.active_pane().launch.for_child_pane());
         let tab_id = self.next_tab_id();
         let pane_id = self.next_pane_id();
         let active_workspace = self
@@ -829,7 +1002,7 @@ impl AppShell {
     }
 
     fn apply_spawn_window(&mut self, launch: Option<PaneLaunch>) {
-        let launch = launch.unwrap_or_else(|| self.active_pane().launch.clone());
+        let launch = launch.unwrap_or_else(|| self.active_pane().launch.for_child_pane());
         let window_id = self.next_window_id();
         let tab_id = self.next_tab_id();
         let pane_id = self.next_pane_id();
@@ -1014,7 +1187,7 @@ impl AppShell {
             .active_workspace_mut()
             .expect("active workspace must exist")
             .active_tab_mut()?;
-        let launch = launch.unwrap_or_else(|| active_tab.active_pane().launch.clone());
+        let launch = launch.unwrap_or_else(|| active_tab.active_pane().launch.for_child_pane());
         active_tab.split_pane(pane, new_pane_id, direction, launch, source_size_delta)
     }
 
@@ -1029,7 +1202,7 @@ impl AppShell {
             .active_workspace_mut()
             .expect("active workspace must exist")
             .active_tab_mut()?;
-        let launch = launch.unwrap_or_else(|| active_tab.active_pane().launch.clone());
+        let launch = launch.unwrap_or_else(|| active_tab.active_pane().launch.for_child_pane());
         active_tab.split_top_level_pane(new_pane_id, direction, launch, source_size_delta)
     }
 
@@ -5441,5 +5614,66 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error, AppShellError::CannotCloseLastWorkspace);
+    }
+
+    #[test]
+    fn ssh_pane_launch_exposes_typed_domain_without_retaining_secrets() {
+        let launch = PaneLaunch::ssh(
+            SshPaneLaunch::new(
+                "ops@example.com",
+                SshAuthDescription::PasswordPrompt,
+                SshKnownHostsPolicy::Prompt,
+            )
+            .with_remote_command(["uname", "-a"]),
+        );
+
+        let PaneLaunchDomain::Ssh(ssh) = launch.domain() else {
+            panic!("expected SSH pane launch domain");
+        };
+
+        assert_eq!(ssh.target(), "ops@example.com");
+        assert_eq!(ssh.auth(), &SshAuthDescription::PasswordPrompt);
+        assert_eq!(ssh.known_hosts_policy(), SshKnownHostsPolicy::Prompt);
+        assert_eq!(ssh.remote_command(), ["uname", "-a"]);
+        assert!(!format!("{launch:?}").contains("password"));
+    }
+
+    #[test]
+    fn local_pane_launch_remains_compatible_with_existing_accessors() {
+        let launch = PaneLaunch::local("pwsh")
+            .with_args(["-NoLogo"])
+            .with_cwd("C:/work")
+            .with_environment([(String::from("MODE"), String::from("test"))]);
+
+        assert!(matches!(launch.domain(), PaneLaunchDomain::Local));
+        assert_eq!(launch.program(), "pwsh");
+        assert_eq!(launch.args(), ["-NoLogo"]);
+        assert_eq!(launch.cwd(), Some("C:/work"));
+        assert_eq!(launch.environment().get("MODE"), Some(&"test".to_owned()));
+    }
+
+    #[test]
+    fn ssh_child_launch_preserves_target_auth_policy_but_defaults_to_shell() {
+        let launch = PaneLaunch::ssh(
+            SshPaneLaunch::openssh(
+                "prod",
+                SshAuthDescription::Agent,
+                SshKnownHostsPolicy::Prompt,
+            )
+            .with_target_overrides(Some("ops".to_owned()), Some(2222))
+            .with_remote_command(["uname", "-a"]),
+        );
+
+        let child = launch.for_child_pane();
+        let PaneLaunchDomain::Ssh(child) = child.domain() else {
+            panic!("expected SSH child launch domain");
+        };
+        assert_eq!(child.target(), "prod");
+        assert_eq!(child.target_kind(), SshTargetKind::OpenSsh);
+        assert_eq!(child.username(), Some("ops"));
+        assert_eq!(child.port(), Some(2222));
+        assert_eq!(child.auth(), &SshAuthDescription::Agent);
+        assert_eq!(child.known_hosts_policy(), SshKnownHostsPolicy::Prompt);
+        assert!(child.remote_command().is_empty());
     }
 }

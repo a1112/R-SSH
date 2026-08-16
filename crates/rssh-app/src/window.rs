@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex, OnceLock, mpsc,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     thread,
@@ -19,16 +19,15 @@ use std::{
 };
 #[cfg(test)]
 use std::io::Read;
-#[cfg(test)]
-use std::sync::mpsc;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{
     DamageRegion, TerminalSize,
     app_shell::{
         AppAction, AppShell, AppShellError, ClosedTabEntry, ClosedTabHistory,
-        CloseTabSelection, PaneDirection, PaneLaunch, PaneProgress, PaneRotationDirection,
-        ResizeDirection, SplitDirection,
+        CloseTabSelection, PaneDirection, PaneLaunch, PaneLaunchDomain, PaneProgress,
+        PaneRotationDirection, ResizeDirection, SplitDirection, SshAuthDescription,
+        SshKnownHostsPolicy, SshPaneLaunch, SshTargetKind,
     },
 };
 use rssh_native::input::{
@@ -37,6 +36,13 @@ use rssh_native::input::{
 };
 use rssh_pty::{
     PtyCommand, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
+};
+use rssh_ssh::SshAuthMethod;
+use rssh_ssh::{
+    HostKeyChallenge, HostKeyDecision, HostKeyVerifier, RusshChannelOpener, RusshHostKeyPolicy,
+    SecretPrompt, SecretPromptKind, SecretProvider, SshChannelConnector, SshConnectionPhase,
+    SshConnectRequest, SshSessionConfig,
+    SshSessionStartup, SshShellConnector, SshShellWriter,
 };
 use rssh_renderer::gpu::{GpuFrameStatus, GpuPresentationMetrics};
 use rssh_renderer::{
@@ -58,6 +64,7 @@ use rssh_terminal::{
     Terminal, TerminalResizeOutcome, TerminalScreenDomain, UnderlineStyle, VerticalAlign,
 };
 use serde::{Deserialize, Serialize};
+use sysinfo::{ProcessesToUpdate, System, get_current_pid};
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -77,7 +84,10 @@ use winit::{
 };
 
 use crate::{
-    cli::{Osc52Policy, WindowOptions, WindowPosition, WindowPositionOrigin},
+    cli::{
+        NativeHostKeyPolicy, Osc52Policy, RendererMode, SshOptions, SshTarget, WindowOptions,
+        WindowPosition, WindowPositionOrigin,
+    },
     config_lifecycle::{
         ConfigDiscoveryInputs, NativeConfigLoadError, bind_native_config_projection,
         validate_cli_config_overrides,
@@ -92,7 +102,9 @@ use crate::{
         ActiveWindowRuntime, PaneCapturePolicy, PaneRuntimeRoute, RuntimeComposition,
         RuntimeHostEvent, WindowPaneRuntime,
     },
+    startup_metrics::{ConnectionState, RendererKind, StartupTrace},
     terminal_runtime::{TerminalNotification, TerminalProgress, TerminalRuntime},
+    window_bootstrap::WindowBootstrapSurface,
     window_gpu::WindowGpu,
 };
 #[path = "window_config.rs"]
@@ -721,6 +733,115 @@ pub fn run(
     }
 
     Ok(())
+}
+
+/// Starts an SSH target in the native GUI without doing configuration or GPU
+/// work on the CLI thread.  The app is intentionally created from the small
+/// default projection first; its CPU bootstrap frame is presented before the
+/// SSH transport (and any future deferred configuration work) is started.
+pub fn run_ssh_gui(options: &SshOptions) -> Result<(), Box<dyn Error>> {
+    let launch = pane_launch_from_ssh_options(options);
+    let mut app = NativeWindowApp::new_with_workspace_class_position_and_osc52_policy(
+        None,
+        options.osc52_policy,
+        PtyCommand::default_shell(),
+        None,
+        None,
+        None,
+    );
+    app.set_initial_pane_launch(launch);
+    app.set_renderer_mode(if options.benchmark_startup {
+        RendererMode::Cpu
+    } else {
+        options.renderer
+    });
+    app.set_benchmark_startup(options.benchmark_startup);
+    if let Some(path) = &options.log {
+        app.session_log = Some(Box::new(File::create(path)?) as Box<dyn Write + Send>);
+    }
+
+    let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
+    let event_proxy = event_loop.create_proxy();
+    app.event_proxy = Some(event_proxy);
+    app.set_command_palette_frecency_path(default_command_palette_frecency_path());
+    app.set_char_select_recently_used_path(default_char_select_recently_used_path());
+    let cli = validate_cli_config_overrides(&[])?;
+    let lifecycle = Box::new(NativeConfigLifecycle::new(
+        ConfigDiscoveryInputs::capture_current_process(),
+        false,
+        None,
+        cli,
+    ));
+    let mut manager = NativeWindowManager::new(app)
+        .with_config_lifecycle(lifecycle)
+        .with_deferred_config();
+    event_loop.run_app(&mut manager)?;
+    if options.console.metrics_json {
+        println!("{}", manager.metrics_json_report()?);
+    } else if options.console.metrics {
+        print!("{}", manager.metrics_report());
+    }
+    Ok(())
+}
+
+fn pane_launch_from_ssh_options(options: &SshOptions) -> PaneLaunch {
+    let (target, auth, kind) = match &options.target {
+        SshTarget::Direct(request) => (
+            format_ssh_gui_target(
+                &request.config.username,
+                &request.config.host,
+                request.config.port,
+            ),
+            ssh_auth_description(&request.auth),
+            SshTargetKind::Direct,
+        ),
+        SshTarget::OpenSsh(target) => (
+            target.target.clone(),
+            ssh_auth_description(&target.auth),
+            SshTargetKind::OpenSsh,
+        ),
+    };
+    let policy = match options.native_host_key_policy {
+        NativeHostKeyPolicy::RejectUnknown => SshKnownHostsPolicy::Prompt,
+        NativeHostKeyPolicy::TrustOnFirstUse => SshKnownHostsPolicy::TrustOnFirstUse,
+        NativeHostKeyPolicy::AcceptUnknown => SshKnownHostsPolicy::AcceptUnknown,
+    };
+    let launch = match (&options.target, kind) {
+        (SshTarget::Direct(_), SshTargetKind::Direct) => SshPaneLaunch::new(target, auth, policy),
+        (SshTarget::OpenSsh(target), SshTargetKind::OpenSsh) => {
+            SshPaneLaunch::openssh(target.target.clone(), auth, policy)
+                .with_target_overrides(target.username.clone(), target.port)
+        }
+        _ => unreachable!("SSH target kind must match the parsed target"),
+    };
+    PaneLaunch::ssh(
+        launch.with_remote_command(options.remote_command.clone()),
+    )
+}
+
+fn format_ssh_gui_target(user: &str, host: &str, port: u16) -> String {
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    if user.is_empty() {
+        format!("{host}:{port}")
+    } else {
+        format!("{user}@{host}:{port}")
+    }
+}
+
+fn ssh_auth_description(auth: &SshAuthMethod) -> SshAuthDescription {
+    match auth {
+        SshAuthMethod::Agent => SshAuthDescription::Agent,
+        SshAuthMethod::PasswordPrompt | SshAuthMethod::Password { .. } => {
+            SshAuthDescription::PasswordPrompt
+        }
+        SshAuthMethod::PrivateKey { path, .. } => SshAuthDescription::PrivateKey {
+            path: path.to_string_lossy().into_owned(),
+        },
+    }
 }
 
 #[derive(Debug)]
@@ -3336,7 +3457,9 @@ fn configured_startup_app_with_constructor(
 
     let startup = NativeWindowStartup::from_options(options);
     let mut app = constructor(startup);
+    app.metrics.mark_config_started();
     app.set_base_config(lifecycle.effective(), ReloadDisposition::SilentStartup);
+    app.metrics.mark_config_finished();
     Ok(ConfiguredStartupApp {
         app,
         lifecycle: Box::new(lifecycle),

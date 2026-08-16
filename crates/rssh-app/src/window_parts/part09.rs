@@ -2438,7 +2438,7 @@ impl NativeWindowApp {
             .flat_map(rssh_core::app_shell::Workspace::tabs)
             .flat_map(rssh_core::app_shell::Tab::panes)
             .find(|pane| pane.id() == pane_id)
-            .map(|pane| pane.launch().clone())
+            .map(|pane| pane.launch().for_child_pane())
     }
 
     fn default_pane_launch_with_options_for_wheel(
@@ -4609,7 +4609,7 @@ impl NativeWindowApp {
             iterm_session_termid(tab_context.window_id, tab_context.tab_id, session_id);
         let session_process_id = self.pane_process_id(pane.id());
         let session_tty_name = self.pane_tty_name(pane.id());
-        let session_job_name = pane.launch().program();
+        let session_job_name = pane_launch_display_program(pane.launch());
         let session_command_line = pane_launch_command_line(pane.launch());
         let session_last_command = self.pane_last_command(pane.id());
         let profile_name = pane_launch_profile_name(pane.launch());
@@ -4715,7 +4715,7 @@ impl NativeWindowApp {
             current_session_name: self.pane_title(active_pane),
             current_session_process_id: self.pane_process_id(active_pane),
             current_session_tty_name: self.pane_tty_name(active_pane).map(str::to_owned),
-            current_session_job_name: current_session_launch.map(PaneLaunch::program),
+            current_session_job_name: current_session_launch.map(pane_launch_display_program),
             current_session_command_line: current_session_launch.map(pane_launch_command_line),
             current_session_last_command: self.pane_last_command(active_pane),
             current_session_terminal_icon_name: self.pane_terminal_icon_title(active_pane),
@@ -7033,7 +7033,7 @@ fn paint_fancy_tab_items(
         tab.panes()
             .iter()
             .find(|pane| pane.id() == tab.active_pane_id())
-            .map(|pane| compact_terminal_tab_title(pane.launch().program()))
+            .map(|pane| compact_terminal_tab_title(pane_launch_display_program(pane.launch())))
             .filter(|title| !title.is_empty())
     }
 
@@ -7060,7 +7060,7 @@ fn paint_fancy_tab_items(
             .iter()
             .find(|pane| pane.id() == tab.active_pane_id())
             .is_some_and(|pane| {
-                compact_terminal_tab_title(pane.launch().program()) == compact_title
+                compact_terminal_tab_title(pane_launch_display_program(pane.launch())) == compact_title
             });
         if is_default_shell_title
             && matches!(compact_title.as_str(), "Command Prompt" | "PowerShell")

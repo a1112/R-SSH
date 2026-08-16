@@ -1715,10 +1715,10 @@ fn apply_protocol_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapsh
                     pixel_width: u32::from(rect.columns) * self.cell_width(),
                     pixel_height: u32::from(rect.rows) * self.cell_height(),
                     title: self.pane_title(pane.id()),
-                    foreground_process_name: pane.launch().program().to_owned(),
+                    foreground_process_name: pane_launch_display_program(pane.launch()).to_owned(),
                     current_working_dir: pane.launch().cwd().map(str::to_owned),
                     has_unseen_output: pane.has_unseen_output(),
-                    domain_name: "local".to_owned(),
+                    domain_name: pane_launch_domain_name(pane.launch()).to_owned(),
                     tty_name: self.pane_tty_name(pane.id()).map(str::to_owned),
                     user_vars: pane.user_vars().clone(),
                     progress: pane.progress(),
@@ -1783,7 +1783,11 @@ fn apply_protocol_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapsh
             .map_or_else(|| "unavailable".to_owned(), |pid| pid.to_string());
         let cwd = launch.cwd().unwrap_or("unavailable");
         let args = if launch.args().is_empty() {
-            "none".to_owned()
+            match launch.domain() {
+                PaneLaunchDomain::Local => "none".to_owned(),
+                PaneLaunchDomain::Ssh(ssh) if ssh.remote_command().is_empty() => "none".to_owned(),
+                PaneLaunchDomain::Ssh(ssh) => ssh.remote_command().join(" "),
+            }
         } else {
             launch.args().join(" ")
         };
@@ -1803,9 +1807,9 @@ fn apply_protocol_config_overrides(&mut self, overrides: &Arc<NativeConfigSnapsh
             format!("dimensions: {}x{}", size.columns, size.rows),
             format!("pid: {pid}"),
             format!("cwd: {cwd}"),
-            format!("program: {}", launch.program()),
+            format!("program: {}", pane_launch_display_program(launch)),
             format!("args: {args}"),
-            "domain: local".to_owned(),
+            format!("domain: {}", pane_launch_domain_name(launch)),
             format!("environment: {environment_count} {environment_label}"),
         ])
     }
@@ -2623,6 +2627,38 @@ impl NativeWindowApp {
         let mut title = self.window_title.clone();
         title.push_str(&self.app_shell_state_id_suffix());
 
+        if let PaneLaunchDomain::Ssh(ssh) = self.app_shell.active_pane().launch().domain() {
+            title.push_str(" - SSH ");
+            title.push_str(ssh.target());
+            title.push_str(" [");
+            title.push_str(connection_metric_name(self.metrics.connection_state()));
+            title.push(']');
+        }
+
+        let active_pane_id = self.app_shell.active_pane_id();
+        if let Some(prompt) = self.ssh_secret_prompts.get(&active_pane_id) {
+            title.push_str(" - SSH ");
+            title.push_str(match prompt.prompt.kind {
+                SecretPromptKind::Password => "password",
+                SecretPromptKind::PrivateKeyPassphrase => "private-key passphrase",
+            });
+            title.push_str(" (masked)");
+        } else if let Some((challenge, _)) = self.ssh_host_key_prompts.get(&active_pane_id)
+        {
+            title.push_str(" - SSH host key ");
+            title.push_str(&challenge.host);
+            title.push(':');
+            title.push_str(&challenge.port.to_string());
+            title.push(' ');
+            title.push_str(&challenge.fingerprint);
+            if let Some(path) = &challenge.known_hosts_path {
+                title.push_str(" [");
+                title.push_str(&path.to_string_lossy());
+                title.push(']');
+            }
+            title.push_str(" [1] once [2] store [Esc] cancel");
+        }
+
         if !self.higher_level_ui_suppresses_pane_overlay() {
             match self.active_ui.copy_search_mode() {
                 Some(WindowCopySearchMode::Search) => {
@@ -2803,6 +2839,8 @@ impl NativeWindowApp {
             return Ok(());
         }
 
+        self.transport_start_requested = true;
+
         let runtime = self.spawn_pane_runtime_for_active_pane()?;
         self.install_active_runtime(runtime);
         Ok(())
@@ -2849,6 +2887,7 @@ impl NativeWindowApp {
                 .remove(&pane_id)
                 .expect("validated inactive pane runtime must exist")
         };
+        self.cancel_ssh_runtime(pane_id);
         let previous_size = previous_runtime.runtime.terminal().grid().size();
         let cleanup = previous_runtime.close();
         report_pane_pty_cleanup("pane restart PTY cleanup", &cleanup);
@@ -2974,6 +3013,7 @@ impl NativeWindowApp {
         pane_id: rssh_core::PaneId,
         cleanup_context: &str,
     ) {
+        self.cancel_ssh_runtime(pane_id);
         let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) else {
             return;
         };
@@ -3026,6 +3066,16 @@ impl NativeWindowApp {
                     pane_id.get()
                 ))) as Box<dyn Error>
             })?;
+
+        if let PaneLaunchDomain::Ssh(ssh_launch) = launch.domain() {
+            return self.spawn_native_ssh_runtime(
+                pane_id,
+                ssh_launch,
+                runtime_generation,
+                event_proxy,
+            );
+        }
+
         let term_session_id =
             iterm_session_termid(self.app_window_id.get(), tab_id.get(), pane_id.get());
         let environment = self.pane_environment_variables();
@@ -3256,7 +3306,6 @@ impl NativeWindowApp {
         self.metrics_snapshot().json_report()
     }
 
-    #[allow(clippy::too_many_lines)]
     fn handle_keyboard_input(&mut self, key: &winit::event::KeyEvent) -> io::Result<()> {
         let key_event_kind = KittyKeyEventKind::from_winit_key(key);
         self.handle_keyboard_input_event(
@@ -3390,6 +3439,10 @@ impl NativeWindowApp {
                 modifiers,
                 key_event_kind,
             )?;
+            return Ok(());
+        }
+
+        if self.handle_ssh_prompt_key_event(logical_key, text) {
             return Ok(());
         }
 
@@ -5933,7 +5986,7 @@ fn lua_window_effective_config_field_text_part3(
                                 .unwrap_or_else(|| {
                                     let launch = self.app_shell.active_pane().launch();
                                     if offset == 0 {
-                                        launch.program().to_owned()
+                                        pane_launch_display_program(launch).to_owned()
                                     } else {
                                         launch
                                             .args()
@@ -6856,8 +6909,23 @@ fn lua_window_effective_config_field_text_part3(
         &mut self,
         size: PhysicalSize<u32>,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(gpu) = self.gpu.as_mut() {
-            gpu.resize_surface(size)?;
+        if let Some(gpu) = self.gpu.as_mut()
+            && let Err(error) = gpu.resize_surface(size)
+        {
+            if self.bootstrap_surface.is_some() {
+                eprintln!("GPU surface resize failed; using CPU fallback: {error}");
+                self.gpu = None;
+                self.metrics.mark_renderer(RendererKind::Cpu);
+                self.presentation_owner = PresentationOwner::CpuFallback;
+            } else {
+                return Err(error);
+            }
+        }
+        if let Some(surface) = self.bootstrap_surface.as_mut()
+            && size.width > 0
+            && size.height > 0
+        {
+            surface.resize(size)?;
         }
         Ok(())
     }
@@ -6939,24 +7007,32 @@ fn lua_window_effective_config_field_text_part3(
         }
 
         let process_name = self.pane_process_name(pane_id);
+        let domain_name = self
+            .app_shell
+            .active_workspace()
+            .tabs()
+            .iter()
+            .flat_map(rssh_core::app_shell::Tab::panes)
+            .find(|pane| pane.id() == pane_id)
+            .map_or(DEFAULT_DOMAIN_NAME, |pane| pane_launch_domain_name(pane.launch()));
         let code = status.exit_code();
         let clean = self.is_clean_exit_status(status);
         let exit_behavior = self.exit_behavior.as_wezterm_config_value();
         match self.exit_behavior_messaging {
             NativeExitBehaviorMessaging::Verbose if clean => Some(format!(
-                "👍 Process \"{process_name}\" in domain \"local\" completed.\r\n\
+                "👍 Process \"{process_name}\" in domain \"{domain_name}\" completed.\r\n\
                  This message is shown because exit_behavior=\"{exit_behavior}\"\r\n"
             )),
             NativeExitBehaviorMessaging::Verbose => Some(format!(
-                "⚠️  Process \"{process_name}\" in domain \"local\" didn't exit cleanly\r\n\
+                "⚠️  Process \"{process_name}\" in domain \"{domain_name}\" didn't exit cleanly\r\n\
                  Exited with code {code}\r\n\
                  This message is shown because exit_behavior=\"{exit_behavior}\"\r\n"
             )),
             NativeExitBehaviorMessaging::Brief if clean => Some(format!(
-                "👍 Process \"{process_name}\" in domain \"local\" completed.\r\n"
+                "👍 Process \"{process_name}\" in domain \"{domain_name}\" completed.\r\n"
             )),
             NativeExitBehaviorMessaging::Brief => Some(format!(
-                "⚠️  Process \"{process_name}\" in domain \"local\" didn't exit cleanly\r\n\
+                "⚠️  Process \"{process_name}\" in domain \"{domain_name}\" didn't exit cleanly\r\n\
                  Exited with code {code}\r\n"
             )),
             NativeExitBehaviorMessaging::Terse if clean => Some("[done]\r\n".to_owned()),
@@ -6972,7 +7048,7 @@ fn lua_window_effective_config_field_text_part3(
             .iter()
             .flat_map(rssh_core::app_shell::Tab::panes)
             .find(|pane| pane.id() == pane_id)
-            .map(|pane| pane.launch().program().to_owned())
+            .map(|pane| pane_launch_display_program(pane.launch()).to_owned())
             .unwrap_or_default()
     }
 

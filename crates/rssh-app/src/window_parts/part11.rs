@@ -2,16 +2,29 @@ impl Drop for NativeWindowApp {
     fn drop(&mut self) {
         self.stop_active_runtime();
 
-        for runtime in self.pane_runtimes.values_mut() {
-            let cleanup = runtime.close();
-            report_pane_pty_cleanup("window drop pane PTY cleanup", &cleanup);
+        let inactive_panes = self.pane_runtimes.keys().copied().collect::<Vec<_>>();
+        for pane_id in inactive_panes {
+            self.cancel_ssh_runtime(pane_id);
+            if let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) {
+                let cleanup = runtime.close();
+                report_pane_pty_cleanup("window drop pane PTY cleanup", &cleanup);
+            }
         }
 
         self.pane_runtimes.clear();
     }
 }
 impl NativeWindowApp {
+    fn cancel_ssh_runtime(&mut self, pane_id: rssh_core::PaneId) {
+        self.resolve_host_key_prompt_for_pane(pane_id, HostKeyDecision::Cancel);
+        self.resolve_secret_prompt_for_pane(pane_id, None);
+        if let Some(sender) = self.ssh_writer_senders.remove(&pane_id) {
+            let _ = sender.send(NativeSshCommand::Cancel);
+        }
+    }
+
     fn finish_active_runtime_after_exit(&mut self) -> Option<PtyExitStatus> {
+        self.cancel_ssh_runtime(self.app_shell.active_pane_id());
         if let Some(mut runtime) = self.runtime.take_worker() {
             runtime.shutdown();
             self.session_process_id = None;
@@ -35,6 +48,7 @@ impl NativeWindowApp {
     }
 
     fn stop_active_runtime(&mut self) {
+        self.cancel_ssh_runtime(self.app_shell.active_pane_id());
         if let Some(mut runtime) = self.runtime.take_worker() {
             let _ = runtime.begin_close(Duration::ZERO);
             runtime.shutdown();

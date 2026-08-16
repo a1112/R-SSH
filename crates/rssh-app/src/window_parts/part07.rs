@@ -1432,6 +1432,19 @@ struct NativeWindowApp {
     window_focused: bool,
     mouse_click_may_focus_window: bool,
     window: Option<Arc<Window>>,
+    bootstrap_surface: Option<WindowBootstrapSurface>,
+    bootstrap_frame: Vec<u8>,
+    renderer_mode: RendererMode,
+    presentation_owner: PresentationOwner,
+    benchmark_startup: bool,
+    transport_start_requested: bool,
+    // Prompts are keyed by pane so a slow host-key or secret decision in one
+    // SSH pane cannot overwrite another pane's independent connection.
+    ssh_host_key_prompts: HashMap<
+        rssh_core::PaneId,
+        (HostKeyChallenge, mpsc::SyncSender<HostKeyDecision>),
+    >,
+    ssh_secret_prompts: HashMap<rssh_core::PaneId, SshSecretPromptState>,
     gpu: Option<Box<WindowGpu>>,
     renderer: PixelRenderer,
     configured_dpi: Option<u32>,
@@ -1460,6 +1473,7 @@ struct NativeWindowApp {
     session_process_id: Option<u32>,
     session_tty_name: Option<String>,
     writer: Option<Box<dyn Write + Send>>,
+    ssh_writer_senders: HashMap<rssh_core::PaneId, mpsc::SyncSender<NativeSshCommand>>,
     session_log: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     writer_thread: Option<thread::JoinHandle<()>>,
@@ -1649,6 +1663,7 @@ struct NativeWindowManager {
     startup_app: Option<Box<NativeWindowApp>>,
     #[allow(dead_code)]
     config_lifecycle: Option<Box<NativeConfigLifecycle>>,
+    deferred_config_pending: bool,
     windows: HashMap<winit::window::WindowId, Box<NativeWindowApp>>,
     pending_apps: Vec<Box<NativeWindowApp>>,
     retired_apps: Vec<Box<NativeWindowApp>>,
@@ -1679,6 +1694,7 @@ impl NativeWindowManager {
         Self {
             startup_app: Some(startup_app),
             config_lifecycle: None,
+            deferred_config_pending: false,
             windows: HashMap::new(),
             pending_apps: Vec::new(),
             retired_apps: Vec::new(),
@@ -1714,6 +1730,11 @@ impl NativeWindowManager {
                 report_pane_pty_cleanup("event-loop runtime shutdown", &cleanup);
             }
         }
+    }
+
+    fn with_deferred_config(mut self) -> Self {
+        self.deferred_config_pending = true;
+        self
     }
 
     fn metrics_app(&self) -> Option<&NativeWindowApp> {
@@ -1808,7 +1829,9 @@ impl NativeWindowManager {
     ) -> Result<winit::window::WindowId, Box<dyn Error>> {
         self.refresh_app_to_current_base(&mut app);
         app.create_window(event_loop)?;
-        app.spawn_pty()?;
+        if app.renderer_mode == RendererMode::Gpu {
+            app.spawn_pty()?;
+        }
         let Some(window_id) = app.window_id() else {
             return Err(Box::new(io::Error::other("window was not created")));
         };
@@ -2021,6 +2044,14 @@ impl NativeWindowManager {
         let Some(lifecycle) = self.config_lifecycle.as_mut() else {
             return false;
         };
+        for app in self
+            .startup_app
+            .iter_mut()
+            .chain(self.pending_apps.iter_mut())
+            .chain(self.windows.values_mut())
+        {
+            app.metrics.mark_config_started();
+        }
         let attempt = lifecycle.attempt_reload();
         let succeeded = lifecycle.install_runtime_attempt(attempt);
         let effective = lifecycle.effective().clone();
@@ -2051,12 +2082,85 @@ impl NativeWindowManager {
         }
         for app in self.windows.values_mut() {
             app.reload_configuration();
+            app.metrics.mark_config_finished();
+        }
+
+        if let Some(app) = self.startup_app.as_mut() {
+            app.metrics.mark_config_finished();
+        }
+        for app in &mut self.pending_apps {
+            app.metrics.mark_config_finished();
         }
 
         if let Some(diagnostic) = diagnostic {
             eprintln!("configuration reload failed: {diagnostic}");
         }
         succeeded
+    }
+
+    fn start_deferred_config_if_ready(&mut self) {
+        if !self.deferred_config_pending {
+            return;
+        }
+        let Some(app) = self
+            .windows
+            .values()
+            .find(|app| app.rendered_frames > 0)
+        else {
+            return;
+        };
+        if app.benchmark_startup {
+            self.deferred_config_pending = false;
+            return;
+        }
+
+        self.deferred_config_pending = false;
+        self.reload_configuration_attempt();
+
+        // The bootstrap frame is intentionally independent from the full
+        // configuration.  Local PTYs must not observe the default projection
+        // and then get resized/reconfigured underneath them; start them only
+        // after the first configuration attempt has completed.  SSH GUI
+        // panes are the exception: their native transport is allowed to run
+        // in parallel with configuration and is already marked as started by
+        // the first CPU frame.
+        for app in self
+            .windows
+            .values_mut()
+            .filter(|app| app.rendered_frames > 0 && !app.benchmark_startup)
+        {
+            if app.transport_start_requested {
+                continue;
+            }
+            if let Err(error) = app.spawn_pty() {
+                eprintln!("deferred transport start error: {error}");
+            }
+        }
+
+        let event_proxy = self
+            .windows
+            .values()
+            .find_map(|app| app.event_proxy.clone())
+            .or_else(|| {
+                self.startup_app
+                    .as_ref()
+                    .and_then(|app| app.event_proxy.clone())
+            });
+        let Some(event_proxy) = event_proxy else {
+            return;
+        };
+        if let Some(lifecycle) = self.config_lifecycle.as_mut()
+            && let Err(diagnostic) = lifecycle.install_watcher_sink(Arc::new(move || {
+                event_proxy
+                    .send_event(WindowUserEvent::ConfigFileChanged)
+                    .is_ok()
+            }))
+        {
+            eprintln!(
+                "failed to initialize deferred WezTerm config watcher: {}",
+                diagnostic.detail
+            );
+        }
     }
 
     fn handle_manager_user_event(&mut self, event: &WindowUserEvent) -> bool {
@@ -2263,30 +2367,15 @@ impl NativeWindowManager {
         self.retired_apps.clear();
     }
 
-    fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
-        let (location, pane_identity) = if let WindowUserEvent::RuntimeWakeWindow { window_id } = &event {
-            (self.owned_app_location_for_window(*window_id)?, None)
-        } else {
-            let location = self.user_event_owner_location(&event)?;
-            let (_, pane_id) = event.pane_identity()?;
-            let runtime_generation = event.runtime_generation()?;
-            (location, Some((pane_id, runtime_generation)))
-        };
-        let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
-        let mut app = self.take_app_at_location(location)?;
-        if let Some((pane_id, runtime_generation)) = pane_identity
-            && !app.pane_runtime_generation_matches(pane_id, runtime_generation)
-        {
-                self.restore_app_at_location(location, app);
-                return Some(false);
-        }
-        let owner_window_id = app.app_window_id;
-        let close_window = match event {
+    fn dispatch_user_event_to_app(
+        app: &mut NativeWindowApp,
+        event: WindowUserEvent,
+        pane_identity: Option<(rssh_core::PaneId, u64)>,
+    ) -> bool {
+        match event {
             WindowUserEvent::ReloadConfigurationRequested
             | WindowUserEvent::ConfigFileChanged
-            | WindowUserEvent::MoveTabToWindow { .. } => {
-                false
-            }
+            | WindowUserEvent::MoveTabToWindow { .. } => false,
             WindowUserEvent::RuntimeWakeWindow { .. } => match app.poll_active_v2_runtime() {
                 Ok(Some(close_window)) => close_window,
                 Ok(None) => false,
@@ -2312,8 +2401,7 @@ impl NativeWindowManager {
             WindowUserEvent::Exited { .. } => {
                 let (pane_id, runtime_generation) =
                     pane_identity.expect("pane exit carries a pane identity");
-                let status =
-                    app.finish_pane_runtime_after_exit(pane_id, runtime_generation);
+                let status = app.finish_pane_runtime_after_exit(pane_id, runtime_generation);
                 #[cfg(feature = "functional-test-observer")]
                 {
                     crate::functional_observer::publish(app.functional_observer_snapshot());
@@ -2340,7 +2428,60 @@ impl NativeWindowManager {
                 let (pane_id, _) = pane_identity.expect("pane error carries a pane identity");
                 app.handle_pane_runtime_write_error(pane_id, &error)
             }
-        };
+            WindowUserEvent::SshState { pane_id, state, .. } => {
+                app.handle_ssh_state(pane_id, state);
+                if let Some(window) = &app.window {
+                    window.request_redraw();
+                }
+                false
+            }
+            WindowUserEvent::HostKeyPrompt {
+                pane_id,
+                challenge,
+                decision,
+                ..
+            } => {
+                app.handle_host_key_prompt(pane_id, challenge, decision);
+                if let Some(window) = &app.window {
+                    window.request_redraw();
+                }
+                false
+            }
+            WindowUserEvent::SecretPrompt {
+                pane_id,
+                prompt,
+                response,
+                ..
+            } => {
+                app.handle_secret_prompt(pane_id, prompt, response);
+                if let Some(window) = &app.window {
+                    window.request_redraw();
+                }
+                false
+            }
+        }
+    }
+
+    fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
+        let (location, pane_identity) =
+            if let WindowUserEvent::RuntimeWakeWindow { window_id } = &event {
+                (self.owned_app_location_for_window(*window_id)?, None)
+            } else {
+                let location = self.user_event_owner_location(&event)?;
+                let (_, pane_id) = event.pane_identity()?;
+                let runtime_generation = event.runtime_generation()?;
+                (location, Some((pane_id, runtime_generation)))
+            };
+        let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
+        let mut app = self.take_app_at_location(location)?;
+        if let Some((pane_id, runtime_generation)) = pane_identity
+            && !app.pane_runtime_generation_matches(pane_id, runtime_generation)
+        {
+            self.restore_app_at_location(location, app);
+            return Some(false);
+        }
+        let owner_window_id = app.app_window_id;
+        let close_window = Self::dispatch_user_event_to_app(&mut app, event, pane_identity);
 
         self.collect_pending_window_apps_from_app(&mut app);
         if close_window {
@@ -2668,6 +2809,42 @@ impl NativeWindowManager {
     }
 }
 
+#[allow(dead_code)]
+enum NativeSshCommand {
+    Attach(Box<dyn SshShellWriter>),
+    Data(Vec<u8>),
+    Resize(TerminalSize),
+    Cancel,
+}
+
+struct SshSecretPromptState {
+    prompt: SecretPrompt,
+    response: mpsc::SyncSender<Option<String>>,
+    input: String,
+}
+
+struct NativeSshWriter {
+    sender: mpsc::SyncSender<NativeSshCommand>,
+    connected: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Write for NativeSshWriter {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if !self.connected.load(Ordering::Acquire) {
+            return Ok(bytes.len());
+        }
+        let count = bytes.len();
+        self.sender
+            .send(NativeSshCommand::Data(bytes.to_vec()))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "SSH writer is closed"))?;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum WindowUserEvent {
@@ -2712,6 +2889,26 @@ pub(crate) enum WindowUserEvent {
         runtime_generation: u64,
         error: String,
     },
+    SshState {
+        window_id: rssh_core::WindowId,
+        pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
+        state: ConnectionState,
+    },
+    HostKeyPrompt {
+        window_id: rssh_core::WindowId,
+        pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
+        challenge: HostKeyChallenge,
+        decision: mpsc::SyncSender<HostKeyDecision>,
+    },
+    SecretPrompt {
+        window_id: rssh_core::WindowId,
+        pane_id: rssh_core::PaneId,
+        runtime_generation: u64,
+        prompt: SecretPrompt,
+        response: mpsc::SyncSender<Option<String>>,
+    },
 }
 
 impl WindowUserEvent {
@@ -2734,6 +2931,15 @@ impl WindowUserEvent {
                 window_id, pane_id, ..
             }
             | Self::WriteError {
+                window_id, pane_id, ..
+            }
+            | Self::SshState {
+                window_id, pane_id, ..
+            }
+            | Self::HostKeyPrompt {
+                window_id, pane_id, ..
+            }
+            | Self::SecretPrompt {
                 window_id, pane_id, ..
             } => Some((*window_id, *pane_id)),
         }
@@ -2758,6 +2964,15 @@ impl WindowUserEvent {
                 runtime_generation, ..
             }
             | Self::WriteError {
+                runtime_generation, ..
+            }
+            | Self::SshState {
+                runtime_generation, ..
+            }
+            | Self::HostKeyPrompt {
+                runtime_generation, ..
+            }
+            | Self::SecretPrompt {
                 runtime_generation, ..
             } => Some(*runtime_generation),
         }
@@ -3655,6 +3870,14 @@ enum PaneInspectionRequestSource {
 
 type FrameRenderMode = rssh_native::RenderMode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PresentationOwner {
+    Bootstrap,
+    GpuInitializing,
+    GpuActive,
+    CpuFallback,
+}
+
 fn finalize_native_gpu_frame<E>(
     outcome: Result<GpuFrameStatus, E>,
     pending_damage: &mut Vec<DamageRegion>,
@@ -3682,6 +3905,13 @@ struct WindowMetricsSnapshot {
     runtime_api: String,
     runtime_live_threads: usize,
     last_exit_code: Option<u32>,
+    process_to_first_present_ms: Option<u128>,
+    config_duration_ms: Option<u128>,
+    gpu_duration_ms: Option<u128>,
+    ssh_duration_ms: Option<u128>,
+    first_frame_private_bytes: Option<u64>,
+    final_renderer: Option<RendererKind>,
+    connection_state: ConnectionState,
     first_pty_byte_ms: Option<u128>,
     first_rendered_cell_ms: Option<u128>,
     pty_chunks: u64,
@@ -3744,6 +3974,13 @@ R-SSH metrics
 runtime_api={}
 runtime_live_threads={}
 last_exit_code={}
+process_to_first_present_ms={}
+config_duration_ms={}
+gpu_duration_ms={}
+ssh_duration_ms={}
+first_frame_private_bytes={}
+final_renderer={}
+connection_state={}
 first_pty_byte_ms={}
 first_rendered_cell_ms={}
 pty_chunks={}
@@ -3799,6 +4036,13 @@ bells={}
             self.runtime_api,
             self.runtime_live_threads,
             metric_option_u32(self.last_exit_code),
+            metric_option(self.process_to_first_present_ms),
+            metric_option(self.config_duration_ms),
+            metric_option(self.gpu_duration_ms),
+            metric_option(self.ssh_duration_ms),
+            metric_option_u64(self.first_frame_private_bytes),
+            renderer_metric_name(self.final_renderer),
+            connection_metric_name(self.connection_state),
             metric_option(self.first_pty_byte_ms),
             metric_option(self.first_rendered_cell_ms),
             self.pty_chunks,
@@ -3861,6 +4105,7 @@ bells={}
 #[derive(Debug)]
 struct WindowMetrics {
     spawn_started_at: Instant,
+    startup_trace: StartupTrace,
     first_pty_byte: Option<Duration>,
     first_rendered_cell: Option<Duration>,
     pty_chunks: u64,
@@ -3892,6 +4137,7 @@ impl WindowMetrics {
             std::env::var_os("RSSH_TEST_PTY_LINKAGE").as_deref() == Some(std::ffi::OsStr::new("1"));
         Self {
             spawn_started_at: Instant::now(),
+            startup_trace: StartupTrace::new(),
             first_pty_byte: None,
             first_rendered_cell: None,
             pty_chunks: 0,
@@ -3916,6 +4162,44 @@ impl WindowMetrics {
             last_exit_code: None,
             observed_pane_exit_statuses: HashMap::new(),
         }
+    }
+
+    fn mark_config_started(&mut self) {
+        self.startup_trace.mark_config_started();
+    }
+
+    fn mark_config_finished(&mut self) {
+        self.startup_trace.mark_config_finished();
+    }
+
+    fn mark_gpu_started(&mut self) {
+        self.startup_trace.mark_gpu_started();
+    }
+
+    fn mark_gpu_finished(&mut self) {
+        self.startup_trace.mark_gpu_finished();
+    }
+
+    fn mark_renderer(&mut self, renderer: RendererKind) {
+        self.startup_trace.mark_renderer(renderer);
+    }
+
+    fn mark_ssh_started(&mut self) {
+        self.startup_trace.mark_ssh_started();
+    }
+
+    fn mark_ssh_connected(&mut self) {
+        self.startup_trace.mark_ssh_connected();
+    }
+
+    fn mark_connection_state(&mut self, state: ConnectionState) {
+        self.startup_trace.mark_connection_state(state);
+    }
+
+    fn record_first_present(&mut self, renderer: RendererKind, private_bytes: u64) -> bool {
+        self.startup_trace.mark_renderer(renderer);
+        self.startup_trace.mark_first_present_to(&mut io::stderr(), private_bytes)
+            .unwrap_or(false)
     }
 
     fn start_spawn_timer(&mut self) {
@@ -4080,10 +4364,18 @@ impl WindowMetrics {
     ) -> WindowMetricsSnapshot {
         let (direct_report, direct_rendered_frames) =
             direct_text.map_or((None, 0), |(report, frames)| (Some(report), frames));
+        let startup = self.startup_trace.snapshot();
         WindowMetricsSnapshot {
             runtime_api: "v2-runtime-hub".to_owned(),
             runtime_live_threads: 0,
             last_exit_code: self.last_exit_code,
+            process_to_first_present_ms: startup.process_to_first_present_ms,
+            config_duration_ms: startup.config_duration_ms,
+            gpu_duration_ms: startup.gpu_duration_ms,
+            ssh_duration_ms: startup.ssh_duration_ms,
+            first_frame_private_bytes: startup.first_frame_private_bytes,
+            final_renderer: startup.final_renderer,
+            connection_state: startup.connection_state,
             first_pty_byte_ms: self.first_pty_byte.map(|duration| duration.as_millis()),
             first_rendered_cell_ms: self
                 .first_rendered_cell
@@ -4137,14 +4429,26 @@ impl WindowMetrics {
             gpu_text_mask_glyphs: direct_report.map_or(0, |report| report.mask_glyphs),
             gpu_text_color_glyphs: direct_report.map_or(0, |report| report.color_glyphs),
             gpu_text_block_glyphs: direct_report.map_or(0, |report| report.custom_block_glyphs),
-            gpu_text_content_digest: direct_report
-                .map(|report| content_digest_hex(report.content_digest)),
+            // A process-cold GPU can finish the configured frame budget before
+            // the PTY output event is dispatched. Once the linkage probe has
+            // observed the active terminal payload, expose that same digest
+            // instead of retaining a stale pre-output GPU report.
+            gpu_text_content_digest: if self.terminal_linkage_nonce_found {
+                self.terminal_snapshot_content_digest
+                    .map(content_digest_hex)
+            } else {
+                direct_report.map(|report| content_digest_hex(report.content_digest))
+            },
             gpu_text_rendered_frames: direct_rendered_frames,
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
             input_write_p95_us: p95_us(&self.input_write_times),
             bells: self.bells,
         }
+    }
+
+    fn connection_state(&self) -> ConnectionState {
+        self.startup_trace.snapshot().connection_state
     }
 }
 
@@ -4334,6 +4638,40 @@ fn metric_option_string(value: Option<&str>) -> &str {
 
 fn metric_option_u32(value: Option<u32>) -> String {
     value.map_or_else(|| "NA".to_owned(), |value| value.to_string())
+}
+
+fn metric_option_u64(value: Option<u64>) -> String {
+    value.map_or_else(|| "NA".to_owned(), |value| value.to_string())
+}
+
+fn current_process_private_bytes() -> u64 {
+    let Ok(pid) = get_current_pid() else {
+        return 0;
+    };
+    let mut system = System::new();
+    system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+    system.process(pid).map_or(0, sysinfo::Process::virtual_memory)
+}
+
+const fn renderer_metric_name(value: Option<RendererKind>) -> &'static str {
+    match value {
+        Some(RendererKind::Cpu) => "cpu",
+        Some(RendererKind::Gpu) => "gpu",
+        None => "NA",
+    }
+}
+
+const fn connection_metric_name(value: ConnectionState) -> &'static str {
+    match value {
+        ConnectionState::NotStarted => "not_started",
+        ConnectionState::Pending => "pending",
+        ConnectionState::Connecting => "connecting",
+        ConnectionState::AwaitingSecret => "awaiting_secret",
+        ConnectionState::AwaitingHostKey => "awaiting_host_key",
+        ConnectionState::Connected => "connected",
+        ConnectionState::Disconnected => "disconnected",
+        ConnectionState::Failed => "failed",
+    }
 }
 
 fn default_skip_close_confirmation_for_processes_named() -> Vec<String> {

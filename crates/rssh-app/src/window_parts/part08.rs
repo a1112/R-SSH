@@ -39,7 +39,6 @@ struct NativeFrameContentPlacement {
 }
 
 impl NativeFrameContentPlacement {
-    #[cfg(test)]
     fn is_full_frame(self, geometry: RenderGeometry) -> bool {
         self.x == 0
             && self.y == 0
@@ -48,7 +47,6 @@ impl NativeFrameContentPlacement {
     }
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn render_framebuffer_with_state(
     renderer: &PixelRenderer,
@@ -108,7 +106,6 @@ fn render_framebuffer_with_state(
     FrameRenderMode::Damage
 }
 
-#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn render_aligned_framebuffer(
     renderer: &PixelRenderer,
@@ -173,14 +170,12 @@ fn render_aligned_framebuffer(
     paint_frame_separator(frame, geometry, geometry.frame_separator);
 }
 
-#[cfg(test)]
 fn fill_framebuffer(frame: &mut [u8], color: [u8; 4]) {
     for pixel in frame.chunks_exact_mut(4) {
         pixel.copy_from_slice(&color);
     }
 }
 
-#[cfg(test)]
 fn paint_frame_border(
     frame: &mut [u8],
     geometry: RenderGeometry,
@@ -228,7 +223,6 @@ fn paint_frame_border(
     }
 }
 
-#[cfg(test)]
 fn paint_frame_separator(
     frame: &mut [u8],
     geometry: RenderGeometry,
@@ -251,7 +245,6 @@ fn paint_frame_separator(
     }
 }
 
-#[cfg(test)]
 #[expect(
     clippy::too_many_arguments,
     reason = "compatibility operation requires the complete evaluation context"
@@ -305,7 +298,6 @@ fn blit_framebuffer(
     }
 }
 
-#[cfg(test)]
 fn redraw_frame_ui_rows(
     renderer: &PixelRenderer,
     snapshot: &TerminalRenderSnapshot,
@@ -569,6 +561,17 @@ impl NativeWindowApp {
                 window_focused: false,
                 mouse_click_may_focus_window: false,
                 window: None,
+                bootstrap_surface: None,
+                bootstrap_frame: Vec::new(),
+                // Existing window launches retain their synchronous GPU path;
+                // the SSH GUI entry point overrides this with the requested
+                // hybrid/cpu mode before the event loop starts.
+                renderer_mode: RendererMode::Gpu,
+                presentation_owner: PresentationOwner::Bootstrap,
+                benchmark_startup: false,
+                transport_start_requested: false,
+                ssh_host_key_prompts: HashMap::new(),
+                ssh_secret_prompts: HashMap::new(),
                 gpu: None,
                 renderer: {
                     let mut renderer = PixelRenderer::new();
@@ -607,6 +610,7 @@ impl NativeWindowApp {
                 session_process_id: None,
                 session_tty_name: None,
                 writer: None,
+                ssh_writer_senders: HashMap::new(),
                 session_log: None,
                 reader_thread: None,
                 writer_thread: None,
@@ -738,6 +742,32 @@ impl NativeWindowApp {
     #[cfg(test)]
     fn startup_command(&self) -> &PtyCommand {
         &self.startup_command
+    }
+
+    fn set_renderer_mode(&mut self, mode: RendererMode) {
+        self.renderer_mode = mode;
+        self.presentation_owner = if mode == RendererMode::Gpu {
+            PresentationOwner::GpuInitializing
+        } else {
+            PresentationOwner::Bootstrap
+        };
+    }
+
+    fn set_benchmark_startup(&mut self, enabled: bool) {
+        self.benchmark_startup = enabled;
+    }
+
+    fn set_initial_pane_launch(&mut self, launch: PaneLaunch) {
+        if self.session.is_some() {
+            return;
+        }
+        let workspace = self.app_shell.active_workspace().name().to_owned();
+        self.app_shell = AppShell::new_with_workspace_name(launch, workspace);
+        self.startup_uses_default_shell = false;
+        self.startup_workspace_was_explicit = true;
+        self.transport_start_requested = false;
+        self.frame_needs_full_repaint = true;
+        self.pending_frame_damage.clear();
     }
 
     #[cfg(test)]
@@ -1938,6 +1968,7 @@ impl NativeWindowApp {
                 self.pane_runtimes
                     .insert(previous_active_pane, previous_runtime);
             } else {
+                self.cancel_ssh_runtime(previous_active_pane);
                 let mut previous_runtime = previous_runtime;
                 let cleanup = previous_runtime.close();
                 report_pane_pty_cleanup("removed pane PTY cleanup", &cleanup);
@@ -1960,14 +1991,19 @@ impl NativeWindowApp {
             self.sync_window_title_from_runtime();
         }
 
-        self.pane_runtimes.retain(|pane_id, runtime| {
-            let keep = valid_pane_ids.contains(pane_id);
-            if !keep {
+        let retired_panes = self
+            .pane_runtimes
+            .keys()
+            .filter(|pane_id| !valid_pane_ids.contains(pane_id))
+            .copied()
+            .collect::<Vec<_>>();
+        for pane_id in retired_panes {
+            self.cancel_ssh_runtime(pane_id);
+            if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
                 let cleanup = runtime.close();
                 report_pane_pty_cleanup("retired pane PTY cleanup", &cleanup);
             }
-            keep
-        });
+        }
         self.pane_bell_counts
             .retain(|pane_id, _| valid_pane_ids.contains(pane_id));
     }
@@ -4092,7 +4128,7 @@ impl NativeWindowApp {
 
         let mut launch = self
             .default_prog_launch()
-            .unwrap_or_else(|| self.app_shell.active_pane().launch().clone());
+            .unwrap_or_else(|| self.app_shell.active_pane().launch().for_child_pane());
         if let Some(cwd) = options.cwd {
             launch = launch.with_cwd(cwd);
         }
@@ -4591,7 +4627,7 @@ impl NativeWindowApp {
                 .tabs()
                 .iter()
                 .flat_map(rssh_core::app_shell::Tab::panes)
-                .map(|pane| pane.launch().program())
+                .map(|pane| pane_launch_display_program(pane.launch()))
                 .collect(),
             WindowCloseTarget::Pane(pane_id) => self
                 .app_shell
@@ -4611,7 +4647,7 @@ impl NativeWindowApp {
                 .map(|tab| {
                     tab.panes()
                         .iter()
-                        .map(|pane| pane.launch().program())
+                        .map(|pane| pane_launch_display_program(pane.launch()))
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -7197,24 +7233,26 @@ impl NativeWindowApp {
             .unwrap_or_else(|| window.inner_size());
         self.frame_width = size.width;
         self.frame_height = size.height;
-        let high_performance = matches!(
-            self.webgpu_power_preference,
-            NativeWebGpuPowerPreference::HighPerformance
-        );
-        let force_fallback_adapter = effective_force_fallback_adapter(
-            self.webgpu_force_fallback_adapter,
-            matches!(self.front_end, NativeRenderFrontEnd::Software),
-        );
-        let gpu = pollster::block_on(WindowGpu::new(
-            event_loop,
-            Arc::clone(&window),
-            size,
-            high_performance,
-            force_fallback_adapter,
-        ))?;
-
         self.window = Some(window);
-        self.gpu = Some(Box::new(gpu));
+        if self.renderer_mode == RendererMode::Gpu {
+            self.presentation_owner = PresentationOwner::GpuInitializing;
+            self.metrics.mark_gpu_started();
+            let gpu = self.initialize_gpu(event_loop)?;
+            self.gpu = Some(Box::new(gpu));
+            self.presentation_owner = PresentationOwner::GpuActive;
+            self.metrics.mark_gpu_finished();
+        } else {
+            let bootstrap = WindowBootstrapSurface::new(
+                event_loop,
+                self.window
+                    .as_ref()
+                    .expect("window is installed before bootstrap surface")
+                    .clone(),
+                size,
+            )?;
+            self.bootstrap_surface = Some(bootstrap);
+            self.presentation_owner = PresentationOwner::Bootstrap;
+        }
         self.last_ime_cursor_area.set(None);
         if let Some(window) = &self.window {
             window.set_cursor_visible(self.mouse_cursor_visible);
@@ -7223,6 +7261,55 @@ impl NativeWindowApp {
         self.update_ime_cursor_area();
 
         Ok(())
+    }
+
+    fn initialize_gpu(&mut self, event_loop: &ActiveEventLoop) -> Result<WindowGpu, Box<dyn Error>> {
+        let window = self
+            .window
+            .clone()
+            .ok_or_else(|| io::Error::other("window is not available for GPU initialization"))?;
+        let size = window.inner_size();
+        let high_performance = matches!(
+            self.webgpu_power_preference,
+            NativeWebGpuPowerPreference::HighPerformance
+        );
+        let force_fallback_adapter = effective_force_fallback_adapter(
+            self.webgpu_force_fallback_adapter,
+            matches!(self.front_end, NativeRenderFrontEnd::Software),
+        );
+        pollster::block_on(WindowGpu::new(
+            event_loop,
+            window,
+            size,
+            high_performance,
+            force_fallback_adapter,
+        ))
+    }
+
+    fn initialize_deferred_gpu(&mut self, event_loop: &ActiveEventLoop) {
+        if self.renderer_mode != RendererMode::Auto
+            || self.presentation_owner != PresentationOwner::Bootstrap
+            || self.rendered_frames == 0
+            || self.gpu.is_some()
+        {
+            return;
+        }
+
+        self.presentation_owner = PresentationOwner::GpuInitializing;
+        self.metrics.mark_gpu_started();
+        match self.initialize_gpu(event_loop) {
+            Ok(gpu) => {
+                self.gpu = Some(Box::new(gpu));
+                self.metrics.mark_gpu_finished();
+                self.metrics.mark_renderer(RendererKind::Gpu);
+                self.presentation_owner = PresentationOwner::GpuActive;
+            }
+            Err(error) => {
+                self.metrics.mark_gpu_finished();
+                eprintln!("deferred GPU initialization failed; using CPU renderer: {error}");
+                self.presentation_owner = PresentationOwner::CpuFallback;
+            }
+        }
     }
 
     fn window_id(&self) -> Option<winit::window::WindowId> {
@@ -7248,6 +7335,7 @@ impl NativeWindowApp {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn draw_frame(&mut self, event_loop: &ActiveEventLoop) {
         self.refresh_renderer_animation_clock();
         self.update_ime_cursor_area();
@@ -7269,6 +7357,10 @@ impl NativeWindowApp {
             if self.frame_limit_probe_ready() {
                 event_loop.exit();
             }
+            return;
+        }
+        if self.presentation_owner != PresentationOwner::GpuActive {
+            self.draw_cpu_frame(event_loop, &snapshot, scrollbar, geometry, placement);
             return;
         }
         let damage_row_offset = self.terminal_frame_row_offset();
@@ -7314,7 +7406,15 @@ impl NativeWindowApp {
             Ok(presented) => presented,
             Err(error) => {
                 eprintln!("render error: {error}");
-                event_loop.exit();
+                if self.bootstrap_surface.is_some() {
+                    self.presentation_owner = PresentationOwner::CpuFallback;
+                    self.gpu = None;
+                    if let Some(window) = self.window.as_ref() {
+                        window.request_redraw();
+                    }
+                } else {
+                    event_loop.exit();
+                }
                 return;
             }
         };
@@ -7335,6 +7435,21 @@ impl NativeWindowApp {
         }
         self.metrics.record_frame_render_mode(mode);
         self.rendered_frames = self.rendered_frames.saturating_add(1);
+        if self.presentation_owner == PresentationOwner::GpuActive {
+            // Keep the softbuffer surface (but release the RGBA staging
+            // vector) as a recoverable presentation path.  A later device or
+            // surface failure can therefore switch back to CPU without a
+            // white frame or an event-loop restart.
+            self.bootstrap_frame.clear();
+        }
+        if self.rendered_frames == 1 {
+            self.metrics
+                .record_first_present(RendererKind::Gpu, current_process_private_bytes());
+            if self.benchmark_startup {
+                event_loop.exit();
+                return;
+            }
+        }
         if self.rendered_frames == 1
             && let Some(size) = test_resize_after_first_present()
             && let Some(window) = self.window.as_ref()
@@ -7342,6 +7457,115 @@ impl NativeWindowApp {
             let _ = window.request_inner_size(size);
             window.request_redraw();
         }
+        if self.frame_limit_probe_ready() {
+            event_loop.exit();
+        }
+    }
+
+    fn draw_cpu_frame(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        snapshot: &TerminalRenderSnapshot,
+        scrollbar: Option<ScrollbackScrollbar>,
+        geometry: RenderGeometry,
+        placement: NativeFrameContentPlacement,
+    ) {
+        if self.bootstrap_surface.is_none() {
+            eprintln!("CPU renderer has no bootstrap surface");
+            event_loop.exit();
+            return;
+        }
+        let Some(frame_len) = usize::try_from(geometry.target_width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(geometry.target_height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .and_then(|pixels| pixels.checked_mul(4))
+        else {
+            eprintln!("CPU renderer frame size overflow");
+            event_loop.exit();
+            return;
+        };
+        let mut bootstrap_frame = std::mem::take(&mut self.bootstrap_frame);
+        bootstrap_frame.resize(frame_len, 0);
+        let damage_row_offset = self.terminal_frame_row_offset();
+        let mut pending_frame_damage = std::mem::take(&mut self.pending_frame_damage);
+        let mut frame_needs_full_repaint =
+            self.frame_needs_full_repaint || self.has_visible_split_layout();
+        let background_color = self.background_color;
+        let started = Instant::now();
+        let mode = render_framebuffer_with_state(
+            &self.renderer,
+            snapshot,
+            scrollbar,
+            &mut pending_frame_damage,
+            &mut frame_needs_full_repaint,
+            &mut bootstrap_frame,
+            geometry,
+            damage_row_offset,
+            placement,
+            color_to_rgba(background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+        );
+        self.pending_frame_damage = pending_frame_damage;
+        self.frame_needs_full_repaint = frame_needs_full_repaint;
+        self.bootstrap_frame = bootstrap_frame;
+        self.metrics.record_terminal_linkage_snapshot(snapshot);
+        let Some(surface) = self.bootstrap_surface.as_mut() else {
+            eprintln!("CPU renderer lost bootstrap surface");
+            event_loop.exit();
+            return;
+        };
+        if surface.size() != PhysicalSize::new(geometry.target_width, geometry.target_height)
+            && let Err(error) = surface.resize(PhysicalSize::new(
+                geometry.target_width,
+                geometry.target_height,
+            ))
+        {
+            eprintln!("CPU surface resize failed: {error}");
+            event_loop.exit();
+            return;
+        }
+        if let Err(error) = surface.present_rgba(&self.bootstrap_frame) {
+            eprintln!("CPU surface present failed: {error}");
+            self.presentation_owner = PresentationOwner::CpuFallback;
+            event_loop.exit();
+            return;
+        }
+        self.metrics.record_render_frame(started.elapsed());
+        self.metrics.record_frame_render_mode(mode);
+        self.rendered_frames = self.rendered_frames.saturating_add(1);
+        if self.rendered_frames == 1 {
+            self.metrics
+                .record_first_present(RendererKind::Cpu, current_process_private_bytes());
+            if self.benchmark_startup {
+                event_loop.exit();
+                return;
+            }
+            if let Some(size) = test_resize_after_first_present()
+                && let Some(window) = self.window.as_ref()
+            {
+                let _ = window.request_inner_size(size);
+                window.request_redraw();
+            }
+        }
+        // Native SSH connects as soon as the first CPU frame is visible so
+        // network setup can overlap deferred configuration/GPU work.  Local
+        // PTYs are started by the manager after that configuration attempt;
+        // keeping them out of this branch avoids spawning against defaults.
+        if !self.transport_start_requested
+            && matches!(
+                self.app_shell.active_pane().launch().domain(),
+                PaneLaunchDomain::Ssh(_)
+            )
+            && let Err(error) = self.spawn_pty()
+        {
+            eprintln!("deferred SSH transport start error: {error}");
+            event_loop.exit();
+            return;
+        }
+        self.initialize_deferred_gpu(event_loop);
         if self.frame_limit_probe_ready() {
             event_loop.exit();
         }
