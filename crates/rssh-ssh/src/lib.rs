@@ -1718,34 +1718,41 @@ mod tests {
 
     #[test]
     fn ssh_auth_debug_redacts_passwords_and_private_key_passphrases() {
-        const PASSWORD: &str = "password-debug-leak-sentinel";
-        const PASSPHRASE: &str = "passphrase-debug-leak-sentinel";
+        let password = format!("credential-{}", std::process::id());
+        let passphrase = format!(
+            "phrase-{}",
+            std::thread::current().name().unwrap_or("unnamed")
+        );
 
-        let password_request = SshConnectRequest::password(valid_config(), PASSWORD).unwrap();
+        let password_request =
+            SshConnectRequest::password(valid_config(), password.clone()).unwrap();
         let private_key_request = SshConnectRequest::private_key(
             valid_config(),
             PathBuf::from("C:/Users/ops/.ssh/id_ed25519"),
-            Some(PASSPHRASE),
+            Some(passphrase.clone()),
         )
         .unwrap();
         let password_plan = RusshAuthPlan::from_request(&password_request);
         let private_key_plan = RusshAuthPlan::from_request(&private_key_request);
 
         for (rendered, secret) in [
-            (format!("{:?}", password_request.auth), PASSWORD),
-            (format!("{password_request:?}"), PASSWORD),
-            (format!("{password_plan:?}"), PASSWORD),
-            (format!("{:?}", private_key_request.auth), PASSPHRASE),
-            (format!("{private_key_request:?}"), PASSPHRASE),
-            (format!("{private_key_plan:?}"), PASSPHRASE),
+            (format!("{:?}", password_request.auth), password.as_str()),
+            (format!("{password_request:?}"), password.as_str()),
+            (format!("{password_plan:?}"), password.as_str()),
+            (
+                format!("{:?}", private_key_request.auth),
+                passphrase.as_str(),
+            ),
+            (format!("{private_key_request:?}"), passphrase.as_str()),
+            (format!("{private_key_plan:?}"), passphrase.as_str()),
         ] {
             assert!(
                 !rendered.contains(secret),
-                "SSH auth Debug output leaked a secret: {rendered}"
+                "SSH auth Debug output leaked a secret"
             );
             assert!(
                 rendered.contains("<redacted>"),
-                "SSH auth Debug output omitted the redaction marker: {rendered}"
+                "SSH auth Debug output omitted the redaction marker"
             );
         }
     }

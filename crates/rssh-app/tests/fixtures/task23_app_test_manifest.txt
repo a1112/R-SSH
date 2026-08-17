@@ -571,8 +571,6 @@ T23-COMPATIBILITY-3574b431cac1|crates/rssh-app/src/terminal_runtime.rs|process_c
 T23-PRESENTATION-7a4ec5031d8b|crates/rssh-app/src/terminal_runtime.rs|presentation_snapshot_reuses_the_worker_terminal_arc|1|rssh-app|terminal_runtime::tests|presentation
 T23-COMPATIBILITY-a0657d07b2d7|crates/rssh-app/src/version.rs|version_report_json_includes_console_release_identity|1|rssh-app|version::tests|compatibility
 T23-COMPATIBILITY-440e76c3c3a9|crates/rssh-app/src/version.rs|version_text_includes_version_and_backends|1|rssh-app|version::tests|compatibility
-T23-CONFIG-ec0ba5ccf189|crates/rssh-app/src/window.rs|ssh_gui_initial_size_configures_terminal_and_window|1|rssh-app|window::tests|config
-T23-CONFIG-81b179f74711|crates/rssh-app/src/window.rs|openssh_gui_initial_size_configures_terminal_and_window|1|rssh-app|window::tests|config
 T23-COMPATIBILITY-f2bbbf97a50d|crates/rssh-app/src/window_bootstrap.rs|writes_rgba_pixels_directly_into_softbuffer_order|1|rssh-app|window_bootstrap::tests|compatibility
 T23-INPUT-07aa1772bd35|crates/rssh-app/src/window_compat_tests/part01_tests.rs|native_ssh_writer_discards_input_before_connection_without_caching|1|rssh-app|window::tests|input
 T23-PANES-ce08d5603d9c|crates/rssh-app/src/window_compat_tests/part01_tests.rs|pane_runtime_transport_kind_moves_with_the_active_pane_owner|1|rssh-app|window::tests|panes
@@ -3997,12 +3995,14 @@ T23-PANES-d4f73dd95478|crates/rssh-app/src/window_runtime_v2.rs|mixed_local_and_
 T23-RUNTIME-245a9b5d73aa|crates/rssh-app/src/window_runtime_v2.rs|mixed_transport_resize_updates_ssh_presentation_and_local_worker|1|rssh-app|window_runtime_v2::tests|runtime
 T23-RUNTIME-33784f3944d6|crates/rssh-app/src/window_runtime_v2.rs|stopping_active_ssh_keeps_the_inactive_local_worker_alive|1|rssh-app|window_runtime_v2::tests|runtime
 T23-PLATFORM-bf44b10f30fc|crates/rssh-app/src/window_runtime_v2.rs|manager_shutdown_joins_window_scoped_local_workers_before_metrics|1|rssh-app|window_runtime_v2::tests|platform
+T23-PLATFORM-c14564ebcbd4|crates/rssh-app/src/window_runtime_v2.rs|final_window_close_joins_all_window_scoped_local_workers_before_retirement|1|rssh-app|window_runtime_v2::tests|platform
 T23-PANES-7ea24fdd4636|crates/rssh-app/src/window_runtime_v2.rs|local_v2_frame_stays_inactive_while_an_ssh_pane_is_active|1|rssh-app|window_runtime_v2::tests|panes
 T23-PRESENTATION-fbf3a2544e7a|crates/rssh-app/src/window_runtime_v2.rs|inactive_v2_frame_updates_its_owned_presentation_and_metadata|1|rssh-app|window_runtime_v2::tests|presentation
 T23-INPUT-ebd7298fa59f|crates/rssh-app/src/window_runtime_v2.rs|inactive_v2_close_does_not_close_the_active_runtime_owner|1|rssh-app|window_runtime_v2::tests|input
 T23-RUNTIME-5cbda4a3c4f1|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_request_resolution_occurs_inside_the_connector_worker|1|rssh-app|window_ssh_gui::tests|runtime
 T23-RUNTIME-5230f3b5187f|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_writer_applies_only_latest_resize_queued_before_attach|1|rssh-app|window_ssh_gui::tests|runtime
 T23-RUNTIME-49d2598b9d60|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_writer_cancel_stops_a_connection_attempt_before_attach|1|rssh-app|window_ssh_gui::tests|runtime
+T23-PANES-288a9d6bae10|crates/rssh-app/src/window_ssh_gui.rs|cancelling_a_local_pane_during_shutdown_does_not_request_an_ssh_repaint|1|rssh-app|window_ssh_gui::tests|panes
 T23-RUNTIME-1222290e9122|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_gui_command_queue_never_blocks_and_preserves_more_than_old_capacity|1|rssh-app|window_ssh_gui::tests|runtime
 T23-INPUT-9ed744186d7d|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_gui_still_drops_terminal_input_before_connection|1|rssh-app|window_ssh_gui::tests|input
 T23-INPUT-6c1a01780604|crates/rssh-app/src/window_ssh_gui.rs|cancelling_ssh_runtime_sets_out_of_band_flags_before_queued_cancel|1|rssh-app|window_ssh_gui::tests|input
@@ -4049,3 +4049,5 @@ T23-PLATFORM-ea99347ad317|crates/rssh-app/src/window_terminal_delta_tests.rs|win
 T23-PLATFORM-4dd6a3ab8d0e|crates/rssh-app/src/window_terminal_delta_tests.rs|window_app_ctrl_click_opens_default_hyperlink_rule_url|1|rssh-app|window_terminal_delta_tests::tests|platform
 T23-PLATFORM-311153b06105|crates/rssh-app/src/window_terminal_delta_tests.rs|window_app_hyperlink_rules_override_defaults_and_format_captures|1|rssh-app|window_terminal_delta_tests::tests|platform
 T23-PLATFORM-dfb86427a9b1|crates/rssh-app/src/window_terminal_delta_tests.rs|window_app_open_uri_hook_can_prevent_default_hyperlink_open|1|rssh-app|window_terminal_delta_tests::tests|platform
+T23-CONFIG-ec0ba5ccf189|crates/rssh-app/src/window.rs|ssh_gui_initial_size_configures_terminal_and_window|1|rssh-app|window::tests|config
+T23-CONFIG-81b179f74711|crates/rssh-app/src/window.rs|openssh_gui_initial_size_configures_terminal_and_window|1|rssh-app|window::tests|config
