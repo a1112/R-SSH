@@ -4,11 +4,14 @@ use rssh_core::TerminalSize;
 
 mod russh_client;
 
+const REDACTED_SECRET: &str = "<redacted>";
+
 pub use russh_client::{
     RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
-    RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshDirectTcpIpOpenPlan,
-    RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy, RusshKnownHosts,
-    RusshPrivateKeyAuth, RusshRemoteTcpIpForward, RusshRemoteTcpIpForwardPlan, RusshSshChannel,
+    RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshConnectionCancellation,
+    RusshDirectTcpIpOpenPlan, RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy,
+    RusshKnownHosts, RusshPrivateKeyAuth, RusshRemoteTcpIpForward, RusshRemoteTcpIpForwardPlan,
+    RusshSshChannel,
 };
 
 /// The kind of secret requested while establishing a native SSH session.
@@ -300,7 +303,7 @@ impl std::fmt::Display for SshAuthError {
 
 impl std::error::Error for SshAuthError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum SshAuthMethod {
     PasswordPrompt,
     Password {
@@ -311,6 +314,24 @@ pub enum SshAuthMethod {
         passphrase: Option<String>,
     },
     Agent,
+}
+
+impl std::fmt::Debug for SshAuthMethod {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PasswordPrompt => formatter.write_str("PasswordPrompt"),
+            Self::Password { .. } => formatter
+                .debug_struct("Password")
+                .field("password", &REDACTED_SECRET)
+                .finish(),
+            Self::PrivateKey { path, passphrase } => formatter
+                .debug_struct("PrivateKey")
+                .field("path", path)
+                .field("passphrase", &passphrase.as_ref().map(|_| REDACTED_SECRET))
+                .finish(),
+            Self::Agent => formatter.write_str("Agent"),
+        }
+    }
 }
 
 impl SshAuthMethod {
@@ -712,6 +733,31 @@ pub trait SshShellWriter: Send {
     ///
     /// Returns [`SshSessionError`] when the remote PTY resize request fails.
     fn resize(&mut self, size: TerminalSize) -> Result<(), SshSessionError>;
+
+    /// Resizes the remote PTY while observing runner cancellation.
+    ///
+    /// The compatibility default checks cancellation before entering the
+    /// legacy blocking [`Self::resize`] method. Backends whose resize request
+    /// can wait on remote flow control must override this method and interrupt
+    /// that wait when `cancelled` becomes true.
+    ///
+    /// `Ok(None)` means the resize was cancelled. `Ok(Some(()))` means it was
+    /// accepted by the remote writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the remote PTY resize request fails.
+    fn resize_cancellable(
+        &mut self,
+        size: TerminalSize,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<()>, SshSessionError> {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            Ok(None)
+        } else {
+            self.resize(size).map(Some)
+        }
+    }
 
     /// Sends a keepalive through the underlying SSH connection.
     ///
@@ -1169,8 +1215,10 @@ impl SshInputEventReceiver {
 /// Full-duplex progress additionally requires the backend to override
 /// [`SshShellSession::into_read_writer`] with independent native halves. If its
 /// writes can wait on remote flow control, its writer must also override
-/// [`SshShellWriter::write_cancellable`]. The compatibility defaults preserve
-/// existing implementations but do not provide these concurrency guarantees.
+/// [`SshShellWriter::write_cancellable`] and
+/// [`SshShellWriter::resize_cancellable`]. The compatibility defaults
+/// preserve existing implementations but do not provide these concurrency
+/// guarantees.
 ///
 /// # Errors
 ///
@@ -1263,7 +1311,12 @@ fn pump_input_events(
                 input_bytes = input_bytes.saturating_add(bytes.len() as u64);
             }
             SshInputPoll::Event(SshInputEvent::Resize(size)) => {
-                writer.resize(size)?;
+                if writer
+                    .resize_cancellable(size, cancellation.flag())?
+                    .is_none()
+                {
+                    return Ok(input_bytes);
+                }
             }
             SshInputPoll::Event(SshInputEvent::Cancel) => {
                 cancellation.cancel();
@@ -1664,6 +1717,47 @@ mod tests {
     }
 
     #[test]
+    fn ssh_auth_debug_redacts_passwords_and_private_key_passphrases() {
+        let password = format!("credential-{}", std::process::id());
+        let passphrase = format!(
+            "phrase-{}",
+            std::thread::current().name().unwrap_or("unnamed")
+        );
+
+        let password_request =
+            SshConnectRequest::password(valid_config(), password.clone()).unwrap();
+        let private_key_request = SshConnectRequest::private_key(
+            valid_config(),
+            PathBuf::from("C:/Users/ops/.ssh/id_ed25519"),
+            Some(passphrase.clone()),
+        )
+        .unwrap();
+        let password_plan = RusshAuthPlan::from_request(&password_request);
+        let private_key_plan = RusshAuthPlan::from_request(&private_key_request);
+
+        for (rendered, secret) in [
+            (format!("{:?}", password_request.auth), password.as_str()),
+            (format!("{password_request:?}"), password.as_str()),
+            (format!("{password_plan:?}"), password.as_str()),
+            (
+                format!("{:?}", private_key_request.auth),
+                passphrase.as_str(),
+            ),
+            (format!("{private_key_request:?}"), passphrase.as_str()),
+            (format!("{private_key_plan:?}"), passphrase.as_str()),
+        ] {
+            assert!(
+                !rendered.contains(secret),
+                "SSH auth Debug output leaked a secret"
+            );
+            assert!(
+                rendered.contains("<redacted>"),
+                "SSH auth Debug output omitted the redaction marker"
+            );
+        }
+    }
+
+    #[test]
     fn connect_request_rejects_empty_password() {
         let error = SshConnectRequest::password(valid_config(), " ").unwrap_err();
 
@@ -2019,6 +2113,81 @@ mod tests {
     }
 
     #[test]
+    fn cancellable_resize_unblocks_when_cancelled_out_of_band() {
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_cancelled = Arc::clone(&cancelled);
+        let (started_tx, started_rx) = mpsc::sync_channel(1);
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+
+        let worker = std::thread::spawn(move || {
+            let mut writer = BlockingResizeWriter {
+                started: started_tx,
+            };
+            done_tx
+                .send(
+                    writer
+                        .resize_cancellable(TerminalSize::new(132, 43), worker_cancelled.as_ref()),
+                )
+                .unwrap();
+        });
+
+        started_rx
+            .recv_timeout(Duration::from_millis(250))
+            .expect("fake resize did not start");
+        cancelled.store(true, std::sync::atomic::Ordering::Release);
+        assert_eq!(
+            done_rx
+                .recv_timeout(Duration::from_millis(250))
+                .expect("cancellation did not unblock the fake resize")
+                .unwrap(),
+            None
+        );
+        worker.join().unwrap();
+    }
+
+    #[test]
+    fn shell_event_pump_dispatches_resize_through_cancellable_api() {
+        let observed = Arc::new(Mutex::new(Vec::new()));
+        let mut writer = CancellableResizeWriter {
+            observed: Arc::clone(&observed),
+        };
+        let (input_tx, input_rx) = ssh_input_event_channel(2);
+        let expected = TerminalSize::new(120, 37);
+        input_tx.send(SshInputEvent::Resize(expected)).unwrap();
+        input_tx.send(SshInputEvent::Cancel).unwrap();
+
+        let cancellation = super::SshCancellation::new();
+        assert_eq!(
+            super::pump_input_events(&input_rx, &cancellation, &mut writer).unwrap(),
+            0
+        );
+        assert_eq!(*observed.lock().unwrap(), vec![expected]);
+    }
+
+    #[test]
+    fn cancellable_resize_default_preserves_legacy_writers() {
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut writer = MockRunnerWriter {
+            state: Arc::clone(&state),
+        };
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        let expected = TerminalSize::new(101, 29);
+
+        assert_eq!(
+            writer.resize_cancellable(expected, &cancelled).unwrap(),
+            Some(())
+        );
+        cancelled.store(true, std::sync::atomic::Ordering::Release);
+        assert_eq!(
+            writer
+                .resize_cancellable(TerminalSize::new(102, 30), &cancelled)
+                .unwrap(),
+            None
+        );
+        assert_eq!(state.lock().unwrap().resized, vec![expected]);
+    }
+
+    #[test]
     fn shell_runner_drains_late_output_and_status_after_input_eof() {
         let request = SshConnectRequest::agent(valid_config());
         let shared = Arc::new((Mutex::new(false), Condvar::new()));
@@ -2249,34 +2418,57 @@ mod tests {
         RusshKnownHosts::new(path.clone())
             .learn("ssh.example.com", 2222, &known_key)
             .unwrap();
-        let verifier_calls = Arc::new(Mutex::new(0_u32));
-        let observed_calls = Arc::clone(&verifier_calls);
-        let verifier = HostKeyVerifier::new(move |_challenge: HostKeyChallenge| {
-            let observed_calls = Arc::clone(&observed_calls);
-            async move {
-                *observed_calls.lock().unwrap() += 1;
-                HostKeyDecision::AcceptOnce
-            }
-        });
-        let mut handler = super::RusshChannelOpener::default()
-            .with_host_key_policy(RusshHostKeyPolicy::Prompt)
-            .with_host_key_verifier(verifier)
-            .with_known_hosts_path(path.clone())
-            .handler_for_host("ssh.example.com", 2222);
-
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let accepted = runtime
-            .block_on(russh::client::Handler::check_server_key(
-                &mut handler,
-                &changed_key,
-            ))
-            .unwrap();
+        for decision in [HostKeyDecision::AcceptOnce, HostKeyDecision::AcceptAndStore] {
+            let challenges = Arc::new(Mutex::new(Vec::new()));
+            let observed_challenges = Arc::clone(&challenges);
+            let verifier = HostKeyVerifier::new(move |challenge: HostKeyChallenge| {
+                let observed_challenges = Arc::clone(&observed_challenges);
+                async move {
+                    observed_challenges.lock().unwrap().push(challenge);
+                    decision
+                }
+            });
+            let mut handler = super::RusshChannelOpener::default()
+                .with_host_key_policy(RusshHostKeyPolicy::Prompt)
+                .with_host_key_verifier(verifier)
+                .with_known_hosts_path(path.clone())
+                .handler_for_host("ssh.example.com", 2222);
 
-        assert!(!accepted);
-        assert_eq!(*verifier_calls.lock().unwrap(), 0);
+            let accepted = runtime
+                .block_on(russh::client::Handler::check_server_key(
+                    &mut handler,
+                    &changed_key,
+                ))
+                .unwrap();
+
+            assert!(!accepted);
+            let challenges = challenges.lock().unwrap();
+            assert_eq!(challenges.len(), 1);
+            assert_eq!(challenges[0].host, "ssh.example.com");
+            assert_eq!(challenges[0].port, 2222);
+            assert_eq!(challenges[0].status, HostKeyStatus::Changed);
+            assert_eq!(
+                challenges[0].fingerprint,
+                changed_key
+                    .fingerprint(russh::keys::HashAlg::Sha256)
+                    .to_string()
+            );
+            assert_eq!(challenges[0].known_hosts_path.as_ref(), Some(&path));
+        }
+        assert!(
+            RusshKnownHosts::new(path.clone())
+                .matches("ssh.example.com", 2222, &known_key)
+                .unwrap()
+        );
+        assert!(
+            RusshKnownHosts::new(path.clone())
+                .matches("ssh.example.com", 2222, &changed_key)
+                .is_err()
+        );
         let _ = std::fs::remove_file(path);
     }
 
@@ -3086,6 +3278,86 @@ mod tests {
             let (state, wake) = &*self.state;
             state.lock().unwrap().closed = true;
             wake.notify_all();
+            Ok(())
+        }
+    }
+
+    struct BlockingResizeWriter {
+        started: SyncSender<()>,
+    }
+
+    impl SshShellWriter for BlockingResizeWriter {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Err(super::SshSessionError::new(
+                "caller bypassed cancellable SSH resize",
+            ))
+        }
+
+        fn resize_cancellable(
+            &mut self,
+            _size: TerminalSize,
+            cancelled: &std::sync::atomic::AtomicBool,
+        ) -> Result<Option<()>, super::SshSessionError> {
+            self.started.send(()).unwrap();
+            while !cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                std::thread::yield_now();
+            }
+            Ok(None)
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+    }
+
+    struct CancellableResizeWriter {
+        observed: Arc<Mutex<Vec<TerminalSize>>>,
+    }
+
+    impl SshShellWriter for CancellableResizeWriter {
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Err(super::SshSessionError::new(
+                "event pump bypassed cancellable SSH resize",
+            ))
+        }
+
+        fn resize_cancellable(
+            &mut self,
+            size: TerminalSize,
+            cancelled: &std::sync::atomic::AtomicBool,
+        ) -> Result<Option<()>, super::SshSessionError> {
+            if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                return Ok(None);
+            }
+            self.observed.lock().unwrap().push(size);
+            Ok(Some(()))
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn finish_input(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
             Ok(())
         }
     }

@@ -2462,19 +2462,21 @@ impl NativeWindowApp {
         &self,
         pane_id: rssh_core::PaneId,
     ) -> Result<PaneLaunch, AppShellError> {
+        let reference_launch = self
+            .wheel_reference_launch(pane_id)
+            .ok_or(AppShellError::InvalidPane(pane_id))?;
+        if matches!(reference_launch.domain(), PaneLaunchDomain::Ssh(_)) {
+            return Ok(reference_launch);
+        }
         let Some((program, args)) = self
             .default_prog
             .as_ref()
             .and_then(|value| value.split_first())
         else {
-            return self
-                .wheel_reference_launch(pane_id)
-                .ok_or(AppShellError::InvalidPane(pane_id));
+            return Ok(reference_launch);
         };
         if program.is_empty() {
-            return self
-                .wheel_reference_launch(pane_id)
-                .ok_or(AppShellError::InvalidPane(pane_id));
+            return Ok(reference_launch);
         }
         let mut launch = PaneLaunch::local(program.clone()).with_args(args.iter().cloned());
         if let Some(cwd) = self.pane_launch_current_working_dir(pane_id) {
@@ -3741,6 +3743,7 @@ impl NativeWindowApp {
                 .with_viewport(rect.row, rect.column, rect.rows, rect.columns)
                 .with_overlay_cells(pane_close_button_cells)
                 .with_overlay_cells(self.pane_badge_cells(&layout))
+                .with_overlay_cells(self.ssh_connection_overlay_cells(&layout))
                 .with_overlay_cells(self.pane_inspection_cells(&layout))
                 .with_overlay_cells(self.pane_select_cells(&layout))
                 .with_overlay_cells(self.ime_preedit_cells(&layout))
@@ -3829,6 +3832,7 @@ impl NativeWindowApp {
             .with_overlay_cells(self.pane_separator_cells(&layout))
             .with_overlay_cells(pane_close_button_cells)
             .with_overlay_cells(self.pane_badge_cells(&layout))
+            .with_overlay_cells(self.ssh_connection_overlay_cells(&layout))
             .with_overlay_cells(self.pane_inspection_cells(&layout))
             .with_overlay_cells(self.pane_select_cells(&layout))
             .with_overlay_cells(self.ime_preedit_cells(&layout))

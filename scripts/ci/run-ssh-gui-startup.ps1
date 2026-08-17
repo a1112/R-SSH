@@ -40,8 +40,8 @@ $executable = Join-Path $targetDirectory "$profileDirectory/rssh-app.exe"
 Assert-BoundedProcessHarness
 
 Push-Location $repositoryRoot
-$previousScale = $env:RSSH_TEST_WINDOW_SCALE_FACTOR
-$env:RSSH_TEST_WINDOW_SCALE_FACTOR = "1"
+$previousBenchmarkScale = $env:RSSH_BENCHMARK_WINDOW_SCALE_FACTOR
+$env:RSSH_BENCHMARK_WINDOW_SCALE_FACTOR = "1"
 try {
   if (-not $SkipBuild) {
     $buildArguments = @("build", "--locked", "-p", "rssh-app") + $profileArguments
@@ -134,14 +134,96 @@ try {
           $markerFields[$pair[0]] = $pair[1]
         }
       }
+      $requiredMarkerFields = @(
+        "process_to_first_present_ms",
+        "final_renderer"
+      )
+      foreach ($requiredField in $requiredMarkerFields) {
+        if (
+          -not $markerFields.ContainsKey($requiredField) -or
+          [string]::IsNullOrWhiteSpace($markerFields[$requiredField])
+        ) {
+          throw "first_present marker is missing required field '$requiredField': $marker"
+        }
+      }
+
+      $reportedProcessToFirstPresentMs = 0.0
+      if (
+        -not [double]::TryParse(
+          $markerFields["process_to_first_present_ms"],
+          [Globalization.NumberStyles]::Float,
+          [Globalization.CultureInfo]::InvariantCulture,
+          [ref] $reportedProcessToFirstPresentMs
+        ) -or
+        $reportedProcessToFirstPresentMs -le 0
+      ) {
+        throw "first_present process_to_first_present_ms must be a positive number"
+      }
+
+      $memoryMarker = $null
+      foreach ($line in ($remainingStderr -split "`r?`n")) {
+        if ($line.StartsWith("first_frame_memory ", [StringComparison]::Ordinal)) {
+          if ($null -ne $memoryMarker) {
+            throw "rssh-app emitted more than one first_frame_memory marker"
+          }
+          $memoryMarker = $line
+        }
+      }
+      if ($null -eq $memoryMarker) {
+        throw "rssh-app exited before emitting first_frame_memory"
+      }
+      $memoryMarkerFields = @{}
+      foreach ($field in ($memoryMarker -split " ")) {
+        $pair = $field -split "=", 2
+        if ($pair.Count -eq 2) {
+          $memoryMarkerFields[$pair[0]] = $pair[1]
+        }
+      }
+      $requiredMemoryMarkerFields = @("first_frame_private_bytes")
+      foreach ($requiredField in $requiredMemoryMarkerFields) {
+        if (
+          -not $memoryMarkerFields.ContainsKey($requiredField) -or
+          [string]::IsNullOrWhiteSpace($memoryMarkerFields[$requiredField])
+        ) {
+          throw "first_frame_memory marker is missing required field '$requiredField': $memoryMarker"
+        }
+      }
+
+      $privateBytes = [UInt64] 0
+      if (
+        -not [UInt64]::TryParse(
+          $memoryMarkerFields["first_frame_private_bytes"],
+          [Globalization.NumberStyles]::Integer,
+          [Globalization.CultureInfo]::InvariantCulture,
+          [ref] $privateBytes
+        ) -or
+        $privateBytes -eq 0
+      ) {
+        throw "first_frame_memory first_frame_private_bytes must be a positive integer"
+      }
+
+      $renderer = [string] $markerFields["final_renderer"]
+      if ($renderer -ne "cpu") {
+        throw "benchmark-startup must report the CPU renderer, observed '$renderer'"
+      }
+
       $resumeToMarkerMs = (($markerTimestamp - $owned.ResumeTimestamp) * 1000.0) /
         [Diagnostics.Stopwatch]::Frequency
       $metrics = $remainingStdout.Trim() | ConvertFrom-Json
+      if ($metrics.process_to_first_present_ms -ne $reportedProcessToFirstPresentMs) {
+        throw "stdout metrics process_to_first_present_ms does not match first_present marker"
+      }
+      if ($metrics.first_frame_private_bytes -ne $privateBytes) {
+        throw "stdout metrics first_frame_private_bytes does not match first_present marker"
+      }
+      if ($metrics.final_renderer -ne $renderer) {
+        throw "stdout metrics final_renderer does not match first_present marker"
+      }
       return [pscustomobject]@{
         ExternalProcessToFirstPresentMs = [double] $resumeToMarkerMs
-        ReportedProcessToFirstPresentMs = [double] $markerFields["process_to_first_present_ms"]
-        PrivateBytes = [UInt64] $markerFields["first_frame_private_bytes"]
-        Renderer = [string] $markerFields["final_renderer"]
+        ReportedProcessToFirstPresentMs = $reportedProcessToFirstPresentMs
+        PrivateBytes = $privateBytes
+        Renderer = $renderer
         Metrics = $metrics
       }
     } finally {
@@ -218,6 +300,6 @@ try {
   }
   $summary | ConvertTo-Json -Depth 8
 } finally {
-  $env:RSSH_TEST_WINDOW_SCALE_FACTOR = $previousScale
+  $env:RSSH_BENCHMARK_WINDOW_SCALE_FACTOR = $previousBenchmarkScale
   Pop-Location
 }

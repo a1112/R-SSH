@@ -43,6 +43,15 @@ jobs:
       - name: Build release benchmark
         run: cargo build --locked --release -p rssh-app
 
+      - name: Enforce SSH GUI cold-start budgets
+        shell: pwsh
+        run: >
+          ./scripts/ci/run-ssh-gui-startup.ps1
+          -Profile release
+          -Warmups 5
+          -Samples 30
+          -SkipBuild
+
       - name: Enforce absolute and same-machine median budgets
         shell: pwsh
         run: |

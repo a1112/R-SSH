@@ -983,6 +983,94 @@
         assert!(value["first_rendered_cell_ms"].is_number());
     }
 
+    const LEGACY_WINDOW_METRICS_JSON_FIELDS: &[&str] = &[
+        "runtime_api",
+        "runtime_live_threads",
+        "last_exit_code",
+        "first_pty_byte_ms",
+        "first_rendered_cell_ms",
+        "pty_chunks",
+        "pty_bytes",
+        "pty_linkage_found",
+        "pty_linkage_digest",
+        "terminal_linkage_nonce_found",
+        "terminal_snapshot_content_digest",
+        "pty_chunk_process_p95_us",
+        "damage_regions",
+        "damaged_cells",
+        "snapshot_damage_updates",
+        "snapshot_rebuilds",
+        "render_frames",
+        "full_render_frames",
+        "dirty_render_frames",
+        "render_frame_p95_us",
+        "gpu_backend",
+        "gpu_adapter_name",
+        "gpu_adapter_vendor_id",
+        "gpu_adapter_device_id",
+        "gpu_adapter_type",
+        "gpu_software_adapter",
+        "gpu_surface_format",
+        "gpu_present_mode",
+        "gpu_surface_width",
+        "gpu_surface_height",
+        "gpu_rendered_frames",
+        "gpu_presented_frames",
+        "gpu_surface_reconfigurations",
+        "gpu_surface_recreations",
+        "gpu_surface_timeouts",
+        "gpu_surface_occlusions",
+        "gpu_surface_validation_errors",
+        "gpu_compatibility_frame_uploads",
+        "gpu_uncaptured_errors",
+        "gpu_device_losses",
+        "gpu_device_recoveries",
+        "gpu_device_recovery_failures",
+        "gpu_abandoned_lost_surfaces",
+        "text_backend",
+        "gpu_text_prepared_glyphs",
+        "gpu_text_mask_glyphs",
+        "gpu_text_color_glyphs",
+        "gpu_text_block_glyphs",
+        "gpu_text_content_digest",
+        "gpu_text_rendered_frames",
+        "input_writes",
+        "input_bytes",
+        "input_write_p95_us",
+        "bells",
+    ];
+
+    const STARTUP_WINDOW_METRICS_JSON_FIELDS: &[&str] = &[
+        "process_to_first_present_ms",
+        "config_duration_ms",
+        "gpu_duration_ms",
+        "ssh_duration_ms",
+        "first_frame_private_bytes",
+        "final_renderer",
+        "connection_state",
+    ];
+
+    #[test]
+    fn window_metrics_json_preserves_legacy_and_startup_fields() {
+        let app = NativeWindowApp::new(None);
+        let json = app.metrics_json_report().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let actual = value
+            .as_object()
+            .expect("window metrics JSON object")
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
+        let expected = LEGACY_WINDOW_METRICS_JSON_FIELDS
+            .iter()
+            .chain(STARTUP_WINDOW_METRICS_JSON_FIELDS)
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(actual, expected);
+        assert_eq!(value["connection_state"], "not_started");
+    }
+
     #[test]
     fn window_app_records_input_metrics_on_worker_completion() {
         let written = Arc::new(Mutex::new(Vec::new()));

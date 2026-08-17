@@ -314,6 +314,20 @@ pub struct GpuContext {
     recovery_post_validation_failure_injections: u64,
 }
 
+/// Event-thread-created instance and surface awaiting adapter/device setup.
+///
+/// The bootstrap is `Send`, so platforms that restrict window-handle access
+/// to the event-loop thread can create the surface there and move the
+/// expensive asynchronous initialization work to a worker.
+pub struct WindowedGpuContextBootstrap {
+    options: GpuContextOptions,
+    instance: wgpu::Instance,
+    surface_window: Arc<dyn wgpu::WindowHandle>,
+    surface: wgpu::Surface<'static>,
+    width: u32,
+    height: u32,
+}
+
 impl fmt::Debug for GpuContext {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -391,12 +405,61 @@ impl GpuContext {
         D: raw_window_handle::HasDisplayHandle + fmt::Debug + Send + Sync + 'static,
         W: wgpu::WindowHandle + 'static,
     {
+        let bootstrap = Self::prepare_windowed(display, window, width, height, options)?;
+        Self::finish_windowed(bootstrap).await
+    }
+
+    /// Creates the instance and native surface while window handles are
+    /// available on the platform event thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the native presentation surface cannot be
+    /// created from the supplied display and window.
+    pub fn prepare_windowed<D, W>(
+        display: D,
+        window: Arc<W>,
+        width: u32,
+        height: u32,
+        options: GpuContextOptions,
+    ) -> Result<WindowedGpuContextBootstrap, GpuContextError>
+    where
+        D: raw_window_handle::HasDisplayHandle + fmt::Debug + Send + Sync + 'static,
+        W: wgpu::WindowHandle + 'static,
+    {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: options.backends,
             ..wgpu::InstanceDescriptor::new_with_display_handle(Box::new(display))
         });
         let surface_window: Arc<dyn wgpu::WindowHandle> = window;
         let surface = create_surface(&instance, Arc::clone(&surface_window))?;
+        Ok(WindowedGpuContextBootstrap {
+            options,
+            instance,
+            surface_window,
+            surface,
+            width,
+            height,
+        })
+    }
+
+    /// Completes adapter and device initialization for a prepared surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when adapter selection, device creation, or initial
+    /// surface configuration fails.
+    pub async fn finish_windowed(
+        bootstrap: WindowedGpuContextBootstrap,
+    ) -> Result<Self, GpuContextError> {
+        let WindowedGpuContextBootstrap {
+            options,
+            instance,
+            surface_window,
+            surface,
+            width,
+            height,
+        } = bootstrap;
         let adapter = request_adapter(&instance, Some(&surface), options).await?;
         let info = adapter.get_info();
         let (device, queue) = adapter
@@ -1620,6 +1683,19 @@ mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     use super::*;
+
+    fn finish_prepared_windowed_context(bootstrap: WindowedGpuContextBootstrap) {
+        drop(GpuContext::finish_windowed(bootstrap));
+    }
+
+    #[test]
+    fn prepared_windowed_context_is_sendable_to_the_device_initialization_worker() {
+        fn assert_send<T: Send>() {}
+        fn assert_finish_signature(_: fn(WindowedGpuContextBootstrap)) {}
+
+        assert_send::<WindowedGpuContextBootstrap>();
+        assert_finish_signature(finish_prepared_windowed_context);
+    }
 
     fn assert_close(actual: f32, expected: f32) {
         assert!((actual - expected).abs() <= f32::EPSILON);

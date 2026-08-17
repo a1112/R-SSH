@@ -1,4 +1,9 @@
-    use super::{NativeSshWriter, PaneRenderRect};
+    use super::{
+        NativeConfigLifecycle, NativeSshWriter, PaneRenderRect, PaneRuntimeTransportKind,
+        PresentationOwner,
+        deferred_gpu_initialization_owner, presentation_owner_after_gpu_frame,
+        validate_cli_config_overrides,
+    };
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
@@ -46,7 +51,7 @@
 
     #[test]
     fn native_ssh_writer_discards_input_before_connection_without_caching() {
-        let (sender, receiver) = mpsc::sync_channel(1);
+        let (sender, receiver) = mpsc::channel();
         let mut writer = NativeSshWriter {
             sender,
             connected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -54,6 +59,24 @@
 
         writer.write_all(b"not-replayed").unwrap();
         assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn pane_runtime_transport_kind_moves_with_the_active_pane_owner() {
+        let mut app = NativeWindowApp::new(None);
+        assert_eq!(app.active_runtime_transport, None);
+        let mut runtime = app.new_inactive_pane_runtime();
+        runtime.transport = Some(PaneRuntimeTransportKind::NativeSsh);
+
+        app.install_active_runtime(runtime);
+        assert_eq!(
+            app.active_runtime_transport,
+            Some(PaneRuntimeTransportKind::NativeSsh)
+        );
+
+        let runtime = app.take_active_runtime();
+        assert_eq!(runtime.transport, Some(PaneRuntimeTransportKind::NativeSsh));
+        assert_eq!(app.active_runtime_transport, None);
     }
 
     #[test]
@@ -70,8 +93,51 @@
 
         let title = app.effective_window_title();
         assert!(title.contains("SSH ops@example.test:2222"));
-        assert!(title.contains("[not_started]"));
+        assert!(title.contains("[pending]"));
         assert!(!title.contains("PasswordPrompt"));
+    }
+
+    #[test]
+    fn ssh_write_error_preserves_the_pane_and_terminal_presentation() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            "ops@example.test:2222",
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::Prompt,
+        )));
+        app.runtime.resize(TerminalSize::new(24, 2));
+        app.handle_pty_output(b"preserved scrollback").unwrap();
+        app.active_runtime_transport = Some(PaneRuntimeTransportKind::NativeSsh);
+        let pane = app.active_pane_id();
+        let panes_before = app.app_shell.pane_ids();
+        let snapshot_before = app.snapshot.clone();
+
+        let close_window = app.handle_pane_runtime_write_error(pane, "network unavailable");
+
+        assert!(!close_window, "SSH transport errors must not close the GUI window");
+        assert_eq!(app.app_shell.pane_ids(), panes_before);
+        assert_eq!(app.snapshot, snapshot_before);
+    }
+
+    #[test]
+    fn deferred_ssh_start_error_marks_failed_without_exiting_or_clearing_output() {
+        let mut app = NativeWindowApp::new_with_visual_defaults(None);
+        app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            "ops@example.test:2222",
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::Prompt,
+        )));
+        app.handle_pty_output(b"bootstrap output").unwrap();
+        let snapshot_before = app.snapshot.clone();
+
+        let should_exit = app.handle_transport_start_error(&io::Error::other("spawn failed"));
+
+        assert!(!should_exit);
+        assert_eq!(app.snapshot, snapshot_before);
+        assert_eq!(
+            app.ssh_connection_state_for_pane(app.active_pane_id()),
+            crate::startup_metrics::ConnectionState::Failed
+        );
     }
 
     #[test]
@@ -1919,6 +1985,71 @@
             });
         }
         (applied, callbacks)
+    }
+
+    #[test]
+    fn deferred_startup_config_does_not_parse_on_the_event_loop_turn() {
+        let root = startup_test_dir("deferred-config-worker");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'loaded-off-thread' }").unwrap();
+        let lifecycle = Box::new(NativeConfigLifecycle::new(
+            startup_test_discovery(),
+            false,
+            Some(path),
+            validate_cli_config_overrides(&[]).unwrap(),
+        ));
+        let mut visible = NativeWindowApp::new(None);
+        visible.rendered_frames = 1;
+        visible.transport_start_requested = true;
+        let mut manager = NativeWindowManager::new_for_test(NativeWindowApp::new(None))
+            .with_config_lifecycle(lifecycle)
+            .with_deferred_config();
+        manager
+            .windows
+            .insert(winit::window::WindowId::dummy(), Box::new(visible));
+
+        assert_eq!(manager.config_generation_for_test(), Some(0));
+        manager.start_deferred_config_if_ready();
+
+        assert_eq!(
+            manager.config_generation_for_test(),
+            Some(0),
+            "the first event-loop turn must only schedule configuration loading"
+        );
+    }
+
+    #[test]
+    fn deferred_startup_config_applies_after_the_worker_finishes() {
+        let root = startup_test_dir("deferred-config-completion");
+        let path = root.0.join("wezterm.lua");
+        std::fs::write(&path, "return { term = 'loaded-off-thread' }").unwrap();
+        let lifecycle = Box::new(NativeConfigLifecycle::new(
+            startup_test_discovery(),
+            false,
+            Some(path),
+            validate_cli_config_overrides(&[]).unwrap(),
+        ));
+        let mut visible = NativeWindowApp::new(None);
+        visible.rendered_frames = 1;
+        visible.transport_start_requested = true;
+        let window_id = winit::window::WindowId::dummy();
+        let mut manager = NativeWindowManager::new_for_test(NativeWindowApp::new(None))
+            .with_config_lifecycle(lifecycle)
+            .with_deferred_config();
+        manager.windows.insert(window_id, Box::new(visible));
+
+        manager.start_deferred_config_if_ready();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline && manager.config_generation_for_test() == Some(0) {
+            manager.finish_deferred_config_if_ready();
+            thread::yield_now();
+        }
+
+        assert_eq!(manager.config_generation_for_test(), Some(1));
+        assert_eq!(
+            manager.windows.get(&window_id).unwrap().term,
+            "loaded-off-thread"
+        );
     }
 
     fn arm_reload_event_transaction_sentinels(
@@ -5700,6 +5831,76 @@
         let launch = app.app_shell.active_pane().launch();
         assert_eq!(launch.program(), "pwsh");
         assert_eq!(launch.args(), ["-NoLogo"]);
+    }
+
+    #[test]
+    fn window_app_new_tab_inherits_ssh_domain_even_when_default_prog_is_configured() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_initial_pane_launch(PaneLaunch::ssh(
+            SshPaneLaunch::new(
+                "ops@example.test:2222",
+                SshAuthDescription::PasswordPrompt,
+                SshKnownHostsPolicy::Prompt,
+            )
+            .with_remote_command(["uptime"]),
+        ));
+        app.set_config_overrides(native_config_snapshot! {
+            default_prog: Some(vec!["local-shell".to_owned(), "--login".to_owned()]),
+            ..NativeConfigSnapshot::default()
+        });
+        assert!(matches!(
+            app.app_shell.active_pane().launch().domain(),
+            rssh_core::app_shell::PaneLaunchDomain::Ssh(_)
+        ));
+        assert!(matches!(
+            app.implicit_child_launch(app.active_pane_id())
+                .expect("SSH child launch")
+                .domain(),
+            rssh_core::app_shell::PaneLaunchDomain::Ssh(_)
+        ));
+
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let launch = app.app_shell.active_pane().launch();
+        let rssh_core::app_shell::PaneLaunchDomain::Ssh(ssh) = launch.domain() else {
+            panic!("implicit child launch must remain in the SSH domain");
+        };
+        assert_eq!(ssh.target(), "ops@example.test:2222");
+        assert!(ssh.remote_command().is_empty());
+    }
+
+    #[test]
+    fn window_app_split_inherits_ssh_domain_even_when_default_prog_is_configured() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            "ops@example.test:2222",
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::Prompt,
+        )));
+        app.set_config_overrides(native_config_snapshot! {
+            default_prog: Some(vec!["local-shell".to_owned(), "--login".to_owned()]),
+            ..NativeConfigSnapshot::default()
+        });
+        let source = app.active_pane_id();
+        assert!(matches!(
+            app.implicit_child_launch(source)
+                .expect("SSH child launch")
+                .domain(),
+            rssh_core::app_shell::PaneLaunchDomain::Ssh(_)
+        ));
+
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: source,
+            direction: SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        assert!(matches!(
+            app.app_shell.active_pane().launch().domain(),
+            rssh_core::app_shell::PaneLaunchDomain::Ssh(_)
+        ));
     }
 
     #[test]

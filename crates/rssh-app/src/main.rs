@@ -36,13 +36,14 @@ mod window;
 mod window_bootstrap;
 mod window_gpu;
 
-use std::{env, process::ExitCode};
+use std::{env, process::ExitCode, time::Instant};
 
-use cli::AppCommand;
+use cli::{AppCommand, SshOptions};
 use rssh_pty::PtyExitStatus;
 
 fn main() -> ExitCode {
-    match run() {
+    let process_started_at = Instant::now();
+    match run(process_started_at) {
         Ok(exit_code) => exit_code,
         Err(error) => {
             eprintln!("error: {error}");
@@ -51,13 +52,32 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn run(process_started_at: Instant) -> Result<ExitCode, Box<dyn std::error::Error>> {
     #[cfg(feature = "functional-test-observer")]
     functional_observer::initialize_from_environment()?;
-    run_command(cli::parse_args(env::args()).map_err(io_error)?)
+    run_command(
+        cli::parse_args(env::args()).map_err(io_error)?,
+        process_started_at,
+    )
 }
 
-fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Error>> {
+fn run_command(
+    command: AppCommand,
+    process_started_at: Instant,
+) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    run_command_with_gui(command, process_started_at, &mut |options, started_at| {
+        window::run_ssh_gui(options, started_at)
+    })
+}
+
+fn run_command_with_gui<F>(
+    command: AppCommand,
+    process_started_at: Instant,
+    gui_runner: &mut F,
+) -> Result<ExitCode, Box<dyn std::error::Error>>
+where
+    F: FnMut(&SshOptions, Instant) -> Result<(), Box<dyn std::error::Error>>,
+{
     match command {
         AppCommand::Bench(options) => {
             bench::print_bench(&options)?;
@@ -68,7 +88,11 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
-        AppCommand::Profile(options) => run_command(profiles::load_command(&options)?),
+        AppCommand::Profile(options) => run_command_with_gui(
+            profiles::load_command(&options)?,
+            process_started_at,
+            gui_runner,
+        ),
         AppCommand::ProfileCheck(options) => {
             profiles::print_profile_check(&options)?;
             Ok(ExitCode::SUCCESS)
@@ -92,7 +116,7 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
         }
         AppCommand::Sftp(options) => sftp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Ssh(options) if options.gui => {
-            window::run_ssh_gui(&options)?;
+            gui_runner(&options, process_started_at)?;
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),
@@ -130,9 +154,14 @@ fn io_error(message: String) -> std::io::Error {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        time::{Duration, Instant},
+    };
+
     use rssh_pty::PtyExitStatus;
 
-    use super::pty_status_code;
+    use super::{pty_status_code, run_command_with_gui};
 
     #[test]
     fn maps_pty_success_to_process_success() {
@@ -147,5 +176,65 @@ mod tests {
     #[test]
     fn maps_large_pty_failure_to_generic_process_failure() {
         assert_eq!(pty_status_code(&PtyExitStatus::from_exit_code(300)), 1);
+    }
+
+    #[test]
+    fn gui_dispatch_preserves_the_process_start_instant() {
+        let command = crate::cli::parse_args([
+            "rssh",
+            "ssh",
+            "--gui",
+            "--host",
+            "example.test",
+            "--user",
+            "alice",
+        ])
+        .expect("SSH GUI arguments should parse");
+        let process_started_at = Instant::now()
+            .checked_sub(Duration::from_millis(25))
+            .expect("test instant should support a small subtraction");
+        let mut observed = None;
+
+        let result = run_command_with_gui(command, process_started_at, &mut |_, started_at| {
+            observed = Some(started_at);
+            Ok(())
+        });
+
+        assert!(result.is_ok());
+        assert_eq!(observed, Some(process_started_at));
+    }
+
+    #[test]
+    fn gui_profile_dispatch_preserves_the_process_start_instant() {
+        let mut file = std::env::temp_dir();
+        file.push(format!("rssh-main-gui-profile-{}.toml", std::process::id()));
+        fs::write(
+            &file,
+            r#"
+[profiles.gui]
+kind = "ssh"
+target = "example.test"
+gui = true
+auth = "agent"
+"#,
+        )
+        .expect("test profile should be written");
+        let command = crate::cli::AppCommand::Profile(crate::cli::ProfileOptions {
+            name: "gui".to_owned(),
+            file: file.clone(),
+        });
+        let process_started_at = Instant::now()
+            .checked_sub(Duration::from_millis(25))
+            .expect("test instant should support a small subtraction");
+        let mut observed = None;
+
+        let result = run_command_with_gui(command, process_started_at, &mut |_, started_at| {
+            observed = Some(started_at);
+            Ok(())
+        });
+        let _ = fs::remove_file(file);
+
+        assert!(result.is_ok());
+        assert_eq!(observed, Some(process_started_at));
     }
 }

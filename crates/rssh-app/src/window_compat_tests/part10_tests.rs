@@ -1144,6 +1144,78 @@
     }
 
     #[test]
+    fn detached_windows_inherit_cpu_and_auto_renderer_policy_without_renderer_instances() {
+        for (mode, benchmark_startup) in [
+            (crate::cli::RendererMode::Cpu, false),
+            (crate::cli::RendererMode::Auto, false),
+            (crate::cli::RendererMode::Cpu, true),
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            app.set_renderer_mode(mode);
+            app.set_benchmark_startup(benchmark_startup);
+            app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+                .unwrap();
+
+            let detached = app
+                .take_next_pending_window_app()
+                .expect("spawn should create a detached app");
+
+            assert_eq!(detached.renderer_mode, mode);
+            assert_eq!(
+                detached.presentation_owner,
+                PresentationOwner::Bootstrap
+            );
+            assert_eq!(detached.benchmark_startup, benchmark_startup);
+            assert!(detached.gpu.is_none());
+            assert!(detached.bootstrap_surface.is_none());
+            assert!(detached.bootstrap_frame.is_empty());
+        }
+    }
+
+    #[test]
+    fn manager_collected_auto_window_retains_bootstrap_renderer_policy() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_renderer_mode(crate::cli::RendererMode::Auto);
+        app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+        let mut manager = NativeWindowManager::new_for_test(app);
+
+        manager.collect_pending_window_apps_from_primary_for_test();
+
+        let pending = manager
+            .pending_app_for_test(0)
+            .expect("manager should own the pending window");
+        assert_eq!(pending.renderer_mode, crate::cli::RendererMode::Auto);
+        assert_eq!(pending.presentation_owner, PresentationOwner::Bootstrap);
+        assert!(pending.gpu.is_none());
+        assert!(pending.bootstrap_surface.is_none());
+    }
+
+    #[test]
+    fn benchmark_pending_window_never_starts_transport_during_materialization() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_renderer_mode(crate::cli::RendererMode::Gpu);
+        app.set_benchmark_startup(true);
+        app.dispatch_app_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+
+        let detached = app
+            .take_next_pending_window_app()
+            .expect("benchmark spawn should retain a detached app");
+
+        assert_eq!(detached.renderer_mode, crate::cli::RendererMode::Gpu);
+        assert_eq!(
+            detached.presentation_owner,
+            PresentationOwner::GpuInitializing
+        );
+        assert!(detached.benchmark_startup);
+        assert!(!super::should_spawn_transport_during_materialization(
+            detached.renderer_mode,
+            detached.benchmark_startup,
+        ));
+    }
+
+    #[test]
     fn window_focus_coordinator_transfers_exclusive_focus() {
         let mut focus = WindowFocusCoordinator::default();
 

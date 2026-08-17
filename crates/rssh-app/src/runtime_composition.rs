@@ -209,7 +209,7 @@ impl WindowPaneRuntime {
         Ok((runtime, process_id, tty_name))
     }
 
-    fn open_transport<T: SessionTransport>(
+    pub(crate) fn open_transport<T: SessionTransport>(
         route: PaneRuntimeRoute,
         transport: T,
         size: TerminalSize,
@@ -217,7 +217,7 @@ impl WindowPaneRuntime {
         capture: PaneCapturePolicy,
         notice_waker: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<Self, Box<dyn Error>> {
-        let mut hub = RuntimeHub::new_with_notice_waker(SystemClock, notice_waker);
+        let mut hub = RuntimeHub::new_with_notice_waker(SystemClock, Arc::clone(&notice_waker));
         let mut config = PaneWorkerConfig {
             size,
             ..PaneWorkerConfig::default()
@@ -226,7 +226,7 @@ impl WindowPaneRuntime {
         config.capture_visible_output = capture.visible_output;
         let handle = hub.open_with_runtime(route.pane, transport, config, terminal)?;
         let token = handle.token();
-        let ports = RuntimePorts::new(hub, handle.clone());
+        let ports = RuntimePorts::new(hub, handle.clone(), notice_waker);
         let mut state = WindowState::default();
         state.presentation.size = size;
         let mut host = WinitHost::new(
@@ -247,11 +247,12 @@ impl WindowPaneRuntime {
         })
     }
 
+    #[cfg(test)]
     pub(crate) const fn token(&self) -> PaneToken {
         self.token
     }
 
-    fn add_transport<T: SessionTransport>(
+    pub(crate) fn add_transport<T: SessionTransport>(
         &mut self,
         pane: PaneId,
         transport: T,
@@ -313,6 +314,14 @@ impl WindowPaneRuntime {
             .collect()
     }
 
+    pub(crate) fn token_for_pane(&self, pane: PaneId) -> Option<PaneToken> {
+        self.host.state().panes.get(&pane).map(|state| state.token)
+    }
+
+    pub(crate) fn contains_pane(&self, pane: PaneId) -> bool {
+        self.token_for_pane(pane).is_some()
+    }
+
     #[cfg(test)]
     fn active_token(&self) -> PaneToken {
         self.token
@@ -329,32 +338,33 @@ impl WindowPaneRuntime {
     }
 
     pub(crate) fn activate_pane(&mut self, pane: PaneId) -> Result<(), Box<dyn Error>> {
-        let token = self
-            .host
-            .state()
-            .panes
-            .get(&pane)
-            .map(|state| state.token)
-            .ok_or_else(|| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    format!("runtime V2 pane {} is not open", pane.get()),
-                )) as Box<dyn Error>
-            })?;
+        let token = self.token_for_pane(pane).ok_or_else(|| {
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("runtime V2 pane {} is not open", pane.get()),
+            )) as Box<dyn Error>
+        })?;
         self.activate(token)
     }
 
-    pub(crate) fn submit_input(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+    pub(crate) fn submit_input_to_pane(
+        &mut self,
+        pane: PaneId,
+        bytes: &[u8],
+    ) -> std::io::Result<()> {
+        let token = self
+            .token_for_pane(pane)
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
         let handle = self
             .host
             .ports()
             .handles
-            .get(&self.token.pane())
-            .filter(|handle| handle.token() == self.token)
+            .get(&pane)
+            .filter(|handle| handle.token() == token)
             .cloned()
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
         self.pending_commands
-            .get_mut(&self.token.pane())
+            .get_mut(&pane)
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?
             .submit_input(bytes, move |command| submit_pane_command(&handle, command))
     }
@@ -378,10 +388,6 @@ impl WindowPaneRuntime {
         Ok(())
     }
 
-    pub(crate) fn begin_close(&mut self, grace: Duration) -> bool {
-        self.begin_close_pane(self.token, grace)
-    }
-
     fn begin_close_pane(&mut self, token: PaneToken, grace: Duration) -> bool {
         if self.closing.contains(&token) || !self.host.ports_mut().hub.begin_close(token, grace) {
             return false;
@@ -395,6 +401,38 @@ impl WindowPaneRuntime {
             return false;
         };
         self.begin_close_pane(token, grace)
+    }
+
+    pub(crate) fn retire_pane_transport(&mut self, pane: PaneId) -> Result<bool, Box<dyn Error>> {
+        let Some(token) = self.token_for_pane(pane) else {
+            return Ok(false);
+        };
+        let _ = self.host.ports_mut().hub.begin_close(token, Duration::ZERO);
+        let _ = self.host.ports_mut().hub.reap_expired();
+        self.host
+            .handle(PlatformEvent::PaneLifecycle(PaneLifecycleIntent::Closed(
+                token,
+            )))?;
+        let ports = self.host.ports_mut();
+        ports.handles.remove(&pane);
+        ports
+            .pending_frames
+            .retain(|(candidate, _), _| *candidate != token);
+        ports.pending_runtime_batches.remove(&token);
+        ports.continuations.retain(|candidate| *candidate != token);
+        self.pending_commands.remove(&pane);
+        self.closing.remove(&token);
+        if self.token == token
+            && let Some(active) = self
+                .host
+                .state()
+                .active_pane
+                .and_then(|active| self.token_for_pane(active))
+        {
+            self.token = active;
+        }
+        self.closed = self.host.state().panes.is_empty();
+        Ok(true)
     }
 
     pub(crate) fn poll(&mut self) -> Result<Vec<RuntimeHostEvent>, Box<dyn Error>> {
@@ -412,12 +450,18 @@ impl WindowPaneRuntime {
             self.host
                 .handle(PlatformEvent::RuntimeContinuation { pane })?;
         }
+        if self.host.ports().has_continuations() {
+            return Ok(self.host.ports_mut().events.drain(..).collect());
+        }
 
         while let Ok(notice) = self.host.ports_mut().hub.try_recv_notice() {
             match notice {
                 PaneNotice::Ready(_) => {}
                 PaneNotice::Wake(pane) => {
                     self.host.handle(PlatformEvent::RuntimeWake { pane })?;
+                    if self.host.ports().has_continuations() {
+                        break;
+                    }
                 }
                 PaneNotice::InputWriteCompleted {
                     pane: _,
@@ -513,23 +557,35 @@ struct RuntimePorts {
     hub: RuntimeHub,
     handles: HashMap<PaneId, PaneHandle>,
     pending_frames: HashMap<(PaneToken, RuntimeRevision), PendingFrame>,
+    pending_runtime_batches: HashMap<PaneToken, BTreeMap<RuntimeRevision, DrainBatch>>,
     events: VecDeque<RuntimeHostEvent>,
     continuations: VecDeque<PaneToken>,
+    continuation_waker: Arc<dyn Fn() + Send + Sync>,
 }
 
 impl RuntimePorts {
-    fn new(hub: RuntimeHub, handle: PaneHandle) -> Self {
+    fn new(
+        hub: RuntimeHub,
+        handle: PaneHandle,
+        continuation_waker: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
         Self {
             hub,
             handles: HashMap::from([(handle.token().pane(), handle)]),
             pending_frames: HashMap::new(),
+            pending_runtime_batches: HashMap::new(),
             events: VecDeque::new(),
             continuations: VecDeque::new(),
+            continuation_waker,
         }
     }
 
     fn take_continuations(&mut self) -> Vec<PaneToken> {
         self.continuations.drain(..).collect()
+    }
+
+    fn has_continuations(&self) -> bool {
+        !self.continuations.is_empty()
     }
 
     fn unavailable(message: impl Into<String>) -> PortError {
@@ -729,7 +785,7 @@ impl HostPorts for RuntimePorts {
             .hub
             .drain_pane(pane, max_batches)
             .ok_or_else(|| Self::unavailable("pane drain target is stale"))?;
-        let mut batches = BTreeMap::<RuntimeRevision, DrainBatch>::new();
+        let batches = self.pending_runtime_batches.entry(pane).or_default();
         for published in drain.effects {
             batches
                 .entry(published.revision)
@@ -740,6 +796,7 @@ impl HostPorts for RuntimePorts {
                 .effects
                 .push(published.effect);
         }
+        let mut ready_revisions = Vec::new();
         if let Some(frame) = drain.frame {
             let revision = frame.revision;
             batches
@@ -749,6 +806,28 @@ impl HostPorts for RuntimePorts {
                     effects: Vec::new(),
                 })
                 .frame = Some(frame);
+            ready_revisions.extend(
+                batches
+                    .keys()
+                    .copied()
+                    .take_while(|candidate| *candidate <= revision),
+            );
+        }
+        let batches = ready_revisions
+            .into_iter()
+            .filter_map(|revision| {
+                self.pending_runtime_batches
+                    .get_mut(&pane)
+                    .and_then(|batches| batches.remove(&revision))
+                    .map(|batch| (revision, batch))
+            })
+            .collect::<Vec<_>>();
+        if self
+            .pending_runtime_batches
+            .get(&pane)
+            .is_some_and(BTreeMap::is_empty)
+        {
+            self.pending_runtime_batches.remove(&pane);
         }
 
         let intents = batches
@@ -802,6 +881,7 @@ impl HostPorts for RuntimePorts {
     ) -> Result<(), PortError> {
         if !self.continuations.contains(&pane) {
             self.continuations.push_back(pane);
+            (self.continuation_waker)();
         }
         Ok(())
     }
@@ -809,7 +889,13 @@ impl HostPorts for RuntimePorts {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
 
     use rssh_core::{PaneId, WindowId};
     use rssh_runtime::{
@@ -818,6 +904,178 @@ mod tests {
     };
 
     use super::{PaneCapturePolicy, PaneRuntimeRoute, TerminalSize, WindowPaneRuntime};
+
+    fn runtime_with_queued_output_batches(
+        output_batches: usize,
+        notice_waker: Arc<dyn Fn() + Send + Sync>,
+    ) -> (
+        WindowPaneRuntime,
+        rssh_runtime::testing::ScriptedSessionDriver,
+        PaneId,
+    ) {
+        let size = TerminalSize::new(80, 24);
+        let (transport, driver) = ScriptedTransport::new(
+            [ReadAction::Block],
+            std::iter::repeat_n(WriteAction::accept(usize::MAX), output_batches),
+            [],
+        );
+        let pane = PaneId::new(200);
+        let mut runtime = WindowPaneRuntime::open_transport(
+            PaneRuntimeRoute {
+                window: WindowId::new(1),
+                pane,
+            },
+            transport,
+            size,
+            TerminalRuntime::new(size),
+            PaneCapturePolicy {
+                host_stream: true,
+                visible_output: false,
+            },
+            notice_waker,
+        )
+        .expect("local worker");
+        driver.wait_until_reader_blocked();
+
+        for byte in 0..output_batches {
+            driver.push_reads([
+                ReadAction::bytes(vec![b'a' + u8::try_from(byte % 26).unwrap()]),
+                ReadAction::Block,
+            ]);
+            runtime
+                .submit_input_to_pane(pane, &[b'0' + u8::try_from(byte % 10).unwrap()])
+                .expect("separator input");
+            driver.wait_until_accepted_write_len(byte + 1);
+            driver.wait_until_reader_blocked();
+        }
+        (runtime, driver, pane)
+    }
+
+    #[test]
+    fn scheduled_runtime_continuation_wakes_the_window_without_another_transport_notice() {
+        const OUTPUT_BATCHES: usize = 70;
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let wake_counter = Arc::clone(&wakes);
+        let (mut runtime, _driver, _pane) = runtime_with_queued_output_batches(
+            OUTPUT_BATCHES,
+            Arc::new(move || {
+                wake_counter.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+        let wakes_before_poll = wakes.load(Ordering::Relaxed);
+
+        runtime.poll().expect("poll first bounded runtime turn");
+
+        assert!(
+            wakes.load(Ordering::Relaxed) > wakes_before_poll,
+            "the continuation must schedule another window turn"
+        );
+    }
+
+    #[test]
+    fn close_drains_every_published_runtime_batch_before_closed_event() {
+        const OUTPUT_BATCHES: usize = 70;
+        let (mut runtime, driver, pane) =
+            runtime_with_queued_output_batches(OUTPUT_BATCHES, Arc::new(|| {}));
+        let token = runtime.token_for_pane(pane).expect("queued pane token");
+        driver.push_read(ReadAction::Eof);
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while runtime.live_thread_count_for_metrics() != 0 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "worker did not publish close"
+            );
+            std::thread::yield_now();
+        }
+        let mut observed = Vec::new();
+        let mut observed_per_turn = Vec::new();
+        let mut closed = false;
+        while !closed {
+            let events = runtime.poll().expect("poll queued output and close");
+            let before = observed.len();
+            observed.extend(
+                events
+                    .iter()
+                    .filter_map(|event| match event {
+                        super::RuntimeHostEvent::HostStream { bytes, .. } => Some(bytes.as_slice()),
+                        _ => None,
+                    })
+                    .flatten()
+                    .copied(),
+            );
+            observed_per_turn.push(observed.len() - before);
+            closed = matches!(events.last(), Some(super::RuntimeHostEvent::Closed { .. }));
+        }
+        assert_eq!(
+            observed.len(),
+            OUTPUT_BATCHES,
+            "observed per turn: {observed_per_turn:?}; publication: {:?}",
+            runtime.host.ports().hub.publication_metrics(token)
+        );
+    }
+
+    #[test]
+    fn one_runtime_revision_is_not_split_into_stale_host_batches() {
+        let size = TerminalSize::new(80, 24);
+        let payload = b"\x1b[?1000hX\x1b[?1000l".repeat(80);
+        let (transport, driver) = ScriptedTransport::new(
+            [ReadAction::bytes(payload.clone()), ReadAction::Block],
+            [WriteAction::accept(usize::MAX)],
+            [],
+        );
+        let pane = PaneId::new(201);
+        let mut runtime = WindowPaneRuntime::open_transport(
+            PaneRuntimeRoute {
+                window: WindowId::new(1),
+                pane,
+            },
+            transport,
+            size,
+            TerminalRuntime::new(size),
+            PaneCapturePolicy {
+                host_stream: true,
+                visible_output: false,
+            },
+            Arc::new(|| {}),
+        )
+        .expect("local worker");
+        let token = runtime.token_for_pane(pane).expect("pane token");
+        driver.wait_until_reader_blocked();
+        runtime
+            .submit_input_to_pane(pane, b"barrier")
+            .expect("barrier input");
+        driver.wait_until_accepted_write_len("barrier".len());
+
+        let mut observed = Vec::new();
+        loop {
+            observed.extend(
+                runtime
+                    .poll()
+                    .expect("poll bounded runtime turn")
+                    .into_iter()
+                    .filter_map(|event| match event {
+                        super::RuntimeHostEvent::HostStream { bytes, .. } => Some(bytes),
+                        _ => None,
+                    })
+                    .flatten(),
+            );
+            if !runtime.needs_poll() {
+                break;
+            }
+        }
+
+        let metrics = runtime
+            .host
+            .ports()
+            .hub
+            .publication_metrics(token)
+            .expect("publication metrics");
+        assert!(
+            metrics.effects.enqueued_items > 64,
+            "fixture must exceed one bounded host turn: {metrics:?}"
+        );
+        assert_eq!(observed, payload);
+    }
 
     #[test]
     fn window_runtime_owns_multiple_pane_workers_and_active_selection() {
@@ -852,8 +1110,17 @@ mod tests {
             .expect("open second pane");
 
         assert_eq!(runtime.pane_tokens(), vec![first, second]);
+        assert!(runtime.contains_pane(first.pane()));
+        assert!(runtime.contains_pane(second.pane()));
+        assert!(!runtime.contains_pane(PaneId::new(999)));
         runtime.activate(second).expect("activate second pane");
         assert_eq!(runtime.active_token(), second);
+        runtime
+            .submit_input_to_pane(first.pane(), b"first-only")
+            .expect("target first pane input");
+        first_driver.wait_until_accepted_write_len("first-only".len());
+        assert_eq!(first_driver.accepted_writes(), b"first-only");
+        assert!(second_driver.accepted_writes().is_empty());
         let resized = TerminalSize::new(120, 40);
         runtime.resize_all(resized).expect("resize all panes");
         first_driver.wait_until_control_call_count(1);

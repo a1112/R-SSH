@@ -29,6 +29,7 @@ pub enum ConfigLifecycleEvent<T, D, E> {
     },
 }
 
+#[derive(Clone)]
 pub struct ConfigLifecycle<T, E> {
     inputs: ConfigDiscoveryInputs,
     skip: bool,

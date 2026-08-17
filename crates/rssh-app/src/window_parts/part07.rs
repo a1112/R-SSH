@@ -1436,6 +1436,7 @@ struct NativeWindowApp {
     bootstrap_frame: Vec<u8>,
     renderer_mode: RendererMode,
     presentation_owner: PresentationOwner,
+    deferred_gpu_generation: u64,
     benchmark_startup: bool,
     transport_start_requested: bool,
     // Prompts are keyed by pane so a slow host-key or secret decision in one
@@ -1445,6 +1446,7 @@ struct NativeWindowApp {
         (HostKeyChallenge, mpsc::SyncSender<HostKeyDecision>),
     >,
     ssh_secret_prompts: HashMap<rssh_core::PaneId, SshSecretPromptState>,
+    ssh_connection_states: HashMap<rssh_core::PaneId, ConnectionState>,
     gpu: Option<Box<WindowGpu>>,
     renderer: PixelRenderer,
     configured_dpi: Option<u32>,
@@ -1473,7 +1475,11 @@ struct NativeWindowApp {
     session_process_id: Option<u32>,
     session_tty_name: Option<String>,
     writer: Option<Box<dyn Write + Send>>,
-    ssh_writer_senders: HashMap<rssh_core::PaneId, mpsc::SyncSender<NativeSshCommand>>,
+    ssh_writer_senders: HashMap<rssh_core::PaneId, mpsc::Sender<NativeSshCommand>>,
+    ssh_writer_cancellations:
+        HashMap<rssh_core::PaneId, Arc<std::sync::atomic::AtomicBool>>,
+    ssh_connection_cancellations:
+        HashMap<rssh_core::PaneId, rssh_ssh::RusshConnectionCancellation>,
     session_log: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     writer_thread: Option<thread::JoinHandle<()>>,
@@ -1483,6 +1489,7 @@ struct NativeWindowApp {
 #[allow(clippy::struct_excessive_bools)]
 struct NativeWindowInteractionState {
     active_runtime_generation: u64,
+    active_runtime_transport: Option<PaneRuntimeTransportKind>,
     modifiers: ModifiersState,
     left_alt_pressed: bool,
     right_alt_pressed: bool,
@@ -1664,6 +1671,15 @@ struct NativeWindowManager {
     #[allow(dead_code)]
     config_lifecycle: Option<Box<NativeConfigLifecycle>>,
     deferred_config_pending: bool,
+    deferred_config_receiver: Option<
+        mpsc::Receiver<
+            Result<
+                crate::config_lifecycle::NativeConfigLoadAttempt<NativeConfigSnapshot>,
+                String,
+            >,
+        >,
+    >,
+    deferred_config_thread: Option<thread::JoinHandle<()>>,
     windows: HashMap<winit::window::WindowId, Box<NativeWindowApp>>,
     pending_apps: Vec<Box<NativeWindowApp>>,
     retired_apps: Vec<Box<NativeWindowApp>>,
@@ -1687,6 +1703,13 @@ enum ManagedWindowAppLocation {
     Pending(usize),
 }
 
+const fn should_spawn_transport_during_materialization(
+    renderer_mode: RendererMode,
+    benchmark_startup: bool,
+) -> bool {
+    matches!(renderer_mode, RendererMode::Gpu) && !benchmark_startup
+}
+
 impl NativeWindowManager {
     fn new(startup_app: impl Into<Box<NativeWindowApp>>) -> Self {
         let startup_app = startup_app.into();
@@ -1695,6 +1718,8 @@ impl NativeWindowManager {
             startup_app: Some(startup_app),
             config_lifecycle: None,
             deferred_config_pending: false,
+            deferred_config_receiver: None,
+            deferred_config_thread: None,
             windows: HashMap::new(),
             pending_apps: Vec::new(),
             retired_apps: Vec::new(),
@@ -1725,6 +1750,9 @@ impl NativeWindowManager {
             .chain(self.retired_apps.iter_mut())
         {
             app.stop_active_runtime();
+            if let Some(mut worker) = app.runtime.take_worker() {
+                worker.shutdown();
+            }
             for runtime in app.pane_runtimes.values_mut() {
                 let cleanup = runtime.close();
                 report_pane_pty_cleanup("event-loop runtime shutdown", &cleanup);
@@ -1829,7 +1857,10 @@ impl NativeWindowManager {
     ) -> Result<winit::window::WindowId, Box<dyn Error>> {
         self.refresh_app_to_current_base(&mut app);
         app.create_window(event_loop)?;
-        if app.renderer_mode == RendererMode::Gpu {
+        if should_spawn_transport_during_materialization(
+            app.renderer_mode,
+            app.benchmark_startup,
+        ) {
             app.spawn_pty()?;
         }
         let Some(window_id) = app.window_id() else {
@@ -1951,10 +1982,18 @@ impl NativeWindowManager {
                 return Err(error);
             }
         };
+        let moved_local_worker_panes = source.runtime.worker().map_or_else(Vec::new, |worker| {
+            moved_pane_ids
+                .iter()
+                .copied()
+                .filter(|pane| worker.contains_pane(*pane))
+                .collect::<Vec<_>>()
+        });
 
         let source_active_pane = source.app_shell.active_pane_id();
         let mut moved_runtimes = HashMap::new();
         let mut moved_bells = HashMap::new();
+        let mut moved_ssh_auxiliary = HashMap::new();
         for pane_id in &moved_pane_ids {
             let runtime = if *pane_id == source_active_pane {
                 Some(source.take_active_runtime())
@@ -1967,6 +2006,10 @@ impl NativeWindowManager {
             if let Some(bell_count) = source.pane_bell_counts.remove(pane_id) {
                 moved_bells.insert(*pane_id, bell_count);
             }
+            moved_ssh_auxiliary.insert(
+                *pane_id,
+                source.take_ssh_pane_auxiliary_state(*pane_id),
+            );
         }
 
         let detached = match if source_transfers_final_tab {
@@ -1985,6 +2028,9 @@ impl NativeWindowManager {
                     source.pane_runtimes.insert(pane_id, runtime);
                 }
                 source.pane_bell_counts.extend(moved_bells);
+                for (pane_id, auxiliary) in moved_ssh_auxiliary {
+                    source.install_ssh_pane_auxiliary_state(pane_id, auxiliary);
+                }
                 self.restore_app_at_location(target_location, target);
                 self.restore_app_at_location(source_location, source);
                 return Err(error);
@@ -2007,12 +2053,26 @@ impl NativeWindowManager {
                 return Err(error);
             }
         };
+        for pane_id in &moved_local_worker_panes {
+            if let Some(worker) = source.runtime.worker_mut()
+                && let Err(error) = worker.retire_pane_transport(*pane_id)
+            {
+                eprintln!("failed to retire transferred source pane worker: {error}");
+            }
+        }
+        let mut transferred_local_target_panes = Vec::new();
         for (source_pane, target_pane) in imported.pane_id_map() {
             if let Some(runtime) = moved_runtimes.remove(source_pane) {
                 target.pane_runtimes.insert(*target_pane, runtime);
             }
             if let Some(bell_count) = moved_bells.remove(source_pane) {
                 target.pane_bell_counts.insert(*target_pane, bell_count);
+            }
+            if let Some(auxiliary) = moved_ssh_auxiliary.remove(source_pane) {
+                target.install_ssh_pane_auxiliary_state(*target_pane, auxiliary);
+            }
+            if moved_local_worker_panes.contains(source_pane) {
+                transferred_local_target_panes.push(*target_pane);
             }
             for route in self.pane_event_routes.values_mut() {
                 if route.window_id == source_window_id && route.pane_id == *source_pane {
@@ -2029,6 +2089,13 @@ impl NativeWindowManager {
             );
         }
         target.sync_pane_runtimes(target_active_pane, target_previous_runtime);
+        if target.event_proxy.is_some() {
+            for pane_id in transferred_local_target_panes {
+                if let Err(error) = target.restart_transferred_local_pane(pane_id) {
+                    eprintln!("failed to restart transferred target pane worker: {error}");
+                }
+            }
+        }
         source.apply_window_title();
         target.apply_window_title();
         self.restore_app_at_location(target_location, target);
@@ -2041,9 +2108,9 @@ impl NativeWindowManager {
     }
 
     fn reload_configuration_attempt(&mut self) -> bool {
-        let Some(lifecycle) = self.config_lifecycle.as_mut() else {
+        if self.config_lifecycle.is_none() {
             return false;
-        };
+        }
         for app in self
             .startup_app
             .iter_mut()
@@ -2052,7 +2119,21 @@ impl NativeWindowManager {
         {
             app.metrics.mark_config_started();
         }
-        let attempt = lifecycle.attempt_reload();
+        let attempt = self
+            .config_lifecycle
+            .as_ref()
+            .expect("configuration lifecycle remains installed")
+            .attempt_reload();
+        self.install_configuration_attempt(attempt)
+    }
+
+    fn install_configuration_attempt(
+        &mut self,
+        attempt: crate::config_lifecycle::NativeConfigLoadAttempt<NativeConfigSnapshot>,
+    ) -> bool {
+        let Some(lifecycle) = self.config_lifecycle.as_mut() else {
+            return false;
+        };
         let succeeded = lifecycle.install_runtime_attempt(attempt);
         let effective = lifecycle.effective().clone();
         let diagnostic = lifecycle
@@ -2099,7 +2180,7 @@ impl NativeWindowManager {
     }
 
     fn start_deferred_config_if_ready(&mut self) {
-        if !self.deferred_config_pending {
+        if !self.deferred_config_pending || self.deferred_config_receiver.is_some() {
             return;
         }
         let Some(app) = self
@@ -2115,7 +2196,99 @@ impl NativeWindowManager {
         }
 
         self.deferred_config_pending = false;
-        self.reload_configuration_attempt();
+        let Some(lifecycle) = self.config_lifecycle.as_ref() else {
+            self.finish_deferred_startup_after_config();
+            return;
+        };
+        let task = lifecycle.reload_task();
+        let event_proxy = self
+            .windows
+            .values()
+            .find_map(|app| app.event_proxy.clone())
+            .or_else(|| {
+                self.startup_app
+                    .as_ref()
+                    .and_then(|app| app.event_proxy.clone())
+            });
+        for app in self
+            .startup_app
+            .iter_mut()
+            .chain(self.pending_apps.iter_mut())
+            .chain(self.windows.values_mut())
+        {
+            app.metrics.mark_config_started();
+        }
+        let (sender, receiver) = mpsc::channel();
+        match thread::Builder::new()
+            .name("rssh-deferred-config".to_owned())
+            .spawn(move || {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task))
+                    .map_err(|_| "deferred configuration worker panicked".to_owned());
+                let _ = sender.send(result);
+                if let Some(event_proxy) = event_proxy {
+                    let _ = event_proxy.send_event(WindowUserEvent::DeferredConfigReady);
+                }
+            })
+        {
+            Ok(worker) => {
+                self.deferred_config_receiver = Some(receiver);
+                self.deferred_config_thread = Some(worker);
+            }
+            Err(error) => {
+                eprintln!("failed to start deferred configuration worker: {error}");
+                for app in self
+                    .startup_app
+                    .iter_mut()
+                    .chain(self.pending_apps.iter_mut())
+                    .chain(self.windows.values_mut())
+                {
+                    app.metrics.mark_config_finished();
+                }
+                self.finish_deferred_startup_after_config();
+            }
+        }
+    }
+
+    fn finish_deferred_config_if_ready(&mut self) -> bool {
+        let received = {
+            let Some(receiver) = self.deferred_config_receiver.as_ref() else {
+                return false;
+            };
+            match receiver.try_recv() {
+                Ok(result) => result,
+                Err(mpsc::TryRecvError::Empty) => return false,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Err("deferred configuration worker disconnected".to_owned())
+                }
+            }
+        };
+        self.deferred_config_receiver = None;
+        if let Some(worker) = self.deferred_config_thread.take()
+            && worker.join().is_err()
+        {
+            eprintln!("deferred configuration worker panicked after reporting completion");
+        }
+        match received {
+            Ok(attempt) => {
+                self.install_configuration_attempt(attempt);
+            }
+            Err(error) => {
+                eprintln!("deferred configuration load failed: {error}");
+                for app in self
+                    .startup_app
+                    .iter_mut()
+                    .chain(self.pending_apps.iter_mut())
+                    .chain(self.windows.values_mut())
+                {
+                    app.metrics.mark_config_finished();
+                }
+            }
+        }
+        self.finish_deferred_startup_after_config();
+        true
+    }
+
+    fn finish_deferred_startup_after_config(&mut self) {
 
         // The bootstrap frame is intentionally independent from the full
         // configuration.  Local PTYs must not observe the default projection
@@ -2164,6 +2337,10 @@ impl NativeWindowManager {
     }
 
     fn handle_manager_user_event(&mut self, event: &WindowUserEvent) -> bool {
+        if matches!(event, WindowUserEvent::DeferredConfigReady) {
+            self.finish_deferred_config_if_ready();
+            return true;
+        }
         if matches!(
             event,
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged
@@ -2195,15 +2372,15 @@ impl NativeWindowManager {
         app.app_shell.pane_ids().contains(&pane_id)
     }
 
-    fn user_event_owner_location(
+    fn user_event_owner_location_and_pane(
         &self,
         event: &WindowUserEvent,
-    ) -> Option<ManagedWindowAppLocation> {
+    ) -> Option<(ManagedWindowAppLocation, rssh_core::PaneId)> {
         let (declared_window_id, pane_id) = event.pane_identity()?;
         if let Some(location) =
             self.owned_app_location_for_window_and_pane(declared_window_id, pane_id)
         {
-            return Some(location);
+            return Some((location, pane_id));
         }
 
         let mut routed_identity = (declared_window_id, pane_id);
@@ -2222,7 +2399,7 @@ impl NativeWindowManager {
             if let Some(location) =
                 self.owned_app_location_for_window_and_pane(routed_identity.0, routed_identity.1)
             {
-                return Some(location);
+                return Some((location, routed_identity.1));
             }
         }
         if saw_route {
@@ -2333,6 +2510,9 @@ impl NativeWindowManager {
             let app = self.app_at_location_mut(location)?;
             app.shutdown_gpu_for_window_close();
             app.stop_active_runtime();
+            if let Some(mut worker) = app.runtime.take_worker() {
+                worker.shutdown();
+            }
             for runtime in app.pane_runtimes.values_mut() {
                 let cleanup = runtime.close();
                 report_pane_pty_cleanup("window close pane PTY cleanup", &cleanup);
@@ -2375,6 +2555,7 @@ impl NativeWindowManager {
         match event {
             WindowUserEvent::ReloadConfigurationRequested
             | WindowUserEvent::ConfigFileChanged
+            | WindowUserEvent::DeferredConfigReady
             | WindowUserEvent::MoveTabToWindow { .. } => false,
             WindowUserEvent::RuntimeWakeWindow { .. } => match app.poll_active_v2_runtime() {
                 Ok(Some(close_window)) => close_window,
@@ -2384,6 +2565,14 @@ impl NativeWindowManager {
                     true
                 }
             },
+            WindowUserEvent::DeferredGpuInitialized {
+                generation,
+                outcome,
+                ..
+            } => {
+                app.handle_deferred_gpu_initialized(generation, outcome);
+                false
+            }
             WindowUserEvent::Output { bytes, .. } => {
                 let (pane_id, _) = pane_identity.expect("pane output carries a pane identity");
                 if let Err(error) = app.handle_pane_pty_output(pane_id, &bytes) {
@@ -2428,7 +2617,8 @@ impl NativeWindowManager {
                 let (pane_id, _) = pane_identity.expect("pane error carries a pane identity");
                 app.handle_pane_runtime_write_error(pane_id, &error)
             }
-            WindowUserEvent::SshState { pane_id, state, .. } => {
+            WindowUserEvent::SshState { state, .. } => {
+                let (pane_id, _) = pane_identity.expect("SSH state carries a pane identity");
                 app.handle_ssh_state(pane_id, state);
                 if let Some(window) = &app.window {
                     window.request_redraw();
@@ -2436,11 +2626,11 @@ impl NativeWindowManager {
                 false
             }
             WindowUserEvent::HostKeyPrompt {
-                pane_id,
                 challenge,
                 decision,
                 ..
             } => {
+                let (pane_id, _) = pane_identity.expect("host-key prompt carries a pane identity");
                 app.handle_host_key_prompt(pane_id, challenge, decision);
                 if let Some(window) = &app.window {
                     window.request_redraw();
@@ -2448,11 +2638,11 @@ impl NativeWindowManager {
                 false
             }
             WindowUserEvent::SecretPrompt {
-                pane_id,
                 prompt,
                 response,
                 ..
             } => {
+                let (pane_id, _) = pane_identity.expect("secret prompt carries a pane identity");
                 app.handle_secret_prompt(pane_id, prompt, response);
                 if let Some(window) = &app.window {
                     window.request_redraw();
@@ -2463,15 +2653,17 @@ impl NativeWindowManager {
     }
 
     fn dispatch_user_event_to_owner(&mut self, event: WindowUserEvent) -> Option<bool> {
-        let (location, pane_identity) =
-            if let WindowUserEvent::RuntimeWakeWindow { window_id } = &event {
+        let (location, pane_identity) = match &event {
+            WindowUserEvent::RuntimeWakeWindow { window_id }
+            | WindowUserEvent::DeferredGpuInitialized { window_id, .. } => {
                 (self.owned_app_location_for_window(*window_id)?, None)
-            } else {
-                let location = self.user_event_owner_location(&event)?;
-                let (_, pane_id) = event.pane_identity()?;
+            }
+            _ => {
+                let (location, pane_id) = self.user_event_owner_location_and_pane(&event)?;
                 let runtime_generation = event.runtime_generation()?;
                 (location, Some((pane_id, runtime_generation)))
-            };
+            }
+        };
         let event_is_exit = matches!(&event, WindowUserEvent::Exited { .. });
         let mut app = self.take_app_at_location(location)?;
         if let Some((pane_id, runtime_generation)) = pane_identity
@@ -2506,7 +2698,8 @@ impl NativeWindowManager {
         pane_id: rssh_core::PaneId,
     ) {
         self.pane_event_routes.retain(|(source, pane), target| {
-            *pane != pane_id || (*source != window_id && target.window_id != window_id)
+            !((*source == window_id && *pane == pane_id)
+                || (target.window_id == window_id && target.pane_id == pane_id))
         });
     }
 
@@ -2823,8 +3016,18 @@ struct SshSecretPromptState {
     input: String,
 }
 
+#[derive(Default)]
+struct SshPaneAuxiliaryState {
+    writer_sender: Option<mpsc::Sender<NativeSshCommand>>,
+    writer_cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
+    connection_cancellation: Option<rssh_ssh::RusshConnectionCancellation>,
+    connection_state: Option<ConnectionState>,
+    host_key_prompt: Option<(HostKeyChallenge, mpsc::SyncSender<HostKeyDecision>)>,
+    secret_prompt: Option<SshSecretPromptState>,
+}
+
 struct NativeSshWriter {
-    sender: mpsc::SyncSender<NativeSshCommand>,
+    sender: mpsc::Sender<NativeSshCommand>,
     connected: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -2845,11 +3048,33 @@ impl Write for NativeSshWriter {
     }
 }
 
+pub(crate) enum DeferredGpuInitialization {
+    Ready(Box<WindowGpu>),
+    Failed(String),
+}
+
+impl fmt::Debug for DeferredGpuInitialization {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ready(_) => formatter.write_str("Ready(..)"),
+            Self::Failed(error) => formatter.debug_tuple("Failed").field(error).finish(),
+        }
+    }
+}
+
+fn spawn_deferred_gpu_task(
+    name: String,
+    task: impl FnOnce() + Send + 'static,
+) -> io::Result<()> {
+    thread::Builder::new().name(name).spawn(task).map(drop)
+}
+
 #[derive(Debug)]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) enum WindowUserEvent {
     ReloadConfigurationRequested,
     ConfigFileChanged,
+    DeferredConfigReady,
     MoveTabToWindow {
         source_window_id: rssh_core::WindowId,
         target_window_id: rssh_core::WindowId,
@@ -2858,6 +3083,11 @@ pub(crate) enum WindowUserEvent {
     },
     RuntimeWakeWindow {
         window_id: rssh_core::WindowId,
+    },
+    DeferredGpuInitialized {
+        window_id: rssh_core::WindowId,
+        generation: u64,
+        outcome: DeferredGpuInitialization,
     },
     Output {
         window_id: rssh_core::WindowId,
@@ -2916,8 +3146,10 @@ impl WindowUserEvent {
         match self {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
+            | Self::DeferredConfigReady
             | Self::MoveTabToWindow { .. }
-            | Self::RuntimeWakeWindow { .. } => None,
+            | Self::RuntimeWakeWindow { .. }
+            | Self::DeferredGpuInitialized { .. } => None,
             Self::Output {
                 window_id, pane_id, ..
             }
@@ -2949,8 +3181,10 @@ impl WindowUserEvent {
         match self {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
+            | Self::DeferredConfigReady
             | Self::MoveTabToWindow { .. }
-            | Self::RuntimeWakeWindow { .. } => None,
+            | Self::RuntimeWakeWindow { .. }
+            | Self::DeferredGpuInitialized { .. } => None,
             Self::Output {
                 runtime_generation, ..
             }
@@ -3122,8 +3356,15 @@ fn start_pane_input_queue(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PaneRuntimeTransportKind {
+    LocalPty,
+    NativeSsh,
+}
+
 struct PaneRuntime {
     runtime: TerminalRuntime,
+    transport: Option<PaneRuntimeTransportKind>,
     session: Option<PtySession>,
     session_process_id: Option<u32>,
     session_tty_name: Option<String>,
@@ -3878,6 +4119,40 @@ enum PresentationOwner {
     CpuFallback,
 }
 
+const fn deferred_gpu_initialization_owner(succeeded: bool) -> PresentationOwner {
+    if succeeded {
+        PresentationOwner::GpuInitializing
+    } else {
+        PresentationOwner::CpuFallback
+    }
+}
+
+fn resize_deferred_gpu_candidate_for_install<E>(
+    current_size: PhysicalSize<u32>,
+    resize_surface: impl FnOnce(PhysicalSize<u32>) -> Result<(), E>,
+) -> Result<PresentationOwner, E> {
+    resize_surface(current_size)?;
+    Ok(deferred_gpu_initialization_owner(true))
+}
+
+const fn presentation_owner_after_gpu_frame(
+    current: PresentationOwner,
+    status: GpuFrameStatus,
+) -> PresentationOwner {
+    if matches!(
+        (current, status),
+        (PresentationOwner::GpuInitializing, GpuFrameStatus::Presented)
+    ) {
+        PresentationOwner::GpuActive
+    } else {
+        current
+    }
+}
+
+fn release_bootstrap_staging_after_gpu_activation(bootstrap_frame: &mut Vec<u8>) {
+    *bootstrap_frame = Vec::new();
+}
+
 fn finalize_native_gpu_frame<E>(
     outcome: Result<GpuFrameStatus, E>,
     pending_damage: &mut Vec<DamageRegion>,
@@ -4196,10 +4471,16 @@ impl WindowMetrics {
         self.startup_trace.mark_connection_state(state);
     }
 
-    fn record_first_present(&mut self, renderer: RendererKind, private_bytes: u64) -> bool {
+    fn record_first_present(&mut self, renderer: RendererKind) -> bool {
         self.startup_trace.mark_renderer(renderer);
-        self.startup_trace.mark_first_present_to(&mut io::stderr(), private_bytes)
+        self.startup_trace.mark_first_present_to(&mut io::stderr())
             .unwrap_or(false)
+    }
+
+    fn record_first_frame_private_bytes(&mut self, private_bytes: u64) {
+        let _ = self
+            .startup_trace
+            .mark_first_frame_private_bytes_to(&mut io::stderr(), private_bytes);
     }
 
     fn start_spawn_timer(&mut self) {
@@ -4447,6 +4728,7 @@ impl WindowMetrics {
         }
     }
 
+    #[cfg(test)]
     fn connection_state(&self) -> ConnectionState {
         self.startup_trace.snapshot().connection_state
     }

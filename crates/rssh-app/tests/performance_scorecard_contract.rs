@@ -113,6 +113,194 @@ fn scorecard_runners_validate_the_checked_in_contract_without_running_benchmarks
     }
 }
 
+#[test]
+fn ssh_gui_absolute_startup_gate_is_isolated_to_the_fixed_release_runner() {
+    let release = read_repo_file(".github/workflows/release.yml");
+    let pull_request_ci = read_repo_file(".github/workflows/ci.yml");
+    let fixed_performance = release
+        .split("  fixed-performance:\n")
+        .nth(1)
+        .expect("release workflow fixed-performance job")
+        .split("\n  build-package:")
+        .next()
+        .expect("fixed-performance job boundary");
+    let build_offset = fixed_performance
+        .find("cargo build --locked --release -p rssh-app")
+        .expect("fixed runner release build");
+    let startup_offset = fixed_performance
+        .find("scripts/ci/run-ssh-gui-startup.ps1")
+        .expect("fixed runner SSH GUI startup gate");
+
+    assert!(
+        build_offset < startup_offset,
+        "the startup probe must reuse the preceding locked release build"
+    );
+    for argument in [
+        "-Profile release",
+        "-Warmups 5",
+        "-Samples 30",
+        "-SkipBuild",
+    ] {
+        assert!(
+            fixed_performance.contains(argument),
+            "fixed runner startup gate is missing {argument}"
+        );
+    }
+    assert!(
+        !pull_request_ci.contains("run-ssh-gui-startup.ps1"),
+        "shared PR CI must not enforce machine-specific absolute startup budgets"
+    );
+}
+
+#[test]
+fn process_harness_timestamps_startup_before_resuming_the_child() {
+    let harness = read_repo_file("scripts/ci/process-harness.ps1");
+    let timestamp_offset = harness
+        .find("long resumeTimestamp = Stopwatch.GetTimestamp();")
+        .expect("startup resume timestamp capture");
+    let resume_offset = harness
+        .find("if (ResumeThread(processInformation.Thread) == UInt32.MaxValue)")
+        .expect("suspended child resume call");
+
+    assert!(
+        timestamp_offset < resume_offset,
+        "taking the timestamp after ResumeThread lets the child run before timing begins"
+    );
+}
+
+#[test]
+fn ssh_gui_startup_runner_validates_marker_fields_and_metrics_consistency() {
+    let runner = read_repo_file("scripts/ci/run-ssh-gui-startup.ps1");
+
+    for contract in [
+        "$requiredMarkerFields",
+        "$requiredMemoryMarkerFields",
+        "$markerFields.ContainsKey($requiredField)",
+        "$memoryMarkerFields.ContainsKey($requiredField)",
+        "[double]::TryParse",
+        "[UInt64]::TryParse",
+        "$reportedProcessToFirstPresentMs -le 0",
+        "$privateBytes -eq 0",
+        "$renderer -ne \"cpu\"",
+        "$metrics.process_to_first_present_ms -ne $reportedProcessToFirstPresentMs",
+        "$metrics.first_frame_private_bytes -ne $privateBytes",
+        "$metrics.final_renderer -ne $renderer",
+        "if ($line.StartsWith(\"first_present \"",
+        "if ($line.StartsWith(\"first_frame_memory \"",
+    ] {
+        assert!(
+            runner.contains(contract),
+            "startup runner is missing marker validation contract: {contract}"
+        );
+    }
+}
+
+#[test]
+fn ssh_gui_release_startup_gate_uses_a_benchmark_only_100_percent_dpi_override() {
+    let runner = read_repo_file("scripts/ci/run-ssh-gui-startup.ps1");
+    let window_hooks = read_repo_file("crates/rssh-app/src/window_parts/part15.rs");
+    let window_startup = read_repo_file("crates/rssh-app/src/window_parts/part08.rs");
+
+    assert!(runner.contains("$env:RSSH_BENCHMARK_WINDOW_SCALE_FACTOR = \"1\""));
+    assert!(runner.contains("$previousBenchmarkScale"));
+    assert!(
+        window_hooks.contains("fn benchmark_window_scale_factor(benchmark_startup: bool)"),
+        "the release binary needs a scale override that is gated by --benchmark-startup"
+    );
+    assert!(
+        window_startup.contains("startup_window_scale_factor("),
+        "window creation must apply the benchmark-only scale override"
+    );
+    assert!(
+        window_hooks
+            .split("WindowEvent::ScaleFactorChanged")
+            .nth(1)
+            .is_some_and(|handler| handler.contains("startup_window_scale_factor(")),
+        "scale-change events must not replace the fixed benchmark scale with the host DPI"
+    );
+}
+
+#[test]
+fn first_present_marker_precedes_private_bytes_sampling() {
+    let metrics = read_repo_file("crates/rssh-app/src/startup_metrics.rs");
+    let window_metrics = read_repo_file("crates/rssh-app/src/window_parts/part07.rs");
+    let presentation = read_repo_file("crates/rssh-app/src/window_parts/part08.rs");
+
+    assert!(metrics.contains("first_frame_memory first_frame_private_bytes="));
+    assert!(window_metrics.contains("fn record_first_present(&mut self, renderer: RendererKind)"));
+    assert!(
+        window_metrics
+            .contains("fn record_first_frame_private_bytes(&mut self, private_bytes: u64)")
+    );
+
+    for renderer in ["RendererKind::Cpu", "RendererKind::Gpu"] {
+        let marker = format!("record_first_present({renderer})");
+        let marker_offset = presentation
+            .find(&marker)
+            .unwrap_or_else(|| panic!("missing {renderer} first-present marker"));
+        let memory_offset = presentation[marker_offset..]
+            .find("current_process_private_bytes()")
+            .map_or_else(
+                || panic!("missing {renderer} Private Bytes sample"),
+                |offset| marker_offset + offset,
+            );
+        assert!(
+            marker_offset < memory_offset,
+            "{renderer} must emit first_present before scanning process memory"
+        );
+    }
+}
+
+#[test]
+fn readme_documents_the_supported_ssh_gui_contract() {
+    let readme = read_repo_file("README.md");
+
+    for contract in [
+        "ssh --gui",
+        "--renderer auto",
+        "--renderer cpu",
+        "--renderer gpu",
+        "--benchmark-startup",
+        "gui = true",
+        "renderer = \"auto\"",
+        "host_key_policy = \"prompt\"",
+        "GUI SSH does not support forwarding",
+        "GUI SSH does not support `--no-shell`",
+        "GUI SSH does not support OpenSSH passthrough options",
+    ] {
+        assert!(
+            readme.contains(contract),
+            "README is missing SSH GUI user contract: {contract}"
+        );
+    }
+}
+
+#[test]
+fn window_metrics_json_schema_has_an_explicit_compatibility_inventory() {
+    let tests = read_repo_file("crates/rssh-app/src/window_compat_tests/part04_tests.rs");
+
+    for contract in [
+        "LEGACY_WINDOW_METRICS_JSON_FIELDS",
+        "STARTUP_WINDOW_METRICS_JSON_FIELDS",
+        "window_metrics_json_preserves_legacy_and_startup_fields",
+    ] {
+        assert!(
+            tests.contains(contract),
+            "window metrics JSON compatibility test is missing: {contract}"
+        );
+    }
+}
+
+#[test]
+fn ssh_profile_prompt_policy_has_a_dedicated_mapping_test() {
+    let profiles = read_repo_file("crates/rssh-app/src/profiles.rs");
+
+    assert!(
+        profiles.contains("gui_ssh_profile_prompt_policy_maps_to_interactive_verification"),
+        "profiles must pin host_key_policy=prompt behavior for GUI SSH"
+    );
+}
+
 fn assert_workload(baseline: &Value, name: &str, measured: [u64; 6], gates: [u64; 4]) {
     let workload = &baseline["runtime"]["workloads"][name];
     assert_eq!(
@@ -148,6 +336,12 @@ fn read_repo_json(path: &str) -> Value {
     });
     serde_json::from_slice(&bytes).unwrap_or_else(|error| {
         panic!("parse checked-in scorecard {path}: {error}");
+    })
+}
+
+fn read_repo_file(path: &str) -> String {
+    fs::read_to_string(repo_path(path)).unwrap_or_else(|error| {
+        panic!("read repository file {path}: {error}");
     })
 }
 

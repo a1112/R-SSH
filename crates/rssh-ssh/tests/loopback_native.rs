@@ -9,9 +9,11 @@ use std::io;
 
 use rssh_core::TerminalSize;
 use rssh_ssh::{
-    RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshForwardCancellation, RusshForwardDeadlines,
-    RusshHostKeyPolicy, RusshRemoteTcpIpForwardPlan, SshChannel as _, SshChannelOpener as _,
-    SshConnectRequest, SshSessionConfig, SshSessionStartup, SshShellWriter as _,
+    RusshChannelOpener, RusshConnectionCancellation, RusshDirectTcpIpOpenPlan,
+    RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy,
+    RusshRemoteTcpIpForwardPlan, SshChannel as _, SshChannelConnector, SshChannelOpener as _,
+    SshConnectRequest, SshSessionConfig, SshSessionStartup, SshShellConnector as _,
+    SshShellWriter as _,
 };
 use rssh_test_support::ssh::{
     CommandResponse, HermeticSshServer, IdentityFixture, LoopbackEchoServer, SshEvent,
@@ -228,6 +230,67 @@ fn native_connect_auth_and_channel_open_share_one_total_operation_deadline() {
             .contains("deadline")
     );
     open_server.stop(DEADLINE).expect("stop channel fixture");
+}
+
+#[test]
+fn native_connector_cancels_a_stalled_ssh_handshake() {
+    use std::sync::mpsc;
+
+    const CANCEL_DEADLINE: Duration = Duration::from_secs(1);
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind stalled SSH listener");
+    let address = listener
+        .local_addr()
+        .expect("read stalled listener address");
+    let (accepted_tx, accepted_rx) = mpsc::sync_channel(1);
+    let (release_tx, release_rx) = mpsc::sync_channel(1);
+    let server = std::thread::spawn(move || {
+        let (connection, _) = listener.accept().expect("accept stalled SSH client");
+        accepted_tx.send(()).expect("report accepted client");
+        let _connection = connection;
+        let _ = release_rx.recv_timeout(DEADLINE);
+    });
+
+    let request = SshConnectRequest::agent(SshSessionConfig::new(
+        "127.0.0.1",
+        address.port(),
+        "fixture-user",
+        TerminalSize::new(80, 24),
+    ))
+    .with_startup(SshSessionStartup::NoShell);
+    let cancellation = RusshConnectionCancellation::new();
+    let worker_cancellation = cancellation.clone();
+    let (done_tx, done_rx) = mpsc::sync_channel(1);
+    let connector_worker = std::thread::spawn(move || {
+        let opener = RusshChannelOpener::default()
+            .with_host_key_policy(RusshHostKeyPolicy::AcceptUnknown)
+            .with_operation_timeout(DEADLINE)
+            .with_connection_cancellation(worker_cancellation);
+        let mut connector = SshChannelConnector::new(opener);
+        let result = connector
+            .connect(request)
+            .map(|_| ())
+            .map_err(|error| error.to_string());
+        let _ = done_tx.send(result);
+    });
+
+    accepted_rx
+        .recv_timeout(DEADLINE)
+        .expect("SSH client must reach listener");
+    let started = std::time::Instant::now();
+    cancellation.cancel();
+    let result = done_rx.recv_timeout(CANCEL_DEADLINE);
+    let elapsed = started.elapsed();
+
+    let _ = release_tx.send(());
+    server.join().expect("join stalled server");
+    connector_worker.join().expect("join connector worker");
+
+    let error = result
+        .expect("cancellation must unblock connector")
+        .expect_err("cancelled connect must fail");
+    assert!(elapsed < CANCEL_DEADLINE, "cancel took {elapsed:?}");
+    assert!(error.contains("cancelled"), "unexpected error: {error}");
 }
 
 #[test]

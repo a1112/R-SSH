@@ -6,14 +6,15 @@ use super::{
 
 impl NativeWindowApp {
     pub(super) fn poll_active_v2_runtime(&mut self) -> Result<Option<bool>, Box<dyn Error>> {
+        let active_pane = self.app_shell.active_pane_id();
         let Some(runtime) = self.runtime.worker_mut() else {
             return Ok(None);
         };
-        let token = runtime.token();
+        let active_token = runtime.token_for_pane(active_pane);
         let events = runtime.poll()?;
         let mut closed = ActiveV2Close::Open;
         for event in events {
-            self.apply_active_v2_event(token, event, &mut closed)?;
+            self.apply_active_v2_event(active_token, event, &mut closed)?;
         }
 
         let ActiveV2Close::Closed { pane, exit } = closed else {
@@ -23,30 +24,35 @@ impl NativeWindowApp {
             .runtime
             .worker()
             .is_some_and(|runtime| !runtime.pane_tokens().is_empty());
-        if !has_remaining_panes
-            && let Some(mut runtime) = self.runtime.take_worker()
-        {
+        if !has_remaining_panes && let Some(mut runtime) = self.runtime.take_worker() {
             runtime.shutdown();
         }
         self.session_process_id = None;
         self.session_tty_name = None;
         self.active_runtime_generation = 0;
-        let status = exit.and_then(|exit| exit.status).map(PtyExitStatus::from_exit_code);
+        let status = exit
+            .and_then(|exit| exit.status)
+            .map(PtyExitStatus::from_exit_code);
         let close_window = self.apply_pane_exit_behavior_after_exit(pane.pane(), status);
         if has_remaining_panes {
             let active = self.app_shell.active_pane_id();
             if let Some(runtime) = self.runtime.worker_mut()
-                && runtime.pane_tokens().iter().any(|token| token.pane() == active)
+                && runtime
+                    .pane_tokens()
+                    .iter()
+                    .any(|token| token.pane() == active)
             {
                 runtime.activate_pane(active)?;
             }
         }
-        Ok(Some(self.defer_automatic_close_for_frame_limit(close_window)))
+        Ok(Some(
+            self.defer_automatic_close_for_frame_limit(close_window),
+        ))
     }
 
     fn apply_active_v2_event(
         &mut self,
-        token: rssh_runtime::PaneToken,
+        active_token: Option<rssh_runtime::PaneToken>,
         event: RuntimeHostEvent,
         closed: &mut ActiveV2Close,
     ) -> Result<(), Box<dyn Error>> {
@@ -59,7 +65,7 @@ impl NativeWindowApp {
                 metrics,
                 full_repaint,
                 ..
-            } if pane == token => {
+            } if Some(pane) == active_token => {
                 self.apply_active_v2_frame(terminal, &damage, metadata, metrics, full_repaint);
             }
             RuntimeHostEvent::Frame {
@@ -72,18 +78,18 @@ impl NativeWindowApp {
             } => {
                 self.apply_inactive_v2_frame(pane, terminal, &damage, &metadata, metrics);
             }
-            RuntimeHostEvent::HostStream { pane, bytes } if pane == token => {
+            RuntimeHostEvent::HostStream { pane, bytes } if Some(pane) == active_token => {
                 #[cfg(feature = "functional-test-observer")]
                 crate::functional_observer::record_effect("host_stream");
                 self.metrics.record_pty_chunk(&bytes);
                 self.metrics.record_active_pty_content(&bytes);
             }
-            RuntimeHostEvent::VisibleOutput { pane, bytes } if pane == token => {
+            RuntimeHostEvent::VisibleOutput { pane, bytes } if Some(pane) == active_token => {
                 #[cfg(feature = "functional-test-observer")]
                 crate::functional_observer::record_effect("visible_output");
                 self.write_session_log(&bytes)?;
             }
-            RuntimeHostEvent::ModeChange { pane, change } if pane == token => {
+            RuntimeHostEvent::ModeChange { pane, change } if Some(pane) == active_token => {
                 #[cfg(feature = "functional-test-observer")]
                 crate::functional_observer::record_effect("mode_change");
                 self.runtime.inner.install_presentation_mode_change(change);
@@ -95,7 +101,7 @@ impl NativeWindowApp {
             RuntimeHostEvent::FirstPtyByte { observed_at } => {
                 self.metrics.record_first_pty_byte_at(observed_at);
             }
-            RuntimeHostEvent::Bell { pane, count } if pane == token => {
+            RuntimeHostEvent::Bell { pane, count } if Some(pane) == active_token => {
                 #[cfg(feature = "functional-test-observer")]
                 crate::functional_observer::record_effect("bell");
                 self.record_pane_bells(pane.pane(), count);
@@ -106,17 +112,13 @@ impl NativeWindowApp {
                 pane,
                 selection,
                 contents,
-            } if pane == token => {
+            } if Some(pane) == active_token => {
                 self.apply_v2_clipboard_write(selection.as_deref(), &contents);
             }
-            RuntimeHostEvent::ClipboardRead { pane, selection } if pane == token => {
+            RuntimeHostEvent::ClipboardRead { pane, selection } if Some(pane) == active_token => {
                 self.apply_v2_clipboard_read(&selection)?;
             }
-            RuntimeHostEvent::Notification {
-                pane,
-                title,
-                body,
-            } if pane == token => {
+            RuntimeHostEvent::Notification { pane, title, body } if Some(pane) == active_token => {
                 #[cfg(feature = "functional-test-observer")]
                 crate::functional_observer::record_effect("notification");
                 self.dispatch_notification(pane.pane(), &TerminalNotification { title, body });
@@ -125,14 +127,17 @@ impl NativeWindowApp {
                 #[cfg(feature = "functional-test-observer")]
                 crate::functional_observer::record_effect("diagnostic");
                 self.record_unknown_escape_sequence_warning(
-                    pane.map_or(self.app_shell.active_pane_id(), rssh_runtime::PaneToken::pane),
+                    pane.map_or(
+                        self.app_shell.active_pane_id(),
+                        rssh_runtime::PaneToken::pane,
+                    ),
                     &message,
                 );
             }
             RuntimeHostEvent::RequestRedraw => {
                 self.request_v2_redraw();
             }
-            RuntimeHostEvent::Closed { pane, exit } if pane == token => {
+            RuntimeHostEvent::Closed { pane, exit } if Some(pane) == active_token => {
                 *closed = ActiveV2Close::Closed { pane, exit };
             }
             RuntimeHostEvent::Closed { pane, exit } => {
@@ -200,7 +205,9 @@ impl NativeWindowApp {
             self.refresh_snapshot_after_terminal_damage(damage);
         }
         self.metrics.record_pty_chunk_process(
-            metrics.parse_duration.saturating_add(metrics.snapshot_duration),
+            metrics
+                .parse_duration
+                .saturating_add(metrics.snapshot_duration),
         );
         let snapshot_is_empty = self.snapshot.cells().is_empty();
         self.metrics.record_first_rendered_cell(snapshot_is_empty);
@@ -230,7 +237,13 @@ impl NativeWindowApp {
         let cwd = metadata
             .working_directory
             .is_some()
-            .then(|| runtime.runtime.terminal().current_working_dir().map(str::to_owned))
+            .then(|| {
+                runtime
+                    .runtime
+                    .terminal()
+                    .current_working_dir()
+                    .map(str::to_owned)
+            })
             .flatten();
         let user_vars = (!metadata.user_vars.is_empty()).then(|| {
             runtime
@@ -264,7 +277,9 @@ impl NativeWindowApp {
         }
         self.metrics.record_damage(damage);
         self.metrics.record_pty_chunk_process(
-            metrics.parse_duration.saturating_add(metrics.snapshot_duration),
+            metrics
+                .parse_duration
+                .saturating_add(metrics.snapshot_duration),
         );
     }
 
@@ -378,14 +393,21 @@ impl NativeWindowApp {
         Ok(())
     }
 
-    fn resize_terminal_runtimes(
+    pub(super) fn resize_terminal_runtimes(
         &mut self,
         terminal_size: TerminalSize,
     ) -> Result<TerminalResizeOutcome, Box<dyn Error>> {
         let active_height_changed =
             self.runtime.terminal().grid().size().rows != terminal_size.rows;
-        let active_resize_outcome = if let Some(runtime) = self.runtime.worker_mut() {
+        let active_pane = self.app_shell.active_pane_id();
+        let active_is_local_v2 = self
+            .runtime
+            .worker()
+            .is_some_and(|runtime| runtime.contains_pane(active_pane));
+        if let Some(runtime) = self.runtime.worker_mut() {
             runtime.resize_all(terminal_size)?;
+        }
+        let active_resize_outcome = if active_is_local_v2 {
             TerminalResizeOutcome::Unchanged
         } else {
             self.runtime.resize(terminal_size)
@@ -425,9 +447,272 @@ impl NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{
+        io::{self, Write},
+        sync::{Arc, Mutex},
+    };
+
+    use rssh_runtime::testing::{
+        ReadAction, ScriptedSessionDriver, ScriptedTransport, WriteAction,
+    };
 
     use super::super::*;
+
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn mixed_transport_app_with_local_worker() -> (
+        NativeWindowApp,
+        ScriptedSessionDriver,
+        rssh_core::PaneId,
+        rssh_core::PaneId,
+    ) {
+        let mut app = NativeWindowApp::new(None);
+        let local_pane = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: local_pane,
+            direction: SplitDirection::Right,
+            launch: Some(PaneLaunch::ssh(SshPaneLaunch::new(
+                "ops@example.test:2222",
+                SshAuthDescription::PasswordPrompt,
+                SshKnownHostsPolicy::Prompt,
+            ))),
+        })
+        .unwrap();
+        let ssh_pane = app.active_pane_id();
+        app.pane_runtimes.get_mut(&local_pane).unwrap().transport =
+            Some(PaneRuntimeTransportKind::LocalPty);
+        app.active_runtime_transport = Some(PaneRuntimeTransportKind::NativeSsh);
+        let size = app.runtime.terminal().grid().size();
+        let (local_transport, local_driver) =
+            ScriptedTransport::new([ReadAction::Block], [WriteAction::accept(usize::MAX)], []);
+        let worker = WindowPaneRuntime::open_transport(
+            PaneRuntimeRoute {
+                window: app.app_window_id,
+                pane: local_pane,
+            },
+            local_transport,
+            size,
+            rssh_runtime::TerminalRuntime::new(size),
+            PaneCapturePolicy {
+                host_stream: false,
+                visible_output: false,
+            },
+            Arc::new(|| {}),
+        )
+        .expect("local worker");
+        app.runtime.install_worker(Some(worker));
+        (app, local_driver, local_pane, ssh_pane)
+    }
+
+    #[test]
+    fn mixed_local_and_ssh_input_is_routed_by_pane_id_without_cross_talk() {
+        let mut app = NativeWindowApp::new(None);
+        let local_pane = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: local_pane,
+            direction: SplitDirection::Right,
+            launch: Some(PaneLaunch::ssh(SshPaneLaunch::new(
+                "ops@example.test:2222",
+                SshAuthDescription::PasswordPrompt,
+                SshKnownHostsPolicy::Prompt,
+            ))),
+        })
+        .unwrap();
+        let ssh_pane = app.active_pane_id();
+        app.pane_runtimes.get_mut(&local_pane).unwrap().transport =
+            Some(PaneRuntimeTransportKind::LocalPty);
+        app.active_runtime_transport = Some(PaneRuntimeTransportKind::NativeSsh);
+        let ssh_bytes = Arc::new(Mutex::new(Vec::new()));
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&ssh_bytes))));
+
+        let size = app.runtime.terminal().grid().size();
+        let (local_transport, local_driver) =
+            ScriptedTransport::new([ReadAction::Block], [WriteAction::accept(usize::MAX)], []);
+        let worker = WindowPaneRuntime::open_transport(
+            PaneRuntimeRoute {
+                window: app.app_window_id,
+                pane: local_pane,
+            },
+            local_transport,
+            size,
+            rssh_runtime::TerminalRuntime::new(size),
+            PaneCapturePolicy {
+                host_stream: false,
+                visible_output: false,
+            },
+            Arc::new(|| {}),
+        )
+        .expect("local worker");
+        app.runtime.install_worker(Some(worker));
+
+        app.write_pty_bytes(b"ssh-only").unwrap();
+        assert_eq!(&*ssh_bytes.lock().unwrap(), b"ssh-only");
+        assert!(local_driver.accepted_writes().is_empty());
+
+        app.write_pty_bytes_to_pane(local_pane, b"local-only")
+            .unwrap();
+        local_driver.wait_until_accepted_write_len("local-only".len());
+        assert_eq!(local_driver.accepted_writes(), b"local-only");
+        assert_eq!(app.active_pane_id(), ssh_pane);
+        assert_eq!(&*ssh_bytes.lock().unwrap(), b"ssh-only");
+    }
+
+    #[test]
+    fn mixed_transport_resize_updates_ssh_presentation_and_local_worker() {
+        let (mut app, local_driver, local_pane, ssh_pane) = mixed_transport_app_with_local_worker();
+        let resized = TerminalSize::new(111, 37);
+
+        let outcome = app
+            .resize_terminal_runtimes(resized)
+            .expect("resize mixed transports");
+
+        local_driver.wait_until_control_call_count(1);
+        assert_eq!(local_driver.control_log().resizes, vec![resized]);
+        assert_eq!(app.active_pane_id(), ssh_pane);
+        assert_eq!(app.runtime.terminal().grid().size(), resized);
+        assert_eq!(
+            app.pane_runtimes
+                .get(&local_pane)
+                .unwrap()
+                .runtime
+                .terminal()
+                .grid()
+                .size(),
+            resized
+        );
+        assert_ne!(outcome, TerminalResizeOutcome::Unchanged);
+    }
+
+    #[test]
+    fn stopping_active_ssh_keeps_the_inactive_local_worker_alive() {
+        let (mut app, _local_driver, local_pane, ssh_pane) =
+            mixed_transport_app_with_local_worker();
+
+        app.stop_active_runtime();
+
+        assert_eq!(app.active_pane_id(), ssh_pane);
+        assert!(
+            app.runtime
+                .worker()
+                .is_some_and(|runtime| runtime.contains_pane(local_pane))
+        );
+    }
+
+    #[test]
+    fn manager_shutdown_joins_window_scoped_local_workers_before_metrics() {
+        let (app, local_driver, _local_pane, _ssh_pane) = mixed_transport_app_with_local_worker();
+        local_driver.wait_until_reader_blocked();
+        assert!(
+            app.runtime
+                .worker()
+                .expect("installed local worker")
+                .live_thread_count_for_metrics()
+                > 0
+        );
+        let mut manager = NativeWindowManager::new_for_test(app);
+
+        manager.shutdown_runtime_owners();
+
+        let app = manager.primary_app_mut_for_test();
+        assert!(app.runtime.worker().is_none());
+        assert_eq!(app.metrics_snapshot().runtime_live_threads, 0);
+    }
+
+    #[test]
+    fn final_window_close_joins_all_window_scoped_local_workers_before_retirement() {
+        let (app, local_driver, _local_pane, _ssh_pane) = mixed_transport_app_with_local_worker();
+        local_driver.wait_until_reader_blocked();
+        let mut manager = NativeWindowManager::new_for_test(app);
+
+        manager
+            .finalize_app_close_at_location(ManagedWindowAppLocation::Startup)
+            .expect("startup app remains manager-owned until retirement");
+
+        let retired = manager
+            .retired_apps
+            .last()
+            .expect("closed app is retained until the event-loop boundary");
+        assert!(retired.runtime.worker().is_none());
+        assert_eq!(retired.metrics_snapshot().runtime_live_threads, 0);
+    }
+
+    #[test]
+    fn local_v2_frame_stays_inactive_while_an_ssh_pane_is_active() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            "ops@example.test:2222",
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::Prompt,
+        )));
+        app.handle_pty_output(b"ssh-visible").unwrap();
+        let ssh_pane = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: ssh_pane,
+            direction: SplitDirection::Right,
+            launch: Some(PaneLaunch::local("local-shell")),
+        })
+        .unwrap();
+        let local_pane = app.active_pane_id();
+        app.dispatch_app_action(AppAction::ActivatePane { pane: ssh_pane })
+            .unwrap();
+        let ssh_snapshot = app.snapshot.clone();
+
+        let mut allocator = rssh_runtime::PaneTokenAllocator::new();
+        let local_token = allocator.issue(local_pane).expect("local token");
+        let size = app
+            .pane_runtimes
+            .get(&local_pane)
+            .unwrap()
+            .runtime
+            .terminal()
+            .grid()
+            .size();
+        let mut terminal = Terminal::new(size);
+        terminal.feed(b"\x1b]2;local-v2-title\x07local-v2-body");
+        let mut closed = ActiveV2Close::Open;
+
+        app.apply_active_v2_event(
+            None,
+            RuntimeHostEvent::Frame {
+                pane: local_token,
+                terminal: Arc::new(terminal),
+                damage: vec![rssh_core::DamageRegion::new(0, 0, 1, 1)],
+                metadata: rssh_runtime::PaneMetadataDelta {
+                    title: Some(rssh_runtime::MetadataChange::Set(
+                        "local-v2-title".to_owned(),
+                    )),
+                    ..rssh_runtime::PaneMetadataDelta::default()
+                },
+                metrics: rssh_runtime::RuntimeBatchMetrics::default(),
+                full_repaint: false,
+            },
+            &mut closed,
+        )
+        .expect("apply local V2 frame");
+
+        assert_eq!(app.active_pane_id(), ssh_pane);
+        assert_eq!(app.snapshot, ssh_snapshot);
+        assert_eq!(
+            app.pane_runtimes
+                .get(&local_pane)
+                .unwrap()
+                .runtime
+                .terminal()
+                .window_title(),
+            Some("local-v2-title")
+        );
+    }
 
     #[test]
     fn inactive_v2_frame_updates_its_owned_presentation_and_metadata() {
@@ -456,7 +741,7 @@ mod tests {
         let mut closed = ActiveV2Close::Open;
 
         app.apply_active_v2_event(
-            active_token,
+            Some(active_token),
             RuntimeHostEvent::Frame {
                 pane: inactive_token,
                 terminal: Arc::new(terminal),
@@ -500,7 +785,7 @@ mod tests {
         let mut closed = ActiveV2Close::Open;
 
         app.apply_active_v2_event(
-            active_token,
+            Some(active_token),
             RuntimeHostEvent::Closed {
                 pane: inactive_token,
                 exit: Some(rssh_runtime::SessionExit {

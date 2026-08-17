@@ -15,8 +15,8 @@ use std::{
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    AsyncHostKeyVerifier, HostKeyChallenge, HostKeyStatus, HostKeyVerifier, SecretPrompt,
-    SecretProvider, SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener,
+    AsyncHostKeyVerifier, HostKeyChallenge, HostKeyStatus, HostKeyVerifier, REDACTED_SECRET,
+    SecretPrompt, SecretProvider, SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener,
     SshConnectRequest, SshConnectionPhase, SshExitSignal, SshSessionError, SshSessionResult,
     SshSessionStartup, SshShellReader, SshShellWriter,
 };
@@ -24,7 +24,8 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RusshHostKeyPolicy {
     RejectUnknown,
-    /// Ask the configured [`HostKeyVerifier`] for unknown keys.
+    /// Ask the configured [`HostKeyVerifier`] for unknown keys and report
+    /// changed keys for display. Changed keys remain unconditionally rejected.
     Prompt,
     TrustOnFirstUse,
     AcceptUnknown,
@@ -152,7 +153,7 @@ impl RusshPrivateKeyAuth {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum RusshAuthRequest {
     Password {
         password: String,
@@ -163,6 +164,24 @@ pub enum RusshAuthRequest {
         passphrase: Option<String>,
     },
     Agent,
+}
+
+impl std::fmt::Debug for RusshAuthRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Password { .. } => formatter
+                .debug_struct("Password")
+                .field("password", &REDACTED_SECRET)
+                .finish(),
+            Self::PasswordPrompt => formatter.write_str("PasswordPrompt"),
+            Self::PrivateKey { path, passphrase } => formatter
+                .debug_struct("PrivateKey")
+                .field("path", path)
+                .field("passphrase", &passphrase.as_ref().map(|_| REDACTED_SECRET))
+                .finish(),
+            Self::Agent => formatter.write_str("Agent"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -474,6 +493,52 @@ impl RusshForwardCancellation {
     }
 }
 
+/// One-shot cancellation handle for a native SSH connection attempt.
+///
+/// Clones observe the same state. Cancelling an opener only affects the
+/// connect/authenticate/open/startup operation carrying this handle; openers
+/// without a handle retain the existing timeout-only behavior.
+#[derive(Debug, Clone, Default)]
+pub struct RusshConnectionCancellation {
+    state: Arc<RusshConnectionCancellationState>,
+}
+
+#[derive(Debug, Default)]
+struct RusshConnectionCancellationState {
+    cancelled: AtomicBool,
+    wake: tokio::sync::Notify,
+}
+
+impl RusshConnectionCancellation {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.state.cancelled.store(true, Ordering::Release);
+        self.state.wake.notify_waiters();
+    }
+
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.state.cancelled.load(Ordering::Acquire)
+    }
+
+    async fn cancelled(&self) {
+        loop {
+            if self.is_cancelled() {
+                return;
+            }
+            let notified = self.state.wake.notified();
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RusshForwardDeadlines {
     startup: Duration,
@@ -646,6 +711,7 @@ pub struct RusshChannelOpener {
     host_key_verifier: Option<HostKeyVerifier>,
     secret_provider: Option<SecretProvider>,
     phase_reporter: Option<ConnectionPhaseReporter>,
+    connection_cancellation: Option<RusshConnectionCancellation>,
     operation_timeout: Duration,
     channel_inactivity_timeout: Option<Duration>,
 }
@@ -670,6 +736,7 @@ impl std::fmt::Debug for RusshChannelOpener {
             .field("host_key_verifier", &self.host_key_verifier)
             .field("secret_provider", &self.secret_provider)
             .field("phase_reporter", &self.phase_reporter)
+            .field("connection_cancellation", &self.connection_cancellation)
             .field("operation_timeout", &self.operation_timeout)
             .field(
                 "channel_inactivity_timeout",
@@ -695,6 +762,7 @@ impl Default for RusshChannelOpener {
             host_key_verifier: None,
             secret_provider: None,
             phase_reporter: None,
+            connection_cancellation: None,
             operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
             channel_inactivity_timeout: None,
         }
@@ -711,6 +779,7 @@ impl RusshChannelOpener {
             host_key_verifier: None,
             secret_provider: None,
             phase_reporter: None,
+            connection_cancellation: None,
             operation_timeout: DEFAULT_SSH_OPERATION_TIMEOUT,
             channel_inactivity_timeout: None,
         }
@@ -724,7 +793,8 @@ impl RusshChannelOpener {
 
     /// Installs an asynchronous host-key verifier used by
     /// [`RusshHostKeyPolicy::Prompt`]. Known keys still bypass the verifier;
-    /// changed keys are always rejected before it is called.
+    /// changed keys are reported to it for display but remain unconditionally
+    /// rejected regardless of the returned decision.
     #[must_use]
     pub fn with_host_key_verifier<V>(mut self, verifier: V) -> Self
     where
@@ -770,6 +840,18 @@ impl RusshChannelOpener {
         self.phase_reporter = Some(ConnectionPhaseReporter {
             callback: Arc::new(reporter),
         });
+        self
+    }
+
+    /// Installs a one-shot cancellation handle for the complete connection
+    /// operation, including connect, authentication, channel open, and
+    /// channel startup.
+    #[must_use]
+    pub fn with_connection_cancellation(
+        mut self,
+        cancellation: RusshConnectionCancellation,
+    ) -> Self {
+        self.connection_cancellation = Some(cancellation);
         self
     }
 
@@ -1586,6 +1668,7 @@ impl russh::client::Handler for RusshClientHandler {
                         HostKeyStatus::Unknown
                     }
                 }
+                Err(russh::keys::Error::KeyChanged { .. }) => HostKeyStatus::Changed,
                 Err(_) => return Ok(false),
             };
             (status, Some(known_hosts))
@@ -1594,6 +1677,7 @@ impl russh::client::Handler for RusshClientHandler {
                 match russh::keys::known_hosts::check_known_hosts(host, port, server_public_key) {
                     Ok(true) => HostKeyStatus::Known,
                     Ok(false) => HostKeyStatus::Unknown,
+                    Err(russh::keys::Error::KeyChanged { .. }) => HostKeyStatus::Changed,
                     Err(_) => return Ok(false),
                 };
             (status, None)
@@ -1602,10 +1686,32 @@ impl russh::client::Handler for RusshClientHandler {
         if status == HostKeyStatus::Known {
             return Ok(true);
         }
+        let challenge = || {
+            let mut challenge = HostKeyChallenge::new(
+                host,
+                port,
+                server_public_key.algorithm().to_string(),
+                server_public_key
+                    .fingerprint(russh::keys::HashAlg::Sha256)
+                    .to_string(),
+                status,
+            );
+            if let Some(path) = &self.known_hosts_path {
+                challenge = challenge.with_known_hosts_path(path.clone());
+            }
+            challenge
+        };
         // A changed key must never be accepted by an interactive prompt or by
         // the permissive unknown-key policy. This protects an existing trust
-        // record from being silently replaced.
+        // record from being silently replaced. Prompt verifiers still receive
+        // the challenge so a GUI can display the changed fingerprint and
+        // known-hosts path, but their decision is deliberately ignored.
         if status == HostKeyStatus::Changed {
+            if self.host_key_policy == RusshHostKeyPolicy::Prompt
+                && let Some(verifier) = &self.host_key_verifier
+            {
+                let _ = verifier.verify(challenge()).await;
+            }
             return Ok(false);
         }
 
@@ -1625,19 +1731,7 @@ impl russh::client::Handler for RusshClientHandler {
                 let Some(verifier) = &self.host_key_verifier else {
                     return Ok(false);
                 };
-                let mut challenge = HostKeyChallenge::new(
-                    host,
-                    port,
-                    server_public_key.algorithm().to_string(),
-                    server_public_key
-                        .fingerprint(russh::keys::HashAlg::Sha256)
-                        .to_string(),
-                    status,
-                );
-                if let Some(path) = &self.known_hosts_path {
-                    challenge = challenge.with_known_hosts_path(path.clone());
-                }
-                let decision = verifier.verify(challenge).await;
+                let decision = verifier.verify(challenge()).await;
                 if !decision.accepts() {
                     return Ok(false);
                 }
@@ -2398,6 +2492,31 @@ impl RusshChannelWriter {
             .map_err(|error| SshSessionError::new(format!("SSH PTY resize failed: {error}")))
     }
 
+    fn resize_cancellable_blocking(
+        &mut self,
+        size: rssh_core::TerminalSize,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<()>, SshSessionError> {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(None);
+        }
+
+        let resize_result = self.runtime.block_on(select_resize_or_cancellation(
+            self.write_half
+                .window_change(u32::from(size.columns), u32::from(size.rows), 0, 0),
+            wait_for_write_cancellation(cancelled),
+        ));
+        match resize_result {
+            Some(result) => {
+                result.map_err(|error| {
+                    SshSessionError::new(format!("SSH PTY resize failed: {error}"))
+                })?;
+                Ok(Some(()))
+            }
+            None => Ok(None),
+        }
+    }
+
     fn send_keepalive(&mut self) -> Result<(), SshSessionError> {
         self.runtime
             .block_on(self.handle.send_keepalive(false))
@@ -2455,6 +2574,14 @@ impl SshShellWriter for RusshChannelWriter {
         self.resize_pty(size)
     }
 
+    fn resize_cancellable(
+        &mut self,
+        size: rssh_core::TerminalSize,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<Option<()>, SshSessionError> {
+        self.resize_cancellable_blocking(size, cancelled)
+    }
+
     fn keepalive(&mut self) -> Result<(), SshSessionError> {
         self.send_keepalive()
     }
@@ -2489,6 +2616,17 @@ where
         () = &mut cancellation => None,
         result = &mut write => Some(result),
     }
+}
+
+async fn select_resize_or_cancellation<R, C>(
+    resize: R,
+    cancellation: C,
+) -> Option<Result<(), russh::Error>>
+where
+    R: Future<Output = Result<(), russh::Error>>,
+    C: Future<Output = ()>,
+{
+    select_write_or_cancellation(resize, cancellation).await
 }
 
 async fn select_read_or_cancellation<R, C>(read: R, cancellation: C) -> Option<R::Output>
@@ -2549,24 +2687,38 @@ impl SshChannelOpener for RusshChannelOpener {
             })?;
 
         let operation_timeout = self.operation_timeout;
+        let connection_cancellation = self.connection_cancellation.clone();
         let (handle, channel) = runtime.block_on(async {
-            tokio::time::timeout(operation_timeout, async {
-                let mut handle = self.connect_async(request).await?;
-                self.authenticate_async(&mut handle, plan.auth_plan())
-                    .await?;
-                let channel = self.open_session_channel_async(&handle).await?;
-                self.start_channel_async(&channel, &startup_plan).await?;
-                self.report_phase(SshConnectionPhase::Connected);
+            let operation = async {
+                tokio::time::timeout(operation_timeout, async {
+                    let mut handle = self.connect_async(request).await?;
+                    self.authenticate_async(&mut handle, plan.auth_plan())
+                        .await?;
+                    let channel = self.open_session_channel_async(&handle).await?;
+                    self.start_channel_async(&channel, &startup_plan).await?;
 
-                Ok::<_, SshSessionError>((handle, channel))
-            })
-            .await
-            .map_err(|_| {
-                SshSessionError::new(format!(
-                    "SSH session operation deadline exceeded after {operation_timeout:?}"
-                ))
-            })?
+                    Ok::<_, SshSessionError>((handle, channel))
+                })
+                .await
+                .map_err(|_| {
+                    SshSessionError::new(format!(
+                        "SSH session operation deadline exceeded after {operation_timeout:?}"
+                    ))
+                })?
+            };
+            if let Some(cancellation) = connection_cancellation {
+                tokio::select! {
+                    biased;
+                    () = cancellation.cancelled() => {
+                        Err(SshSessionError::new("SSH connection cancelled"))
+                    }
+                    result = operation => result,
+                }
+            } else {
+                operation.await
+            }
         })?;
+        self.report_phase(SshConnectionPhase::Connected);
 
         Ok(RusshSshChannel::new_with_inactivity_timeout(
             channel,
@@ -2778,6 +2930,21 @@ mod tests {
             .unwrap();
 
         let selected = runtime.block_on(select_write_or_cancellation(
+            std::future::ready(Ok(())),
+            std::future::ready(()),
+        ));
+
+        assert!(selected.is_none());
+    }
+
+    #[test]
+    fn russh_resize_cancellation_wins_when_both_futures_are_ready() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let selected = runtime.block_on(select_resize_or_cancellation(
             std::future::ready(Ok(())),
             std::future::ready(()),
         ));

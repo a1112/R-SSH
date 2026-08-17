@@ -7,7 +7,7 @@ use rssh_core::{PaneId, TerminalSize};
 use rssh_runtime::testing::{ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction};
 use rssh_runtime::{
     BatchPolicy, MailboxLimits, PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub,
-    SubmitResult, TerminalRuntime,
+    SessionExit, SubmitResult, TerminalRuntime,
 };
 
 fn scripted_session(
@@ -444,6 +444,64 @@ fn close_publishes_synchronized_final_damage_and_effects_before_closed() {
     ));
     hub.shutdown();
     assert_eq!(hub.live_thread_count(), 0);
+}
+
+#[test]
+fn observed_exit_drains_reader_output_before_closed_notice() {
+    let clock = VirtualClock::new(Instant::now());
+    let mut hub = RuntimeHub::new(clock);
+    let exit = SessionExit {
+        status: Some(0),
+        signal: None,
+    };
+    let (transport, driver) = ScriptedTransport::new(
+        [ReadAction::Block],
+        [WriteAction::accept(usize::MAX)],
+        [ExitAction::Exited(exit.clone())],
+    );
+    let config = PaneWorkerConfig {
+        capture_host_stream: true,
+        ..PaneWorkerConfig::default()
+    };
+    let handle = hub
+        .open(PaneId::new(24), transport, config)
+        .expect("open pane");
+    let token = handle.token();
+    assert_eq!(hub.recv_notice().expect("ready"), PaneNotice::Ready(token));
+    driver.wait_until_reader_blocked();
+    driver.wait_until_control_call_count(2);
+
+    let marker = b"output-published-after-exit-observed";
+    driver.push_reads([ReadAction::bytes(marker), ReadAction::Eof]);
+
+    assert!(matches!(
+        hub.recv_notice().expect("first byte before close"),
+        PaneNotice::FirstPtyByte { pane, .. } if pane == token
+    ));
+    recv_wake(&mut hub, token);
+    let drain = hub
+        .drain_pane(token, usize::MAX)
+        .expect("final output drain");
+    let host_stream = drain
+        .effects
+        .iter()
+        .filter_map(|effect| match effect.effect.kind() {
+            RuntimeEffectKind::HostStream(bytes) => Some(bytes.as_slice()),
+            _ => None,
+        })
+        .flatten()
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(host_stream, marker);
+    assert!(drain.frame.expect("final output frame").snapshot_changed);
+    assert_eq!(
+        hub.recv_notice().expect("closed after final output"),
+        PaneNotice::Closed {
+            pane: token,
+            exit: Some(exit),
+        }
+    );
+    hub.shutdown();
 }
 
 #[test]

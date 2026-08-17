@@ -1,6 +1,16 @@
 impl NativeWindowApp {
     fn configured_pane_terminal_runtime(&self, size: TerminalSize) -> TerminalRuntime {
-        let mut runtime = TerminalRuntime::new(size);
+        self.configure_pane_terminal_runtime(TerminalRuntime::new(size))
+    }
+
+    fn configured_pane_terminal_runtime_from_terminal(
+        &self,
+        terminal: Terminal,
+    ) -> TerminalRuntime {
+        self.configure_pane_terminal_runtime(TerminalRuntime::from_terminal(terminal))
+    }
+
+    fn configure_pane_terminal_runtime(&self, mut runtime: TerminalRuntime) -> TerminalRuntime {
         runtime.set_terminal_name(self.term.clone());
         runtime.set_enq_answerback(self.enq_answerback.clone());
         runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);

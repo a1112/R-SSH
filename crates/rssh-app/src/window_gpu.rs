@@ -3,10 +3,10 @@ use std::{cell::RefCell, error::Error, io, sync::Arc};
 use rssh_renderer::gpu::{
     GpuContext, GpuContextError, GpuContextErrorKind, GpuContextOptions, GpuFrameStatus,
     GpuLayerRenderer, GpuPresentationMetrics, GpuTextConfig, GpuTextPrepareReport, RenderGraph,
-    should_abandon_recovered_window_surface,
+    WindowedGpuContextBootstrap, should_abandon_recovered_window_surface,
 };
 use rssh_renderer::{DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig};
-use winit::{dpi::PhysicalSize, event_loop::ActiveEventLoop, window::Window};
+use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
 /// App-owned direct terminal renderer for the native wgpu surface.
 pub(crate) struct WindowGpu {
@@ -26,6 +26,10 @@ pub(crate) struct WindowGpu {
     abandonment_workaround_os_override: Option<&'static str>,
     #[cfg(debug_assertions)]
     test_device_loss_injected: bool,
+}
+
+pub(crate) struct PreparedWindowGpu {
+    context: WindowedGpuContextBootstrap,
 }
 
 struct WindowGpuFrame<'a> {
@@ -155,24 +159,46 @@ fn should_abandon_current_adapter_after_native_close(
 
 impl WindowGpu {
     pub(crate) async fn new(
-        event_loop: &ActiveEventLoop,
+        display: OwnedDisplayHandle,
         window: Arc<Window>,
         surface_size: PhysicalSize<u32>,
         high_performance: bool,
         force_fallback_adapter: bool,
     ) -> Result<Self, Box<dyn Error>> {
+        let prepared = Self::prepare(
+            display,
+            window,
+            surface_size,
+            high_performance,
+            force_fallback_adapter,
+        )?;
+        Self::finish_prepared(prepared).await
+    }
+
+    pub(crate) fn prepare(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        surface_size: PhysicalSize<u32>,
+        high_performance: bool,
+        force_fallback_adapter: bool,
+    ) -> Result<PreparedWindowGpu, Box<dyn Error>> {
         let options = GpuContextOptions::default()
             .with_high_performance(high_performance)
             .with_force_fallback_adapter(force_fallback_adapter);
-        let display = event_loop.owned_display_handle();
-        let context = GpuContext::new_windowed(
-            display.clone(),
-            Arc::clone(&window),
+        let context = GpuContext::prepare_windowed(
+            display,
+            window,
             surface_size.width,
             surface_size.height,
             options,
-        )
-        .await?;
+        )?;
+        Ok(PreparedWindowGpu { context })
+    }
+
+    pub(crate) async fn finish_prepared(
+        prepared: PreparedWindowGpu,
+    ) -> Result<Self, Box<dyn Error>> {
+        let context = GpuContext::finish_windowed(prepared.context).await?;
         let renderer = bundled_emergency_text_backend(&context)?;
         Ok(Self {
             context: Some(context),
@@ -730,6 +756,47 @@ mod tests {
     use rssh_fonts::TerminalShaper;
     use rssh_renderer::terminal_snapshot_content_digest;
     use rssh_terminal::Terminal;
+    use winit::event_loop::OwnedDisplayHandle;
+
+    fn construct_window_gpu_from_owned_display(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        size: PhysicalSize<u32>,
+    ) {
+        drop(WindowGpu::new(display, window, size, false, false));
+    }
+
+    fn prepare_window_gpu_from_owned_display(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        size: PhysicalSize<u32>,
+    ) {
+        drop(WindowGpu::prepare(display, window, size, false, false));
+    }
+
+    fn finish_prepared_window_gpu(prepared: PreparedWindowGpu) {
+        drop(WindowGpu::finish_prepared(prepared));
+    }
+
+    #[test]
+    fn window_gpu_constructor_accepts_owned_display_handle() {
+        std::hint::black_box(
+            construct_window_gpu_from_owned_display
+                as fn(OwnedDisplayHandle, Arc<Window>, PhysicalSize<u32>),
+        );
+    }
+
+    #[test]
+    fn window_gpu_surface_preparation_and_worker_initialization_are_split() {
+        fn assert_send<T: Send>() {}
+
+        assert_send::<PreparedWindowGpu>();
+        std::hint::black_box(
+            prepare_window_gpu_from_owned_display
+                as fn(OwnedDisplayHandle, Arc<Window>, PhysicalSize<u32>),
+        );
+        std::hint::black_box(finish_prepared_window_gpu as fn(PreparedWindowGpu));
+    }
 
     #[test]
     fn native_presentation_mode_is_the_only_gpu_damage_selector() {
