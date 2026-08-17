@@ -435,7 +435,6 @@ impl PanePublication {
     }
 
     pub(crate) fn drain(&self, max_effects: usize) -> PaneDrain {
-        let frame = self.latest.take();
         let mut effects = Vec::new();
         let mut receiver = self
             .effect_receiver
@@ -449,6 +448,11 @@ impl PanePublication {
         }
         let work_remains = receiver.metrics().queued_items > 0;
         drop(receiver);
+        // A latest frame may carry a newer revision than lossless effects
+        // still waiting in the bounded mailbox. Keep it in the replaceable
+        // slot until those effects are drained so hosts never observe the
+        // future frame first and reject the older effects as stale.
+        let frame = (!work_remains).then(|| self.latest.take()).flatten();
         let continuation = self.latest.complete_wake(work_remains) == DrainCompletion::Continue;
         PaneDrain {
             frame,

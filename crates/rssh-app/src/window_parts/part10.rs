@@ -2631,7 +2631,9 @@ impl NativeWindowApp {
             title.push_str(" - SSH ");
             title.push_str(ssh.target());
             title.push_str(" [");
-            title.push_str(connection_metric_name(self.metrics.connection_state()));
+            title.push_str(connection_metric_name(self.ssh_connection_state_for_pane(
+                self.app_shell.active_pane_id(),
+            )));
             title.push(']');
         }
 
@@ -2656,7 +2658,17 @@ impl NativeWindowApp {
                 title.push_str(&path.to_string_lossy());
                 title.push(']');
             }
-            title.push_str(" [1] once [2] store [Esc] cancel");
+            match challenge.status {
+                rssh_ssh::HostKeyStatus::Changed => {
+                    title.push_str(" BLOCKED [Esc] cancel");
+                }
+                rssh_ssh::HostKeyStatus::Unknown => {
+                    title.push_str(" [1] once [2] store [Esc] cancel");
+                }
+                rssh_ssh::HostKeyStatus::Known => {
+                    title.push_str(" [Esc] cancel");
+                }
+            }
         }
 
         if !self.higher_level_ui_suppresses_pane_overlay() {
@@ -2835,7 +2847,8 @@ impl NativeWindowApp {
     }
 
     fn spawn_pty(&mut self) -> Result<(), Box<dyn Error>> {
-        if self.session.is_some() || self.runtime.worker().is_some() {
+        self.restart_missing_transferred_local_panes()?;
+        if self.active_pane_transport_is_started() {
             return Ok(());
         }
 
@@ -2843,6 +2856,188 @@ impl NativeWindowApp {
 
         let runtime = self.spawn_pane_runtime_for_active_pane()?;
         self.install_active_runtime(runtime);
+        Ok(())
+    }
+
+    fn restart_missing_transferred_local_panes(&mut self) -> Result<(), Box<dyn Error>> {
+        let worker = self.runtime.worker();
+        let panes = self
+            .app_shell
+            .pane_ids()
+            .into_iter()
+            .filter(|pane_id| {
+                let transport = if *pane_id == self.app_shell.active_pane_id() {
+                    self.active_runtime_transport
+                } else {
+                    self.pane_runtimes
+                        .get(pane_id)
+                        .and_then(|runtime| runtime.transport)
+                };
+                transport == Some(PaneRuntimeTransportKind::LocalPty)
+                    && worker.is_none_or(|worker| !worker.contains_pane(*pane_id))
+            })
+            .collect::<Vec<_>>();
+        for pane_id in panes {
+            self.restart_transferred_local_pane(pane_id)?;
+        }
+        Ok(())
+    }
+
+    fn restart_transferred_local_pane(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+    ) -> Result<(), Box<dyn Error>> {
+        let event_proxy = self.event_proxy.clone().ok_or_else(|| {
+            Box::new(io::Error::other("window event proxy is not configured")) as Box<dyn Error>
+        })?;
+        let (tab_id, launch) = self
+            .app_shell
+            .workspaces()
+            .iter()
+            .flat_map(rssh_core::app_shell::Workspace::tabs)
+            .find_map(|tab| {
+                tab.panes()
+                    .iter()
+                    .find(|pane| pane.id() == pane_id)
+                    .map(|pane| (tab.id(), pane.launch().clone()))
+            })
+            .ok_or_else(|| {
+                Box::new(io::Error::other(format!(
+                    "pane {} has no launch metadata",
+                    pane_id.get()
+                ))) as Box<dyn Error>
+            })?;
+        if !matches!(launch.domain(), PaneLaunchDomain::Local) {
+            return Err(Box::new(io::Error::other(
+                "transferred local restart received a non-local launch",
+            )));
+        }
+        let term_session_id =
+            iterm_session_termid(self.app_window_id.get(), tab_id.get(), pane_id.get());
+        let environment = self.pane_environment_variables();
+        let command = pty_command_from_pane_launch_with_term_session_id(
+            &launch,
+            &self.term,
+            &environment,
+            self.default_cwd.as_deref(),
+            &term_session_id,
+        );
+        let size = self
+            .pane_runtime_ref(pane_id)
+            .ok_or_else(|| {
+                Box::new(io::Error::other(format!(
+                    "pane {} has no runtime owner",
+                    pane_id.get()
+                ))) as Box<dyn Error>
+            })?
+            .terminal()
+            .grid()
+            .size();
+        let pty_size = PtySize::try_new(size.columns, size.rows)?;
+        self.metrics.start_spawn_timer();
+        let session = PtySession::spawn(&command, pty_size)?;
+        let process_id = session.process_id();
+        let tty_name = session.tty_name();
+        let transport = LocalPtyTransport::from_session(session)?;
+        let wake_proxy = event_proxy.clone();
+        let window_id = self.app_window_id;
+        let notice_waker: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+            let _ = wake_proxy.send_event(WindowUserEvent::RuntimeWakeWindow { window_id });
+        });
+        self.install_transferred_local_transport(
+            pane_id,
+            transport,
+            process_id,
+            tty_name,
+            notice_waker,
+        )
+    }
+
+    fn install_transferred_local_transport<T: SessionTransport>(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        transport: T,
+        process_id: Option<u32>,
+        tty_name: Option<String>,
+        notice_waker: Arc<dyn Fn() + Send + Sync>,
+    ) -> Result<(), Box<dyn Error>> {
+        let terminal = self
+            .pane_runtime_ref(pane_id)
+            .ok_or_else(|| {
+                Box::new(io::Error::other(format!(
+                    "pane {} has no runtime owner",
+                    pane_id.get()
+                ))) as Box<dyn Error>
+            })?
+            .terminal()
+            .clone();
+        let size = terminal.grid().size();
+        let worker_runtime = self
+            .configured_pane_terminal_runtime_from_terminal(terminal)
+            .inner;
+        let capture = PaneCapturePolicy {
+            host_stream: self.metrics.pty_linkage_enabled,
+            visible_output: self.session_log.is_some(),
+        };
+        let token = if let Some(worker) = self.runtime.worker_mut() {
+            let config = PaneWorkerConfig {
+                size,
+                capture_host_stream: capture.host_stream,
+                capture_visible_output: capture.visible_output,
+                ..PaneWorkerConfig::default()
+            };
+            worker.add_transport(pane_id, transport, config, worker_runtime)?
+        } else {
+            let worker = WindowPaneRuntime::open_transport(
+                PaneRuntimeRoute {
+                    window: self.app_window_id,
+                    pane: pane_id,
+                },
+                transport,
+                size,
+                worker_runtime,
+                capture,
+                notice_waker,
+            )?;
+            let token = worker.token_for_pane(pane_id).ok_or_else(|| {
+                Box::new(io::Error::other("new local worker omitted its pane token"))
+                    as Box<dyn Error>
+            })?;
+            self.runtime.install_worker(Some(worker));
+            token
+        };
+        let is_active = pane_id == self.app_shell.active_pane_id();
+        if is_active
+            && let Some(worker) = self.runtime.worker_mut()
+        {
+            worker.activate(token)?;
+        }
+        let runtime_generation = self.allocate_pane_runtime_generation();
+        if is_active {
+            self.session = None;
+            self.session_process_id = process_id;
+            self.session_tty_name = tty_name;
+            self.writer = None;
+            self.reader_thread = None;
+            self.writer_thread = None;
+            self.active_runtime_generation = runtime_generation;
+            self.active_runtime_transport = Some(PaneRuntimeTransportKind::LocalPty);
+        } else {
+            let runtime = self.pane_runtimes.get_mut(&pane_id).ok_or_else(|| {
+                Box::new(io::Error::other(format!(
+                    "inactive pane {} has no runtime owner",
+                    pane_id.get()
+                ))) as Box<dyn Error>
+            })?;
+            runtime.session = None;
+            runtime.session_process_id = process_id;
+            runtime.session_tty_name = tty_name;
+            runtime.writer = None;
+            runtime.reader_thread = None;
+            runtime.writer_thread = None;
+            runtime.runtime_generation = runtime_generation;
+            runtime.transport = Some(PaneRuntimeTransportKind::LocalPty);
+        }
         Ok(())
     }
 
@@ -2887,10 +3082,39 @@ impl NativeWindowApp {
                 .remove(&pane_id)
                 .expect("validated inactive pane runtime must exist")
         };
+        let preserve_ssh_presentation =
+            previous_runtime.transport == Some(PaneRuntimeTransportKind::NativeSsh);
         self.cancel_ssh_runtime(pane_id);
         let previous_size = previous_runtime.runtime.terminal().grid().size();
         let cleanup = previous_runtime.close();
         report_pane_pty_cleanup("pane restart PTY cleanup", &cleanup);
+
+        if preserve_ssh_presentation {
+            previous_runtime.runtime_generation = self.allocate_pane_runtime_generation();
+            self.install_pane_runtime(pane_id, is_active, previous_runtime);
+            self.clear_pane_restart_state(pane_id, is_active);
+            self.apply_window_title();
+
+            let mut runtime = spawn(self, pane_id)?;
+            if runtime.runtime_generation == 0 {
+                runtime.runtime_generation = self.allocate_pane_runtime_generation();
+            }
+            if runtime.transport.is_none() {
+                runtime.transport = Some(PaneRuntimeTransportKind::NativeSsh);
+            }
+            let preserved_runtime = if is_active {
+                self.take_active_runtime()
+            } else {
+                self.pane_runtimes
+                    .remove(&pane_id)
+                    .expect("SSH retry presentation owner must remain installed")
+            };
+            runtime.runtime = preserved_runtime.runtime;
+            runtime.snapshot = preserved_runtime.snapshot;
+            runtime.ui = preserved_runtime.ui;
+            self.install_pane_runtime(pane_id, is_active, runtime);
+            return Ok(());
+        }
 
         let mut blank_runtime = self.new_inactive_pane_runtime();
         blank_runtime.runtime.resize(previous_size);
@@ -2970,7 +3194,50 @@ impl NativeWindowApp {
             .is_some_and(|runtime| runtime.runtime_generation == runtime_generation)
     }
 
+    fn pane_runtime_transport_kind(
+        &self,
+        pane_id: rssh_core::PaneId,
+    ) -> Option<PaneRuntimeTransportKind> {
+        if pane_id == self.app_shell.active_pane_id() {
+            return self.active_runtime_transport;
+        }
+        self.pane_runtimes
+            .get(&pane_id)
+            .and_then(|runtime| runtime.transport)
+    }
+
+    fn preserve_ssh_pane_after_transport_error(
+        &mut self,
+        pane_id: rssh_core::PaneId,
+        error: &str,
+    ) -> bool {
+        eprintln!("SSH transport error: {error}");
+        self.cancel_ssh_runtime(pane_id);
+        if pane_id == self.app_shell.active_pane_id() {
+            let cleanup = stop_pty_lifecycle(
+                &mut self.session,
+                &mut self.session_process_id,
+                &mut self.session_tty_name,
+                &mut self.writer,
+                &mut self.reader_thread,
+                &mut self.writer_thread,
+            );
+            report_pane_pty_cleanup("SSH transport error cleanup", &cleanup);
+        } else if let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) {
+            let cleanup = runtime.close();
+            report_pane_pty_cleanup("inactive SSH transport error cleanup", &cleanup);
+        }
+        self.handle_ssh_state(pane_id, ConnectionState::Failed);
+        self.clear_pane_inspection_if_invalid();
+        false
+    }
+
     fn handle_pane_runtime_read_error(&mut self, pane_id: rssh_core::PaneId, error: &str) -> bool {
+        if self.pane_runtime_transport_kind(pane_id)
+            == Some(PaneRuntimeTransportKind::NativeSsh)
+        {
+            return self.preserve_ssh_pane_after_transport_error(pane_id, error);
+        }
         let close_window = if pane_id == self.app_shell.active_pane_id() {
             eprintln!("PTY read error: {error}");
             if let Err(error) = self.finish_active_pane_output() {
@@ -2990,6 +3257,11 @@ impl NativeWindowApp {
     }
 
     fn handle_pane_runtime_write_error(&mut self, pane_id: rssh_core::PaneId, error: &str) -> bool {
+        if self.pane_runtime_transport_kind(pane_id)
+            == Some(PaneRuntimeTransportKind::NativeSsh)
+        {
+            return self.preserve_ssh_pane_after_transport_error(pane_id, error);
+        }
         let close_window = if pane_id == self.app_shell.active_pane_id() {
             eprintln!("PTY write error: {error}");
             if let Err(error) = self.finish_active_pane_output() {
@@ -3133,6 +3405,7 @@ impl NativeWindowApp {
         let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
         Ok(PaneRuntime {
             runtime,
+            transport: Some(PaneRuntimeTransportKind::LocalPty),
             session: None,
             session_process_id,
             session_tty_name,
@@ -3171,9 +3444,19 @@ impl NativeWindowApp {
     }
 
     fn write_pty_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
-        if let Some(runtime) = self.runtime.worker_mut() {
+        let active = self.app_shell.active_pane_id();
+        let active_is_local = self.active_runtime_transport
+            == Some(PaneRuntimeTransportKind::LocalPty)
+            || self
+                .runtime
+                .worker()
+                .is_some_and(|runtime| runtime.contains_pane(active));
+        if active_is_local {
             let started = Instant::now();
-            runtime.submit_input(bytes)?;
+            self.runtime
+                .worker_mut()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
+                .submit_input_to_pane(active, bytes)?;
             self.metrics
                 .record_input_write(bytes.len(), started.elapsed());
         } else {
@@ -3207,6 +3490,30 @@ impl NativeWindowApp {
         }
 
         let scroll_to_bottom_on_input = self.scroll_to_bottom_on_input;
+        let is_local = self
+            .pane_runtimes
+            .get(&pane_id)
+            .is_some_and(|runtime| {
+                runtime.transport == Some(PaneRuntimeTransportKind::LocalPty)
+            })
+            || self
+                .runtime
+                .worker()
+                .is_some_and(|runtime| runtime.contains_pane(pane_id));
+        if is_local {
+            let started = Instant::now();
+            self.runtime
+                .worker_mut()
+                .ok_or_else(|| io::Error::from(io::ErrorKind::BrokenPipe))?
+                .submit_input_to_pane(pane_id, bytes)?;
+            self.metrics
+                .record_input_write(bytes.len(), started.elapsed());
+            if scroll_to_bottom_on_input && !bytes.is_empty() {
+                self.scroll_inactive_pane_to_bottom_after_input(pane_id);
+            }
+            return Ok(());
+        }
+
         let Some(runtime) = self.interaction_state.host_state.pane_runtimes.get_mut(&pane_id) else {
             return Ok(());
         };
@@ -3222,20 +3529,27 @@ impl NativeWindowApp {
                 .record_input_write(bytes.len(), started.elapsed());
         }
         if scroll_to_bottom_on_input && !bytes.is_empty() {
-            runtime.ui.stable_viewport.main_top = None;
-            runtime
-                .ui
-                .stable_viewport
-                .clamp_main(runtime.runtime.terminal());
-            runtime
-                .ui
-                .refresh_search_match_cache(runtime.runtime.terminal());
-            runtime.snapshot =
-                terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
-            self.interaction_state.host_state.metrics.record_snapshot_rebuild();
-            self.interaction_state.host_state.frame_needs_full_repaint = true;
+            self.scroll_inactive_pane_to_bottom_after_input(pane_id);
         }
         Ok(())
+    }
+
+    fn scroll_inactive_pane_to_bottom_after_input(&mut self, pane_id: rssh_core::PaneId) {
+        let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
+            return;
+        };
+        runtime.ui.stable_viewport.main_top = None;
+        runtime
+            .ui
+            .stable_viewport
+            .clamp_main(runtime.runtime.terminal());
+        runtime
+            .ui
+            .refresh_search_match_cache(runtime.runtime.terminal());
+        runtime.snapshot =
+            terminal_runtime_snapshot(&runtime.runtime, runtime.ui.stable_viewport);
+        self.metrics.record_snapshot_rebuild();
+        self.frame_needs_full_repaint = true;
     }
 
     fn write_pty_bytes_to_pane_for_wheel(
@@ -6909,14 +7223,14 @@ fn lua_window_effective_config_field_text_part3(
         &mut self,
         size: PhysicalSize<u32>,
     ) -> Result<(), Box<dyn Error>> {
-        if let Some(gpu) = self.gpu.as_mut()
-            && let Err(error) = gpu.resize_surface(size)
-        {
+        let gpu_resize_error = self
+            .gpu
+            .as_mut()
+            .and_then(|gpu| gpu.resize_surface(size).err());
+        if let Some(error) = gpu_resize_error {
             if self.bootstrap_surface.is_some() {
                 eprintln!("GPU surface resize failed; using CPU fallback: {error}");
-                self.gpu = None;
-                self.metrics.mark_renderer(RendererKind::Cpu);
-                self.presentation_owner = PresentationOwner::CpuFallback;
+                self.activate_cpu_fallback();
             } else {
                 return Err(error);
             }

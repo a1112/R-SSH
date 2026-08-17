@@ -1398,6 +1398,35 @@ auth = "agent"
     }
 
     #[test]
+    fn gui_ssh_profile_prompt_policy_maps_to_interactive_verification() {
+        let contents = r#"
+[profiles.gui-prod]
+kind = "ssh"
+target = "prod"
+gui = true
+host_key_policy = "prompt"
+auth = "agent"
+"#;
+
+        assert_eq!(
+            super::args_from_toml("gui-prod", contents).unwrap(),
+            ["rssh-app", "ssh", "--target", "prod", "--gui", "--agent"]
+        );
+
+        let AppCommand::Ssh(options) = super::command_from_toml("gui-prod", contents).unwrap()
+        else {
+            panic!("expected SSH command");
+        };
+        assert!(options.gui);
+        assert!(options.native);
+        assert_eq!(
+            options.native_host_key_policy,
+            NativeHostKeyPolicy::RejectUnknown,
+            "the GUI boundary translates the safe CLI default into an interactive prompt"
+        );
+    }
+
+    #[test]
     fn gui_ssh_profile_rejects_forwarding_and_no_shell() {
         for extra in [
             "local_forward = [\"127.0.0.1:1234:db:5432\"]",

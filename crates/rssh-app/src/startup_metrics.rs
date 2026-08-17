@@ -57,8 +57,12 @@ pub(crate) struct StartupTrace {
 
 impl StartupTrace {
     pub(crate) fn new() -> Self {
+        Self::from_process_started_at(Instant::now())
+    }
+
+    pub(crate) fn from_process_started_at(process_started_at: Instant) -> Self {
         Self {
-            process_started_at: Instant::now(),
+            process_started_at,
             config_started_at: None,
             config_finished_at: None,
             gpu_started_at: None,
@@ -159,34 +163,47 @@ impl StartupTrace {
 
     #[cfg(test)]
     pub(crate) fn mark_first_present(&mut self, private_bytes: u64) {
-        let _ = self.mark_first_present_inner(private_bytes);
+        if self.mark_first_present_inner().is_some() {
+            self.first_frame_private_bytes = Some(private_bytes);
+        }
     }
 
-    pub(crate) fn mark_first_present_to<W: Write>(
-        &mut self,
-        writer: &mut W,
-        private_bytes: u64,
-    ) -> io::Result<bool> {
-        let Some(snapshot) = self.mark_first_present_inner(private_bytes) else {
+    pub(crate) fn mark_first_present_to<W: Write>(&mut self, writer: &mut W) -> io::Result<bool> {
+        let Some(snapshot) = self.mark_first_present_inner() else {
             return Ok(false);
         };
         writeln!(
             writer,
-            "first_present process_to_first_present_ms={} first_frame_private_bytes={} final_renderer={}",
+            "first_present process_to_first_present_ms={} final_renderer={}",
             metric_option(snapshot.process_to_first_present_ms),
-            private_bytes,
             renderer_name(snapshot.final_renderer),
         )?;
         writer.flush()?;
         Ok(true)
     }
 
-    fn mark_first_present_inner(&mut self, private_bytes: u64) -> Option<StartupMetricsSnapshot> {
+    pub(crate) fn mark_first_frame_private_bytes_to<W: Write>(
+        &mut self,
+        writer: &mut W,
+        private_bytes: u64,
+    ) -> io::Result<bool> {
+        if self.first_present_at.is_none() || self.first_frame_private_bytes.is_some() {
+            return Ok(false);
+        }
+        self.first_frame_private_bytes = Some(private_bytes);
+        writeln!(
+            writer,
+            "first_frame_memory first_frame_private_bytes={private_bytes}"
+        )?;
+        writer.flush()?;
+        Ok(true)
+    }
+
+    fn mark_first_present_inner(&mut self) -> Option<StartupMetricsSnapshot> {
         if self.first_present_at.is_some() {
             return None;
         }
         self.first_present_at = Some(Instant::now());
-        self.first_frame_private_bytes = Some(private_bytes);
         self.final_renderer.get_or_insert(RendererKind::Cpu);
         Some(self.snapshot())
     }
@@ -271,8 +288,8 @@ mod tests {
     fn startup_trace_emits_a_single_first_present_marker() {
         let mut trace = StartupTrace::new();
         let mut output = Vec::new();
-        trace.mark_first_present_to(&mut output, 11).unwrap();
-        trace.mark_first_present_to(&mut output, 12).unwrap();
+        trace.mark_first_present_to(&mut output).unwrap();
+        trace.mark_first_present_to(&mut output).unwrap();
 
         let text = String::from_utf8(output).unwrap();
         assert_eq!(
@@ -281,7 +298,30 @@ mod tests {
                 .count(),
             1
         );
-        assert!(text.contains("first_frame_private_bytes=11"));
+        assert!(text.contains("process_to_first_present_ms="));
+        assert!(!text.contains("first_frame_private_bytes="));
+    }
+
+    #[test]
+    fn startup_trace_emits_memory_after_the_first_present_marker() {
+        let mut trace = StartupTrace::new();
+        let mut output = Vec::new();
+
+        trace.mark_first_present_to(&mut output).unwrap();
+        trace
+            .mark_first_frame_private_bytes_to(&mut output, 11)
+            .unwrap();
+        trace
+            .mark_first_frame_private_bytes_to(&mut output, 12)
+            .unwrap();
+
+        let text = String::from_utf8(output).unwrap();
+        let lines = text.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("first_present "));
+        assert!(lines[1].starts_with("first_frame_memory "));
+        assert!(lines[1].contains("first_frame_private_bytes=11"));
+        assert_eq!(trace.snapshot().first_frame_private_bytes, Some(11));
     }
 
     #[test]
@@ -298,5 +338,17 @@ mod tests {
         ] {
             assert!(value.is_none_or(|milliseconds| milliseconds <= Duration::MAX.as_millis()));
         }
+    }
+
+    #[test]
+    fn startup_trace_can_include_work_before_gui_dispatch() {
+        let process_started_at = Instant::now()
+            .checked_sub(Duration::from_millis(25))
+            .expect("test instant should support a small subtraction");
+        let mut trace = StartupTrace::from_process_started_at(process_started_at);
+
+        trace.mark_first_present(0);
+
+        assert!(trace.snapshot().process_to_first_present_ms >= Some(25));
     }
 }

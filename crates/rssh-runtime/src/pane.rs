@@ -388,14 +388,25 @@ fn next_worker_message<S: crate::SessionControl>(
     loop {
         match receiver.recv_timeout(EXIT_POLL_INTERVAL) {
             Ok(message) => return Some(message),
-            Err(RecvTimeoutError::Timeout) => match control.poll_exit() {
-                Ok(Some(exit)) => {
-                    *observed_exit = Some(exit);
-                    return None;
+            Err(RecvTimeoutError::Timeout) => {
+                if observed_exit.is_some() {
+                    continue;
                 }
-                Ok(None) => {}
-                Err(_) => return None,
-            },
+                match control.poll_exit() {
+                    Ok(Some(exit)) => {
+                        *observed_exit = Some(exit);
+                        // Child exit and PTY EOF are separate observations.
+                        // Begin the platform close so its reader can flush any
+                        // bytes buffered behind the exit notification, then
+                        // keep consuming until ReaderEof/ReaderError arrives.
+                        if control.begin_close().is_err() {
+                            return None;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => return None,
+                }
+            }
             Err(RecvTimeoutError::Closed) => return None,
         }
     }

@@ -528,6 +528,51 @@ private-key passphrase prompts. Use
 `--accept-unknown-host-key` remains available for insecure test servers only.
 OpenSSH passthrough flags such as `-J`, `-F`, `-o`, `-W`, and `-T` require the
 OpenSSH console backend and are rejected with `--native`.
+
+### Native SSH GUI
+
+Use `ssh --gui --target prod` (or the existing positional/`--host` target and
+authentication options) to open an SSH session in the native window. `--gui`
+implies the in-process native SSH backend; passwords and private-key
+passphrases are requested through masked window prompts rather than command-line
+arguments.
+
+The GUI renderer modes are:
+
+- `--renderer auto` is the default. It presents a CPU bootstrap frame first,
+  then adopts the GPU renderer after a complete GPU frame succeeds; GPU failure
+  keeps the software path available.
+- `--renderer cpu` forces software presentation and is the operational fallback
+  when a GPU or driver is unreliable.
+- `--renderer gpu` selects the synchronous GPU startup path for explicit GPU
+  testing or rollback comparison.
+
+`--benchmark-startup` is for the fixed Windows startup harness, not interactive
+use. It presents one CPU bootstrap frame, emits the `first_present` marker, and
+exits before configuration, GPU initialization, or SSH transport work begins.
+It is valid only with `--gui`.
+
+A saved GUI profile can use the same settings:
+
+```toml
+[profiles.gui-prod]
+kind = "ssh"
+target = "prod"
+gui = true
+renderer = "auto"
+host_key_policy = "prompt"
+auth = "agent"
+```
+
+With `host_key_policy = "prompt"`, an unknown host key can be accepted for the
+current connection, accepted and written to `known_hosts`, or cancelled. A
+changed host key is always blocked. GUI SSH does not support forwarding
+(`-L`/`-R`/`-D`), and GUI SSH does not support `--no-shell`.
+GUI SSH does not support OpenSSH passthrough options such as `-J`, `-F`, or
+`-o`, and it rejects
+`--preflight`. Interactive shells and explicit remote commands are supported;
+SFTP and SCP remain separate console commands.
+
 Native `--local-forward` and `--dynamic-forward` start in-process listeners and
 open russh `direct-tcpip` channels for accepted local TCP or SOCKS5 CONNECT
 requests. Dynamic forwarding rejects non-loopback bind addresses because its

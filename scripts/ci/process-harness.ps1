@@ -221,9 +221,9 @@ public sealed class RsshCiOwnedProcess : IDisposable {
     public Process Process { get; private set; }
     public StreamReader StandardOutput { get; private set; }
     public StreamReader StandardError { get; private set; }
-    // Stopwatch timestamp captured immediately after the suspended child is
-    // resumed.  Startup probes use this instead of process creation time so
-    // their external measurement matches the first_present contract.
+    // Stopwatch timestamp captured immediately before the suspended child is
+    // resumed. Startup probes use the conservative pre-resume boundary so the
+    // child cannot execute before their external measurement begins.
     public long ResumeTimestamp { get; private set; }
 
     private RsshCiOwnedProcess(
@@ -307,10 +307,10 @@ public sealed class RsshCiOwnedProcess : IDisposable {
                 throw new InvalidOperationException("simulated AssignProcessToJobObject failure");
             }
             job.AssignHandle(processInformation.Process);
+            long resumeTimestamp = Stopwatch.GetTimestamp();
             if (ResumeThread(processInformation.Thread) == UInt32.MaxValue) {
                 throw LastError("ResumeThread failed");
             }
-            long resumeTimestamp = Stopwatch.GetTimestamp();
             Close(ref processInformation.Thread);
             IntPtr ownedNativeProcess = processInformation.Process;
             processInformation.Process = IntPtr.Zero;

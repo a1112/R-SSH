@@ -44,6 +44,14 @@ impl TerminalRuntime {
         }
     }
 
+    pub(crate) fn from_terminal(terminal: Terminal) -> Self {
+        Self {
+            inner: rssh_runtime::TerminalRuntime::from_terminal(terminal),
+            storage: TerminalRuntimeStorage::new(),
+            presentation_snapshot: None,
+        }
+    }
+
     pub(crate) fn terminal(&self) -> &Terminal {
         self.presentation_snapshot
             .as_deref()

@@ -3035,10 +3035,24 @@ fn window_dpi_from_scale_factor(scale_factor: f64) -> u32 {
         .clamp(1.0, f64::from(u32::MAX)) as u32
 }
 
-#[cfg(debug_assertions)]
 fn parse_test_window_scale_factor(value: &str) -> Option<f64> {
     let scale_factor = value.parse::<f64>().ok()?;
     (scale_factor.is_finite() && (0.5..=4.0).contains(&scale_factor)).then_some(scale_factor)
+}
+
+fn benchmark_window_scale_factor(benchmark_startup: bool) -> Option<f64> {
+    if !benchmark_startup {
+        return None;
+    }
+    std::env::var("RSSH_BENCHMARK_WINDOW_SCALE_FACTOR")
+        .ok()
+        .and_then(|value| parse_test_window_scale_factor(&value))
+}
+
+fn startup_window_scale_factor(benchmark_startup: bool, detected_scale_factor: f64) -> f64 {
+    benchmark_window_scale_factor(benchmark_startup)
+        .or_else(test_window_scale_factor)
+        .unwrap_or(detected_scale_factor)
 }
 
 #[cfg(debug_assertions)]
@@ -3071,6 +3085,31 @@ fn test_resize_after_first_present() -> Option<PhysicalSize<u32>> {
 #[cfg(not(debug_assertions))]
 const fn test_resize_after_first_present() -> Option<PhysicalSize<u32>> {
     None
+}
+
+#[cfg(debug_assertions)]
+fn test_ssh_gui_frame_limit() -> Option<u64> {
+    std::env::var("RSSH_TEST_SSH_GUI_FRAME_LIMIT")
+        .ok()?
+        .parse()
+        .ok()
+        .filter(|limit| *limit > 0)
+}
+
+#[cfg(not(debug_assertions))]
+const fn test_ssh_gui_frame_limit() -> Option<u64> {
+    None
+}
+
+#[cfg(debug_assertions)]
+fn test_deferred_gpu_init_failure() -> bool {
+    std::env::var_os("RSSH_TEST_DEFERRED_GPU_INIT_FAILURE").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+}
+
+#[cfg(not(debug_assertions))]
+const fn test_deferred_gpu_init_failure() -> bool {
+    false
 }
 
 impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
@@ -3168,6 +3207,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.finish_deferred_config_if_ready();
         self.start_deferred_config_if_ready();
         self.reap_retired_apps();
         if let Err(error) = self.materialize_pending_apps(event_loop) {
@@ -3283,9 +3323,16 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             WindowUserEvent::ReloadConfigurationRequested | WindowUserEvent::ConfigFileChanged => {
                 self.reload_configuration();
             }
-            WindowUserEvent::MoveTabToWindow { .. } => {}
+            WindowUserEvent::DeferredConfigReady | WindowUserEvent::MoveTabToWindow { .. } => {}
             WindowUserEvent::RuntimeWakeWindow { .. } => {
                 self.handle_runtime_wake_window(event_loop);
+            }
+            WindowUserEvent::DeferredGpuInitialized {
+                generation,
+                outcome,
+                ..
+            } => {
+                self.handle_deferred_gpu_initialized(generation, outcome);
             }
             WindowUserEvent::Output {
                 pane_id,
@@ -3522,7 +3569,10 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.apply_window_scale_factor(scale_factor);
+                self.apply_window_scale_factor(startup_window_scale_factor(
+                    self.benchmark_startup,
+                    scale_factor,
+                ));
                 self.update_ime_cursor_area();
             }
             WindowEvent::RedrawRequested => {

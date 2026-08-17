@@ -568,10 +568,12 @@ impl NativeWindowApp {
                 // hybrid/cpu mode before the event loop starts.
                 renderer_mode: RendererMode::Gpu,
                 presentation_owner: PresentationOwner::Bootstrap,
+                deferred_gpu_generation: 0,
                 benchmark_startup: false,
                 transport_start_requested: false,
                 ssh_host_key_prompts: HashMap::new(),
                 ssh_secret_prompts: HashMap::new(),
+                ssh_connection_states: HashMap::new(),
                 gpu: None,
                 renderer: {
                     let mut renderer = PixelRenderer::new();
@@ -596,7 +598,7 @@ impl NativeWindowApp {
                     width: MODERN_FRAME_WIDTH + MODERN_WINDOW_PADDING_HORIZONTAL_PIXELS,
                     height: MODERN_FRAME_HEIGHT + MODERN_WINDOW_PADDING_VERTICAL_PIXELS,
                 },
-                frame_limit,
+                frame_limit: frame_limit.or_else(test_ssh_gui_frame_limit),
                 initial_window_class,
                 initial_window_position,
                 startup_command,
@@ -611,11 +613,14 @@ impl NativeWindowApp {
                 session_tty_name: None,
                 writer: None,
                 ssh_writer_senders: HashMap::new(),
+                ssh_writer_cancellations: HashMap::new(),
+                ssh_connection_cancellations: HashMap::new(),
                 session_log: None,
                 reader_thread: None,
                 writer_thread: None,
                 interaction_state: NativeWindowInteractionState {
-                active_runtime_generation: 0,
+                    active_runtime_generation: 0,
+                    active_runtime_transport: None,
                 modifiers: ModifiersState::empty(),
                 left_alt_pressed: false,
                 right_alt_pressed: false,
@@ -763,6 +768,17 @@ impl NativeWindowApp {
         }
         let workspace = self.app_shell.active_workspace().name().to_owned();
         self.app_shell = AppShell::new_with_workspace_name(launch, workspace);
+        self.ssh_connection_states.clear();
+        if matches!(
+            self.app_shell.active_pane().launch().domain(),
+            PaneLaunchDomain::Ssh(_)
+        ) {
+            self.ssh_connection_states.insert(
+                self.app_shell.active_pane_id(),
+                ConnectionState::Pending,
+            );
+            self.metrics.mark_connection_state(ConnectionState::Pending);
+        }
         self.startup_uses_default_shell = false;
         self.startup_workspace_was_explicit = true;
         self.transport_start_requested = false;
@@ -917,10 +933,10 @@ impl NativeWindowApp {
     fn apply_default_prog_to_action(&self, action: AppAction) -> AppAction {
         match action {
             AppAction::NewTab { launch: None } => AppAction::NewTab {
-                launch: self.default_prog_launch(),
+                launch: self.implicit_child_launch(self.app_shell.active_pane_id()),
             },
             AppAction::SpawnWindow { launch: None } => AppAction::SpawnWindow {
-                launch: self.default_prog_launch(),
+                launch: self.implicit_child_launch(self.app_shell.active_pane_id()),
             },
             AppAction::SplitPane {
                 pane,
@@ -929,7 +945,7 @@ impl NativeWindowApp {
             } => AppAction::SplitPane {
                 pane,
                 direction,
-                launch: self.default_prog_launch(),
+                launch: self.implicit_child_launch(pane),
             },
             AppAction::SplitPaneWithSize {
                 pane,
@@ -939,7 +955,7 @@ impl NativeWindowApp {
             } => AppAction::SplitPaneWithSize {
                 pane,
                 direction,
-                launch: self.default_prog_launch(),
+                launch: self.implicit_child_launch(pane),
                 source_size_delta,
             },
             AppAction::NewWorkspace { name, launch: None } => AppAction::NewWorkspace {
@@ -952,6 +968,23 @@ impl NativeWindowApp {
             },
             action => action,
         }
+    }
+
+    fn implicit_child_launch(&self, source_pane: rssh_core::PaneId) -> Option<PaneLaunch> {
+        let source_launch = self
+            .app_shell
+            .workspaces()
+            .iter()
+            .flat_map(rssh_core::app_shell::Workspace::tabs)
+            .flat_map(rssh_core::app_shell::Tab::panes)
+            .find(|pane| pane.id() == source_pane)
+            .map(rssh_core::app_shell::Pane::launch);
+        if let Some(source_launch) = source_launch
+            && matches!(source_launch.domain(), PaneLaunchDomain::Ssh(_))
+        {
+            return Some(source_launch.for_child_pane());
+        }
+        self.default_prog_launch()
     }
 
     fn default_prog_launch(&self) -> Option<PaneLaunch> {
@@ -997,6 +1030,12 @@ impl NativeWindowApp {
         previous_default_ssh_auth_sock: Option<&str>,
     ) {
         if self.session.is_some() || !self.app_shell_is_initial_startup_shape() {
+            return;
+        }
+        if matches!(
+            self.app_shell.active_pane().launch().domain(),
+            PaneLaunchDomain::Ssh(_)
+        ) {
             return;
         }
         let mut command = self.startup_command.clone();
@@ -1692,6 +1731,13 @@ impl NativeWindowApp {
             .iter()
             .map(rssh_core::app_shell::Pane::id)
             .collect::<Vec<_>>();
+        let pending_local_worker_panes = self.runtime.worker().map_or_else(Vec::new, |worker| {
+            pending_panes
+                .iter()
+                .copied()
+                .filter(|pane| worker.contains_pane(*pane))
+                .collect::<Vec<_>>()
+        });
         let startup_command = self.pending_window_startup_command(&pending_window)?;
         let mut runtime = self
             .pane_runtimes
@@ -1700,6 +1746,7 @@ impl NativeWindowApp {
         runtime.ui.prepare_for_new_window();
         let mut inactive_pane_runtimes = Vec::new();
         let mut pending_bell_counts = Vec::new();
+        let mut pending_ssh_auxiliary = Vec::new();
         for pane_id in pending_panes {
             if pane_id != active_pane
                 && let Some(mut inactive_runtime) = self.pane_runtimes.remove(&pane_id)
@@ -1710,6 +1757,10 @@ impl NativeWindowApp {
             if let Some(bell_count) = self.pane_bell_counts.remove(&pane_id) {
                 pending_bell_counts.push((pane_id, bell_count));
             }
+            pending_ssh_auxiliary.push((
+                pane_id,
+                self.take_ssh_pane_auxiliary_state(pane_id),
+            ));
         }
         let app_shell = AppShell::from_pending_window(pending_window);
         let mut detached_app = Self::new_with_command_and_osc52_policy(
@@ -1789,6 +1840,16 @@ impl NativeWindowApp {
         for (pane_id, bell_count) in pending_bell_counts {
             detached_app.pane_bell_counts.insert(pane_id, bell_count);
         }
+        for (pane_id, auxiliary) in pending_ssh_auxiliary {
+            detached_app.install_ssh_pane_auxiliary_state(pane_id, auxiliary);
+        }
+        for pane_id in pending_local_worker_panes {
+            if let Some(worker) = self.runtime.worker_mut()
+                && let Err(error) = worker.retire_pane_transport(pane_id)
+            {
+                eprintln!("failed to retire pending-window source pane worker: {error}");
+            }
+        }
         detached_app.apply_window_title();
         Some(detached_app)
     }
@@ -1798,6 +1859,8 @@ impl NativeWindowApp {
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
     )]
     fn inherit_effective_config_from(&mut self, source: &Self) {
+        self.set_renderer_mode(source.renderer_mode);
+        self.set_benchmark_startup(source.benchmark_startup);
         self.applied_config = Arc::clone(&source.applied_config);
         self.base_config_overrides
             .clone_from(&source.base_config_overrides);
@@ -1968,7 +2031,9 @@ impl NativeWindowApp {
                 self.pane_runtimes
                     .insert(previous_active_pane, previous_runtime);
             } else {
+                self.stop_local_runtime_for_pane(previous_active_pane);
                 self.cancel_ssh_runtime(previous_active_pane);
+                self.retire_ssh_connection_state(previous_active_pane);
                 let mut previous_runtime = previous_runtime;
                 let cleanup = previous_runtime.close();
                 report_pane_pty_cleanup("removed pane PTY cleanup", &cleanup);
@@ -1998,11 +2063,26 @@ impl NativeWindowApp {
             .copied()
             .collect::<Vec<_>>();
         for pane_id in retired_panes {
+            self.stop_local_runtime_for_pane(pane_id);
             self.cancel_ssh_runtime(pane_id);
+            self.retire_ssh_connection_state(pane_id);
             if let Some(mut runtime) = self.pane_runtimes.remove(&pane_id) {
                 let cleanup = runtime.close();
                 report_pane_pty_cleanup("retired pane PTY cleanup", &cleanup);
             }
+        }
+        let retired_ssh_panes = self
+            .ssh_connection_states
+            .keys()
+            .chain(self.ssh_writer_senders.keys())
+            .chain(self.ssh_writer_cancellations.keys())
+            .chain(self.ssh_connection_cancellations.keys())
+            .filter(|pane_id| !valid_pane_ids.contains(pane_id))
+            .copied()
+            .collect::<HashSet<_>>();
+        for pane_id in retired_ssh_panes {
+            self.cancel_ssh_runtime(pane_id);
+            self.retire_ssh_connection_state(pane_id);
         }
         self.pane_bell_counts
             .retain(|pane_id, _| valid_pane_ids.contains(pane_id));
@@ -2055,6 +2135,7 @@ impl NativeWindowApp {
         let reader_thread = self.reader_thread.take();
         let writer_thread = self.writer_thread.take();
         let runtime_generation = std::mem::replace(&mut self.active_runtime_generation, 0);
+        let transport = self.active_runtime_transport.take();
         let ui = std::mem::take(&mut self.active_ui);
         self.clear_derived_selection_projection_for_shell_action();
 
@@ -2081,6 +2162,7 @@ impl NativeWindowApp {
 
         PaneRuntime {
             runtime: old_runtime,
+            transport,
             session,
             session_process_id,
             session_tty_name,
@@ -2099,6 +2181,7 @@ impl NativeWindowApp {
         let snapshot = terminal_runtime_snapshot(&runtime, PaneStableViewport::default());
         PaneRuntime {
             runtime,
+            transport: None,
             session: None,
             session_process_id: None,
             session_tty_name: None,
@@ -2147,9 +2230,11 @@ impl NativeWindowApp {
         self.reader_thread = runtime.reader_thread.take();
         self.writer_thread = runtime.writer_thread.take();
         self.active_runtime_generation = runtime.runtime_generation;
+        self.active_runtime_transport = runtime.transport;
         self.active_ui = std::mem::take(&mut runtime.ui);
         let active = self.app_shell.active_pane_id();
         if let Some(worker) = self.runtime.worker_mut()
+            && worker.contains_pane(active)
             && let Err(error) = worker.activate_pane(active)
         {
             eprintln!("runtime V2 active-pane routing error: {error}");
@@ -2166,7 +2251,7 @@ impl NativeWindowApp {
     }
 
     fn spawn_active_pane_runtime_if_needed(&mut self) {
-        if self.session.is_some() || self.runtime.worker().is_some() {
+        if self.active_pane_transport_is_started() {
             return;
         }
 
@@ -2192,6 +2277,32 @@ impl NativeWindowApp {
                 self.writer_thread = None;
             }
         }
+    }
+
+    fn active_pane_transport_is_started(&self) -> bool {
+        let active = self.app_shell.active_pane_id();
+        self.session.is_some()
+            || self.writer.is_some()
+            || self.ssh_writer_senders.contains_key(&active)
+            || self
+                .runtime
+                .worker()
+                .is_some_and(|runtime| runtime.contains_pane(active))
+    }
+
+    fn handle_transport_start_error(&mut self, error: &dyn std::fmt::Display) -> bool {
+        let active = self.app_shell.active_pane_id();
+        if matches!(
+            self.app_shell.active_pane().launch().domain(),
+            PaneLaunchDomain::Ssh(_)
+        ) {
+            eprintln!("deferred SSH transport start error: {error}");
+            self.cancel_ssh_runtime(active);
+            self.handle_ssh_state(active, ConnectionState::Failed);
+            return false;
+        }
+        eprintln!("deferred local transport start error: {error}");
+        true
     }
 
     fn command_palette_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
@@ -4126,9 +4237,14 @@ impl NativeWindowApp {
             return Err(AppShellError::UnsupportedAction);
         }
 
-        let mut launch = self
-            .default_prog_launch()
-            .unwrap_or_else(|| self.app_shell.active_pane().launch().for_child_pane());
+        let inherited = self.app_shell.active_pane().launch().for_child_pane();
+        let mut launch = if options.domain.is_none()
+            && matches!(inherited.domain(), PaneLaunchDomain::Ssh(_))
+        {
+            inherited
+        } else {
+            self.default_prog_launch().unwrap_or(inherited)
+        };
         if let Some(cwd) = options.cwd {
             launch = launch.with_cwd(cwd);
         }
@@ -7225,9 +7341,9 @@ impl NativeWindowApp {
         if chrome_policy.rounded_corners {
             window.set_corner_preference(CornerPreference::Round);
         }
-        self.apply_window_scale_factor(
-            test_window_scale_factor().unwrap_or_else(|| window.scale_factor()),
-        );
+        self.apply_window_scale_factor(startup_window_scale_factor(
+            self.benchmark_startup, window.scale_factor(),
+        ));
         let size = window
             .request_inner_size(self.initial_frame_size())
             .unwrap_or_else(|| window.inner_size());
@@ -7278,7 +7394,7 @@ impl NativeWindowApp {
             matches!(self.front_end, NativeRenderFrontEnd::Software),
         );
         pollster::block_on(WindowGpu::new(
-            event_loop,
+            event_loop.owned_display_handle(),
             window,
             size,
             high_performance,
@@ -7296,19 +7412,132 @@ impl NativeWindowApp {
         }
 
         self.presentation_owner = PresentationOwner::GpuInitializing;
+        self.deferred_gpu_generation = self.deferred_gpu_generation.saturating_add(1);
+        let generation = self.deferred_gpu_generation;
         self.metrics.mark_gpu_started();
-        match self.initialize_gpu(event_loop) {
-            Ok(gpu) => {
-                self.gpu = Some(Box::new(gpu));
-                self.metrics.mark_gpu_finished();
-                self.metrics.mark_renderer(RendererKind::Gpu);
-                self.presentation_owner = PresentationOwner::GpuActive;
-            }
+        let Some(window) = self.window.clone() else {
+            self.metrics.mark_gpu_finished();
+            eprintln!("deferred GPU initialization failed; using CPU renderer: window closed");
+            self.activate_cpu_fallback();
+            return;
+        };
+        let Some(event_proxy) = self.event_proxy.clone() else {
+            self.metrics.mark_gpu_finished();
+            eprintln!(
+                "deferred GPU initialization failed; using CPU renderer: event proxy unavailable"
+            );
+            self.activate_cpu_fallback();
+            return;
+        };
+        let display = event_loop.owned_display_handle();
+        let surface_size = window.inner_size();
+        let high_performance = matches!(
+            self.webgpu_power_preference,
+            NativeWebGpuPowerPreference::HighPerformance
+        );
+        let force_fallback_adapter = effective_force_fallback_adapter(
+            self.webgpu_force_fallback_adapter,
+            matches!(self.front_end, NativeRenderFrontEnd::Software),
+        );
+        let prepared_gpu = match WindowGpu::prepare(
+            display,
+            window,
+            surface_size,
+            high_performance,
+            force_fallback_adapter,
+        ) {
+            Ok(prepared) => prepared,
             Err(error) => {
                 self.metrics.mark_gpu_finished();
                 eprintln!("deferred GPU initialization failed; using CPU renderer: {error}");
-                self.presentation_owner = PresentationOwner::CpuFallback;
+                self.activate_cpu_fallback();
+                return;
             }
+        };
+        let window_id = self.app_window_id;
+        let task_name = format!("rssh-gpu-init-{window_id:?}");
+        if let Err(error) = spawn_deferred_gpu_task(task_name, move || {
+            let outcome = if test_deferred_gpu_init_failure() {
+                DeferredGpuInitialization::Failed(
+                    "injected deferred GPU initialization failure".to_owned(),
+                )
+            } else {
+                match pollster::block_on(WindowGpu::finish_prepared(prepared_gpu)) {
+                    Ok(gpu) => DeferredGpuInitialization::Ready(Box::new(gpu)),
+                    Err(error) => DeferredGpuInitialization::Failed(error.to_string()),
+                }
+            };
+            let _ = event_proxy.send_event(WindowUserEvent::DeferredGpuInitialized {
+                window_id,
+                generation,
+                outcome,
+            });
+        }) {
+            self.metrics.mark_gpu_finished();
+            eprintln!("deferred GPU initialization failed; using CPU renderer: {error}");
+            self.activate_cpu_fallback();
+        }
+    }
+
+    fn handle_deferred_gpu_initialized(
+        &mut self,
+        generation: u64,
+        outcome: DeferredGpuInitialization,
+    ) -> bool {
+        if generation != self.deferred_gpu_generation
+            || self.renderer_mode != RendererMode::Auto
+            || self.presentation_owner != PresentationOwner::GpuInitializing
+        {
+            return false;
+        }
+
+        self.metrics.mark_gpu_finished();
+        match outcome {
+            DeferredGpuInitialization::Ready(mut gpu) => {
+                let Some(current_size) = self.window.as_ref().map(|window| window.inner_size())
+                else {
+                    eprintln!(
+                        "deferred GPU initialization finished after the window closed; using CPU renderer"
+                    );
+                    self.activate_cpu_fallback();
+                    return true;
+                };
+                match resize_deferred_gpu_candidate_for_install(current_size, |size| {
+                    gpu.resize_surface(size)
+                }) {
+                    Ok(owner) => {
+                        self.gpu = Some(gpu);
+                        self.presentation_owner = owner;
+                        self.pending_frame_damage.clear();
+                        self.frame_needs_full_repaint = true;
+                        if let Some(window) = self.window.as_ref() {
+                            window.request_redraw();
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "deferred GPU surface resize failed; using CPU renderer: {error}"
+                        );
+                        self.activate_cpu_fallback();
+                    }
+                }
+            }
+            DeferredGpuInitialization::Failed(error) => {
+                eprintln!("deferred GPU initialization failed; using CPU renderer: {error}");
+                self.activate_cpu_fallback();
+            }
+        }
+        true
+    }
+
+    fn activate_cpu_fallback(&mut self) {
+        self.gpu = None;
+        self.metrics.mark_renderer(RendererKind::Cpu);
+        self.presentation_owner = deferred_gpu_initialization_owner(false);
+        self.pending_frame_damage.clear();
+        self.frame_needs_full_repaint = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
         }
     }
 
@@ -7359,7 +7588,15 @@ impl NativeWindowApp {
             }
             return;
         }
-        if self.presentation_owner != PresentationOwner::GpuActive {
+        let gpu_ready_to_present = self.presentation_owner == PresentationOwner::GpuActive
+            || (self.presentation_owner == PresentationOwner::GpuInitializing
+                && self.gpu.is_some());
+        if !gpu_ready_to_present {
+            if test_ssh_gui_frame_limit().is_some()
+                && self.presentation_owner == PresentationOwner::GpuInitializing
+            {
+                return;
+            }
             self.draw_cpu_frame(event_loop, &snapshot, scrollbar, geometry, placement);
             return;
         }
@@ -7368,7 +7605,10 @@ impl NativeWindowApp {
             self.frame_needs_full_repaint = true;
         }
         let started = Instant::now();
-        let mode = if self.frame_needs_full_repaint || self.pending_frame_damage.is_empty() {
+        let mode = if self.presentation_owner == PresentationOwner::GpuInitializing
+            || self.frame_needs_full_repaint
+            || self.pending_frame_damage.is_empty()
+        {
             FrameRenderMode::Full
         } else {
             FrameRenderMode::Damage
@@ -7397,6 +7637,10 @@ impl NativeWindowApp {
         } else {
             Ok(GpuFrameStatus::Skipped)
         };
+        let frame_status = outcome
+            .as_ref()
+            .copied()
+            .unwrap_or(GpuFrameStatus::Skipped);
         let host_state = &mut self.interaction_state.host_state;
         let presented = match finalize_native_gpu_frame(
             outcome,
@@ -7407,17 +7651,19 @@ impl NativeWindowApp {
             Err(error) => {
                 eprintln!("render error: {error}");
                 if self.bootstrap_surface.is_some() {
-                    self.presentation_owner = PresentationOwner::CpuFallback;
-                    self.gpu = None;
-                    if let Some(window) = self.window.as_ref() {
-                        window.request_redraw();
-                    }
+                    self.activate_cpu_fallback();
                 } else {
                     event_loop.exit();
                 }
                 return;
             }
         };
+
+        if presented && self.rendered_frames == 0 {
+            self.metrics.record_first_present(RendererKind::Gpu);
+            self.metrics
+                .record_first_frame_private_bytes(current_process_private_bytes());
+        }
 
         if presented {
             let missing_glyphs = self
@@ -7435,20 +7681,24 @@ impl NativeWindowApp {
         }
         self.metrics.record_frame_render_mode(mode);
         self.rendered_frames = self.rendered_frames.saturating_add(1);
+        let previous_owner = self.presentation_owner;
+        self.presentation_owner =
+            presentation_owner_after_gpu_frame(self.presentation_owner, frame_status);
+        if previous_owner != PresentationOwner::GpuActive
+            && self.presentation_owner == PresentationOwner::GpuActive
+        {
+            self.metrics.mark_renderer(RendererKind::Gpu);
+        }
         if self.presentation_owner == PresentationOwner::GpuActive {
             // Keep the softbuffer surface (but release the RGBA staging
             // vector) as a recoverable presentation path.  A later device or
             // surface failure can therefore switch back to CPU without a
             // white frame or an event-loop restart.
-            self.bootstrap_frame.clear();
+            release_bootstrap_staging_after_gpu_activation(&mut self.bootstrap_frame);
         }
-        if self.rendered_frames == 1 {
-            self.metrics
-                .record_first_present(RendererKind::Gpu, current_process_private_bytes());
-            if self.benchmark_startup {
-                event_loop.exit();
-                return;
-            }
+        if self.rendered_frames == 1 && self.benchmark_startup {
+            event_loop.exit();
+            return;
         }
         if self.rendered_frames == 1
             && let Some(size) = test_resize_after_first_present()
@@ -7533,12 +7783,15 @@ impl NativeWindowApp {
             event_loop.exit();
             return;
         }
+        if self.rendered_frames == 0 {
+            self.metrics.record_first_present(RendererKind::Cpu);
+            self.metrics
+                .record_first_frame_private_bytes(current_process_private_bytes());
+        }
         self.metrics.record_render_frame(started.elapsed());
         self.metrics.record_frame_render_mode(mode);
         self.rendered_frames = self.rendered_frames.saturating_add(1);
         if self.rendered_frames == 1 {
-            self.metrics
-                .record_first_present(RendererKind::Cpu, current_process_private_bytes());
             if self.benchmark_startup {
                 event_loop.exit();
                 return;
@@ -7560,8 +7813,8 @@ impl NativeWindowApp {
                 PaneLaunchDomain::Ssh(_)
             )
             && let Err(error) = self.spawn_pty()
+            && self.handle_transport_start_error(error.as_ref())
         {
-            eprintln!("deferred SSH transport start error: {error}");
             event_loop.exit();
             return;
         }
@@ -7724,6 +7977,12 @@ impl NativeWindowApp {
     }
 
     fn frame_limit_redraw_pending(&self) -> bool {
+        if test_ssh_gui_frame_limit().is_some()
+            && self.presentation_owner == PresentationOwner::GpuInitializing
+            && self.gpu.is_none()
+        {
+            return false;
+        }
         self.frame_limit.is_some_and(|limit| {
             let target = if self.metrics.pty_linkage_enabled
                 && !self.metrics.terminal_linkage_nonce_found

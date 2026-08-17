@@ -307,6 +307,15 @@ impl<T: NativeConfigProjection> NativeConfigLifecycle<T> {
             .attempt_reload(|source| parse_loaded_native_config_document(source, &self.cli))
     }
 
+    pub(crate) fn reload_task(&self) -> impl FnOnce() -> NativeConfigLoadAttempt<T> + Send + 'static
+    where
+        T: Send + Sync + 'static,
+    {
+        let core = self.core.clone();
+        let cli = self.cli.clone();
+        move || core.attempt_reload(|source| parse_loaded_native_config_document(source, &cli))
+    }
+
     pub(crate) fn validated_cli(&self) -> &[StaticNativeConfigAssignment] {
         self.cli.as_slice()
     }

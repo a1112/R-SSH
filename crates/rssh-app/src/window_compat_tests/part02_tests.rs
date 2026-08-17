@@ -473,6 +473,131 @@
     }
 
     #[test]
+    fn deferred_gpu_ready_remains_initializing_until_a_presented_frame() {
+        assert_eq!(
+            deferred_gpu_initialization_owner(true),
+            PresentationOwner::GpuInitializing
+        );
+        assert_eq!(
+            presentation_owner_after_gpu_frame(
+                PresentationOwner::GpuInitializing,
+                GpuFrameStatus::Skipped,
+            ),
+            PresentationOwner::GpuInitializing
+        );
+        assert_eq!(
+            presentation_owner_after_gpu_frame(
+                PresentationOwner::GpuInitializing,
+                GpuFrameStatus::Presented,
+            ),
+            PresentationOwner::GpuActive
+        );
+    }
+
+    #[test]
+    fn gpu_activation_releases_bootstrap_staging_and_cpu_fallback_can_reallocate() {
+        let mut bootstrap_frame = Vec::with_capacity(4_096);
+        bootstrap_frame.resize(4_096, 0xaa);
+
+        super::release_bootstrap_staging_after_gpu_activation(&mut bootstrap_frame);
+
+        assert!(bootstrap_frame.is_empty());
+        assert_eq!(bootstrap_frame.capacity(), 0);
+
+        bootstrap_frame.resize(256, 0);
+        assert_eq!(bootstrap_frame.len(), 256);
+        assert!(bootstrap_frame.capacity() >= 256);
+    }
+
+    #[test]
+    fn deferred_gpu_initialization_failure_selects_cpu_fallback() {
+        assert_eq!(
+            deferred_gpu_initialization_owner(false),
+            PresentationOwner::CpuFallback
+        );
+    }
+
+    #[test]
+    fn deferred_gpu_candidate_resizes_to_the_latest_window_size_before_install() {
+        let latest_size = PhysicalSize::new(1_280, 720);
+        let mut observed_size = None;
+
+        let owner = super::resize_deferred_gpu_candidate_for_install(latest_size, |size| {
+            observed_size = Some(size);
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+
+        assert_eq!(observed_size, Some(latest_size));
+        assert_eq!(owner, PresentationOwner::GpuInitializing);
+    }
+
+    #[test]
+    fn deferred_gpu_candidate_resize_failure_selects_cpu_fallback() {
+        let result = super::resize_deferred_gpu_candidate_for_install(
+            PhysicalSize::new(1_280, 720),
+            |_| Err("resize failed"),
+        );
+
+        assert_eq!(result, Err("resize failed"));
+        assert_eq!(
+            deferred_gpu_initialization_owner(result.is_ok()),
+            PresentationOwner::CpuFallback
+        );
+    }
+
+    #[test]
+    fn deferred_gpu_worker_runs_off_the_event_loop_thread() {
+        let event_loop_thread = thread::current().id();
+        let (worker_thread_sender, worker_thread_receiver) = mpsc::channel();
+
+        super::spawn_deferred_gpu_task("rssh-test-gpu-init".to_owned(), move || {
+            worker_thread_sender.send(thread::current().id()).unwrap();
+        })
+        .unwrap();
+
+        assert_ne!(
+            worker_thread_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap(),
+            event_loop_thread
+        );
+    }
+
+    #[test]
+    fn deferred_gpu_completion_ignores_stale_results_and_falls_back_on_current_failure() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_renderer_mode(super::RendererMode::Auto);
+        app.presentation_owner = PresentationOwner::GpuInitializing;
+        app.deferred_gpu_generation = 7;
+        app.frame_needs_full_repaint = false;
+        app.metrics
+            .startup_trace
+            .mark_renderer(super::RendererKind::Gpu);
+
+        assert!(!app.handle_deferred_gpu_initialized(
+            6,
+            super::DeferredGpuInitialization::Failed("stale".to_owned()),
+        ));
+        assert_eq!(
+            app.presentation_owner,
+            PresentationOwner::GpuInitializing
+        );
+        assert!(!app.frame_needs_full_repaint);
+
+        assert!(app.handle_deferred_gpu_initialized(
+            7,
+            super::DeferredGpuInitialization::Failed("current".to_owned()),
+        ));
+        assert_eq!(app.presentation_owner, PresentationOwner::CpuFallback);
+        assert!(app.frame_needs_full_repaint);
+        assert_eq!(
+            app.metrics.startup_trace.snapshot().final_renderer,
+            Some(super::RendererKind::Cpu)
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_background_color_for_framebuffer() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -6025,4 +6150,3 @@ return config
             );
         }
     }
-

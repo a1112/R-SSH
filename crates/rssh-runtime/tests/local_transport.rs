@@ -1,11 +1,12 @@
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
-use rssh_core::TerminalSize;
+use rssh_core::{PaneId, TerminalSize};
 use rssh_pty::PtyCommand;
 use rssh_runtime::{
-    LocalPtyTransport, RuntimeBuffers, RuntimeEffectRef, SessionControl, SessionInterrupt,
-    SessionTransport, TerminalRuntime,
+    LocalPtyTransport, PaneNotice, PaneWorkerConfig, RuntimeBuffers, RuntimeEffectKind,
+    RuntimeEffectRef, RuntimeHub, SessionControl, SessionInterrupt, SessionTransport, SystemClock,
+    TerminalRuntime,
 };
 
 #[test]
@@ -90,4 +91,63 @@ fn local_adapter_interrupt_is_idempotent_and_releases_a_live_process() {
         std::thread::yield_now();
     }
     parts.control.begin_close().expect("close interrupted PTY");
+}
+
+#[cfg(windows)]
+#[test]
+fn local_powershell_tail_reaches_runtime_before_closed_notice() {
+    let marker = "RSSH-LINK-BEGIN|runtime-tail|RSSH-LINK-END";
+    let command = PtyCommand::new("powershell.exe")
+        .with_args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$bytes=[Text.Encoding]::UTF8.GetBytes($env:RSSH_TEST_MARKER); \
+             $stdout=[Console]::OpenStandardOutput(); \
+             $stdout.Write($bytes,0,$bytes.Length)",
+        ])
+        .with_env("RSSH_TEST_MARKER", marker);
+    let transport =
+        LocalPtyTransport::spawn(&command, TerminalSize::new(80, 24)).expect("spawn marker PTY");
+    let mut hub = RuntimeHub::new(SystemClock);
+    let handle = hub
+        .open(
+            PaneId::new(41),
+            transport,
+            PaneWorkerConfig {
+                capture_host_stream: true,
+                ..PaneWorkerConfig::default()
+            },
+        )
+        .expect("open local marker runtime");
+    let token = handle.token();
+    let mut output = Vec::new();
+
+    loop {
+        match hub.recv_notice().expect("runtime notice") {
+            PaneNotice::Wake(pane) if pane == token => {
+                let drain = hub.drain_pane(token, usize::MAX).expect("drain marker");
+                output.extend(
+                    drain
+                        .effects
+                        .iter()
+                        .filter_map(|effect| match effect.effect.kind() {
+                            RuntimeEffectKind::HostStream(bytes) => Some(bytes.as_slice()),
+                            _ => None,
+                        })
+                        .flatten()
+                        .copied(),
+                );
+            }
+            PaneNotice::Closed { pane, .. } if pane == token => break,
+            _ => {}
+        }
+    }
+
+    assert!(
+        String::from_utf8_lossy(&output).contains(marker),
+        "runtime output omitted PowerShell tail: {output:?}"
+    );
+    hub.shutdown();
 }

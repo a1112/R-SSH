@@ -115,6 +115,19 @@ impl TerminalRuntime {
         runtime
     }
 
+    /// Creates a fresh parser/runtime owner around an existing presentation.
+    ///
+    /// This is used when a transport must be restarted under a new owner while
+    /// preserving the pane's terminal grid and scrollback. Parser/filter state
+    /// starts fresh because the replacement transport is a new session.
+    #[must_use]
+    pub fn from_terminal(terminal: Terminal) -> Self {
+        let size = terminal.grid().size();
+        let mut runtime = Self::new(size);
+        runtime.terminal = terminal;
+        runtime
+    }
+
     #[must_use]
     pub fn new_with_query_scan_work(size: TerminalSize) -> Self {
         let mut runtime = Self::new(size);

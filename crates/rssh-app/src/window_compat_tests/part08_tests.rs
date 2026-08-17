@@ -316,6 +316,283 @@
         assert!(!detached.active_ui.overlay_active());
     }
 
+    fn install_local_v2_worker_for_window_transfer(
+        app: &mut NativeWindowApp,
+        pane: rssh_core::PaneId,
+    ) -> rssh_runtime::testing::ScriptedSessionDriver {
+        let size = app
+            .pane_runtime_ref(pane)
+            .expect("transfer pane presentation")
+            .terminal()
+            .grid()
+            .size();
+        let (transport, driver) = rssh_runtime::testing::ScriptedTransport::new(
+            [rssh_runtime::testing::ReadAction::Block],
+            [rssh_runtime::testing::WriteAction::accept(usize::MAX)],
+            [],
+        );
+        let worker = crate::runtime_composition::WindowPaneRuntime::open_transport(
+            crate::runtime_composition::PaneRuntimeRoute {
+                window: app.app_window_id,
+                pane,
+            },
+            transport,
+            size,
+            rssh_runtime::TerminalRuntime::new(size),
+            crate::runtime_composition::PaneCapturePolicy {
+                host_stream: false,
+                visible_output: false,
+            },
+            Arc::new(|| {}),
+        )
+        .expect("source local worker");
+        app.runtime.install_worker(Some(worker));
+        app.active_runtime_transport = Some(PaneRuntimeTransportKind::LocalPty);
+        driver.wait_until_reader_blocked();
+        driver
+    }
+
+    fn install_restarted_local_worker_after_window_transfer(
+        app: &mut NativeWindowApp,
+        pane: rssh_core::PaneId,
+    ) -> rssh_runtime::testing::ScriptedSessionDriver {
+        let (transport, driver) = rssh_runtime::testing::ScriptedTransport::new(
+            [rssh_runtime::testing::ReadAction::Block],
+            std::iter::repeat_n(
+                rssh_runtime::testing::WriteAction::accept(usize::MAX),
+                4,
+            ),
+            [],
+        );
+        app.install_transferred_local_transport(
+            pane,
+            transport,
+            None,
+            None,
+            Arc::new(|| {}),
+        )
+        .expect("restart transferred local worker");
+        driver.wait_until_reader_blocked();
+        driver
+    }
+
+    fn publish_restarted_local_output(
+        app: &mut NativeWindowApp,
+        driver: &rssh_runtime::testing::ScriptedSessionDriver,
+        pane: rssh_core::PaneId,
+        bytes: &'static [u8],
+        expected: &str,
+    ) {
+        let write_barrier = b"target-output-barrier";
+        let accepted_before = driver.accepted_writes().len();
+        driver.push_reads([
+            rssh_runtime::testing::ReadAction::bytes(bytes),
+            rssh_runtime::testing::ReadAction::Block,
+        ]);
+        app.write_pty_bytes_to_pane(pane, write_barrier)
+            .expect("target output barrier input");
+        driver.wait_until_accepted_write_len(accepted_before + write_barrier.len());
+        driver.wait_until_reader_blocked();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            app.poll_active_v2_runtime()
+                .expect("poll restarted target local worker");
+            let actual = snapshot_row_text(
+                &app.snapshot,
+                0,
+                u16::try_from(expected.len()).unwrap(),
+            );
+            if actual == expected {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "restarted target output did not reach the preserved presentation: \
+                 expected={expected:?}, actual={actual:?}, worker_needs_poll={:?}",
+                app.runtime
+                    .worker()
+                    .map(crate::runtime_composition::WindowPaneRuntime::needs_poll)
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn pending_window_transfer_retires_the_source_local_worker() {
+        let mut source = NativeWindowApp::new(None);
+        source.handle_pty_output(b"pending-local-scrollback").unwrap();
+        source
+            .handle_pty_output(b"\x1b]7;file://host/pending-transfer-cwd\x07")
+            .unwrap();
+        let moved_pane = source.active_pane_id();
+        let source_driver =
+            install_local_v2_worker_for_window_transfer(&mut source, moved_pane);
+        source
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: moved_pane,
+                direction: SplitDirection::Right,
+                launch: Some(PaneLaunch::local("source-stays")),
+            })
+            .unwrap();
+        source
+            .dispatch_app_action(AppAction::MovePaneToNewWindow { pane: moved_pane })
+            .unwrap();
+
+        let mut detached = source
+            .take_next_pending_window_app()
+            .expect("pending local window");
+
+        assert!(
+            source
+                .runtime
+                .worker()
+                .is_none_or(|worker| !worker.contains_pane(moved_pane)),
+            "the source hub must not retain a moved local transport"
+        );
+        assert!(source_driver.interrupt_calls() > 0);
+        assert_eq!(detached.active_pane_id(), moved_pane);
+        assert_eq!(
+            detached.app_shell.active_pane().launch().cwd(),
+            Some("file://host/pending-transfer-cwd")
+        );
+        assert_eq!(
+            snapshot_row_text(
+                &detached.snapshot,
+                0,
+                u16::try_from("pending-local-scrollback".len()).unwrap(),
+            ),
+            "pending-local-scrollback"
+        );
+        let target_driver =
+            install_restarted_local_worker_after_window_transfer(&mut detached, moved_pane);
+        detached
+            .write_pty_bytes_to_pane(moved_pane, b"pending-target-input")
+            .unwrap();
+        target_driver.wait_until_accepted_write_len("pending-target-input".len());
+        assert_eq!(target_driver.accepted_writes(), b"pending-target-input");
+        let resized = TerminalSize::new(91, 31);
+        detached.resize_terminal_runtimes(resized).unwrap();
+        target_driver.wait_until_control_call_count(1);
+        assert_eq!(target_driver.control_log().resizes, vec![resized]);
+        assert!(source_driver.accepted_writes().is_empty());
+        publish_restarted_local_output(
+            &mut detached,
+            &target_driver,
+            moved_pane,
+            b"-continued",
+            "pending-local-scrollback-continued",
+        );
+        assert_eq!(
+            snapshot_row_text(
+                &detached.snapshot,
+                0,
+                u16::try_from("pending-local-scrollback-continued".len()).unwrap(),
+            ),
+            "pending-local-scrollback-continued"
+        );
+    }
+
+    #[test]
+    fn window_app_pending_ssh_window_moves_all_auxiliary_ownership() {
+        let mut source = NativeWindowApp::new(None);
+        source.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            "ops@pending-transfer.example:2222",
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::Prompt,
+        )));
+        let ssh_pane = source.active_pane_id();
+        let secret = "pending-window-transfer-secret";
+        let (command_sender, command_receiver) = mpsc::channel();
+        let (decision_sender, decision_receiver) = mpsc::sync_channel(1);
+        let (response_sender, response_receiver) = mpsc::sync_channel(1);
+        source
+            .ssh_writer_senders
+            .insert(ssh_pane, command_sender);
+        source.ssh_connection_states.insert(
+            ssh_pane,
+            super::ConnectionState::AwaitingSecret,
+        );
+        source.ssh_host_key_prompts.insert(
+            ssh_pane,
+            (
+                rssh_ssh::HostKeyChallenge::new(
+                    "pending-transfer.example",
+                    2222,
+                    "ssh-ed25519",
+                    "SHA256:pending-transfer",
+                    rssh_ssh::HostKeyStatus::Unknown,
+                ),
+                decision_sender,
+            ),
+        );
+        source.ssh_secret_prompts.insert(
+            ssh_pane,
+            super::SshSecretPromptState {
+                prompt: rssh_ssh::SecretPrompt::password("ops"),
+                response: response_sender,
+                input: secret.to_owned(),
+            },
+        );
+
+        source
+            .dispatch_app_action(AppAction::SplitPane {
+                pane: ssh_pane,
+                direction: SplitDirection::Right,
+                launch: Some(PaneLaunch::local("local-shell")),
+            })
+            .unwrap();
+        source
+            .dispatch_app_action(AppAction::MovePaneToNewWindow { pane: ssh_pane })
+            .unwrap();
+        let mut detached = source
+            .take_next_pending_window_app()
+            .expect("pending SSH window");
+
+        assert!(!source.ssh_writer_senders.contains_key(&ssh_pane));
+        assert!(!source.ssh_connection_states.contains_key(&ssh_pane));
+        assert!(!source.ssh_host_key_prompts.contains_key(&ssh_pane));
+        assert!(!source.ssh_secret_prompts.contains_key(&ssh_pane));
+        assert!(detached.ssh_writer_senders.contains_key(&ssh_pane));
+        assert_eq!(
+            detached.ssh_connection_state_for_pane(ssh_pane),
+            super::ConnectionState::AwaitingSecret
+        );
+        assert!(detached.ssh_host_key_prompts.contains_key(&ssh_pane));
+        assert!(detached.ssh_secret_prompts.contains_key(&ssh_pane));
+        assert!(
+            detached
+                .effective_window_title()
+                .contains("ops@pending-transfer.example:2222 [awaiting_secret]")
+        );
+        assert_eq!(
+            detached.metrics.connection_state(),
+            super::ConnectionState::AwaitingSecret
+        );
+
+        drop(source);
+        detached
+            .ssh_writer_senders
+            .get(&ssh_pane)
+            .unwrap()
+            .send(super::NativeSshCommand::Resize(TerminalSize::new(132, 43)))
+            .unwrap();
+        assert!(matches!(
+            command_receiver.recv().unwrap(),
+            super::NativeSshCommand::Resize(size) if size == TerminalSize::new(132, 43)
+        ));
+        detached.resolve_host_key_prompt_for_pane(
+            ssh_pane,
+            rssh_ssh::HostKeyDecision::AcceptOnce,
+        );
+        assert_eq!(
+            decision_receiver.recv().unwrap(),
+            rssh_ssh::HostKeyDecision::AcceptOnce
+        );
+        assert!(detached.handle_ssh_prompt_key_event(&Key::Named(NamedKey::Enter), None));
+        assert_eq!(response_receiver.recv().unwrap(), Some(secret.to_owned()));
+    }
+
     #[test]
     fn window_app_multiple_pending_windows_materialize_fifo_without_runtime_crossing() {
         let mut app = NativeWindowApp::new(None);
@@ -5209,6 +5486,43 @@
     }
 
     #[test]
+    fn window_app_wheel_implicit_creation_keeps_hovered_ssh_domain_with_default_prog() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_initial_pane_launch(PaneLaunch::ssh(
+            SshPaneLaunch::new(
+                "ops@example.test:2222",
+                SshAuthDescription::PasswordPrompt,
+                SshKnownHostsPolicy::Prompt,
+            )
+            .with_remote_command(["uptime"]),
+        ));
+        let hovered = app.active_pane_id();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: hovered,
+            direction: SplitDirection::Right,
+            launch: Some(PaneLaunch::local("active-local")),
+        })
+        .unwrap();
+        app.set_config_overrides(native_config_snapshot! {
+            default_prog: Some(vec!["wheel-default-shell".to_owned()]),
+            ..NativeConfigSnapshot::default()
+        });
+
+        assert!(
+            run_wheel_command_on_pane_for_test(&mut app, hovered, WindowCommand::SplitDown)
+                .unwrap()
+        );
+
+        let rssh_core::app_shell::PaneLaunchDomain::Ssh(ssh) =
+            app.app_shell.active_pane().launch().domain()
+        else {
+            panic!("wheel child must inherit the hovered SSH domain");
+        };
+        assert_eq!(ssh.target(), "ops@example.test:2222");
+        assert!(ssh.remote_command().is_empty());
+    }
+
+    #[test]
     fn window_app_wheel_explicit_creation_preserves_program_cwd_and_domain() {
         for command in [
             WindowCommand::SplitPane(WindowSplitPaneOptions {
@@ -6081,6 +6395,239 @@
                 window_id: rssh_core::WindowId::new(2),
                 pane_id: rssh_core::PaneId::new(2),
             })
+        );
+    }
+
+    #[test]
+    fn existing_window_transfer_retires_source_local_worker_and_preserves_projection() {
+        let mut source = NativeWindowApp::new(None);
+        source.handle_pty_output(b"existing-local-scrollback").unwrap();
+        source
+            .handle_pty_output(b"\x1b]7;file://host/existing-transfer-cwd\x07")
+            .unwrap();
+        let source_pane = source.active_pane_id();
+        let source_driver =
+            install_local_v2_worker_for_window_transfer(&mut source, source_pane);
+        source
+            .dispatch_app_action(AppAction::NewTab {
+                launch: Some(PaneLaunch::local("source-stays")),
+            })
+            .unwrap();
+        let mut target = NativeWindowApp::new(None);
+        target.app_window_id = rssh_core::WindowId::new(2);
+        let mut manager = NativeWindowManager::new_for_test(source);
+        manager.pending_apps.push(Box::new(target));
+
+        manager
+            .transfer_tab_between_windows(
+                rssh_core::WindowId::new(1),
+                rssh_core::WindowId::new(2),
+                rssh_core::TabId::new(1),
+                1,
+            )
+            .unwrap();
+
+        let source = manager.startup_app.as_ref().unwrap();
+        assert!(
+            source
+                .runtime
+                .worker()
+                .is_none_or(|worker| !worker.contains_pane(source_pane)),
+            "the source hub must retire the moved local transport"
+        );
+        assert!(source_driver.interrupt_calls() > 0);
+        let target = manager.pending_apps.first().unwrap();
+        let target_pane = target.active_pane_id();
+        assert_ne!(target_pane, source_pane, "import assigns a fresh pane id");
+        assert_eq!(
+            target.app_shell.active_pane().launch().cwd(),
+            Some("file://host/existing-transfer-cwd")
+        );
+        assert_eq!(
+            snapshot_row_text(
+                &target.snapshot,
+                0,
+                u16::try_from("existing-local-scrollback".len()).unwrap(),
+            ),
+            "existing-local-scrollback"
+        );
+        let target = manager.pending_apps.first_mut().unwrap();
+        let target_driver =
+            install_restarted_local_worker_after_window_transfer(target, target_pane);
+        target
+            .write_pty_bytes_to_pane(target_pane, b"existing-target-input")
+            .unwrap();
+        target_driver.wait_until_accepted_write_len("existing-target-input".len());
+        assert_eq!(target_driver.accepted_writes(), b"existing-target-input");
+        let resized = TerminalSize::new(101, 33);
+        target.resize_terminal_runtimes(resized).unwrap();
+        target_driver.wait_until_control_call_count(1);
+        assert_eq!(target_driver.control_log().resizes, vec![resized]);
+        assert!(source_driver.accepted_writes().is_empty());
+        publish_restarted_local_output(
+            target,
+            &target_driver,
+            target_pane,
+            b"-continued",
+            "existing-local-scrollback-continued",
+        );
+        assert_eq!(
+            snapshot_row_text(
+                &target.snapshot,
+                0,
+                u16::try_from("existing-local-scrollback-continued".len()).unwrap(),
+            ),
+            "existing-local-scrollback-continued"
+        );
+    }
+
+    #[test]
+    fn window_manager_remaps_ssh_auxiliary_ownership_with_a_live_tab() {
+        let mut source = NativeWindowApp::new(None);
+        source.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            "ops@managed-transfer.example:2222",
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::Prompt,
+        )));
+        let source_ssh_pane = source.active_pane_id();
+        source.active_runtime_generation = 77;
+        source.handle_ssh_state(source_ssh_pane, super::ConnectionState::Connecting);
+        let (command_sender, command_receiver) = mpsc::channel();
+        source
+            .ssh_writer_senders
+            .insert(source_ssh_pane, command_sender);
+        source
+            .dispatch_app_action(AppAction::NewTab {
+                launch: Some(PaneLaunch::local("local-shell")),
+            })
+            .unwrap();
+        let mut target = NativeWindowApp::new(None);
+        target.app_window_id = rssh_core::WindowId::new(2);
+        let mut manager = NativeWindowManager::new_for_test(source);
+        manager.pending_apps.push(Box::new(target));
+
+        manager
+            .transfer_tab_between_windows(
+                rssh_core::WindowId::new(1),
+                rssh_core::WindowId::new(2),
+                rssh_core::TabId::new(1),
+                1,
+            )
+            .unwrap();
+
+        let source = manager.startup_app.as_ref().unwrap();
+        assert!(!source.ssh_writer_senders.contains_key(&source_ssh_pane));
+        assert!(!source.ssh_connection_states.contains_key(&source_ssh_pane));
+        let target = manager.pending_apps.first().unwrap();
+        let target_ssh_pane = target.active_pane_id();
+        assert_ne!(source_ssh_pane, target_ssh_pane);
+        assert!(target.ssh_writer_senders.contains_key(&target_ssh_pane));
+        assert_eq!(
+            target.ssh_connection_state_for_pane(target_ssh_pane),
+            super::ConnectionState::Connecting
+        );
+        assert_eq!(
+            target.metrics.connection_state(),
+            super::ConnectionState::Connecting
+        );
+        target
+            .ssh_writer_senders
+            .get(&target_ssh_pane)
+            .unwrap()
+            .send(super::NativeSshCommand::Resize(TerminalSize::new(100, 30)))
+            .unwrap();
+        assert!(matches!(
+            command_receiver.recv().unwrap(),
+            super::NativeSshCommand::Resize(size) if size == TerminalSize::new(100, 30)
+        ));
+    }
+
+    #[test]
+    fn window_manager_routes_moved_ssh_events_through_the_target_pane_identity() {
+        let mut source = NativeWindowApp::new(None);
+        source.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            "ops@event-transfer.example:2222",
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::Prompt,
+        )));
+        let source_ssh_pane = source.active_pane_id();
+        source.active_runtime_generation = 77;
+        source.handle_ssh_state(source_ssh_pane, super::ConnectionState::Connecting);
+        source
+            .dispatch_app_action(AppAction::NewTab {
+                launch: Some(PaneLaunch::local("local-shell")),
+            })
+            .unwrap();
+        let mut target = NativeWindowApp::new(None);
+        target.app_window_id = rssh_core::WindowId::new(2);
+        let mut manager = NativeWindowManager::new_for_test(source);
+        manager.pending_apps.push(Box::new(target));
+        manager
+            .transfer_tab_between_windows(
+                rssh_core::WindowId::new(1),
+                rssh_core::WindowId::new(2),
+                rssh_core::TabId::new(1),
+                1,
+            )
+            .unwrap();
+        let target_ssh_pane = manager.pending_apps.first().unwrap().active_pane_id();
+
+        assert_eq!(
+            manager.dispatch_user_event_to_owner(super::WindowUserEvent::SshState {
+                window_id: rssh_core::WindowId::new(1),
+                pane_id: source_ssh_pane,
+                runtime_generation: 77,
+                state: super::ConnectionState::Connected,
+            }),
+            Some(false)
+        );
+        assert_eq!(
+            manager
+                .pending_apps
+                .first()
+                .unwrap()
+                .ssh_connection_state_for_pane(target_ssh_pane),
+            super::ConnectionState::Connected
+        );
+
+        let (decision_sender, _decision_receiver) = mpsc::sync_channel(1);
+        assert_eq!(
+            manager.dispatch_user_event_to_owner(super::WindowUserEvent::HostKeyPrompt {
+                window_id: rssh_core::WindowId::new(1),
+                pane_id: source_ssh_pane,
+                runtime_generation: 77,
+                challenge: rssh_ssh::HostKeyChallenge::new(
+                    "event-transfer.example",
+                    2222,
+                    "ssh-ed25519",
+                    "SHA256:event-transfer",
+                    rssh_ssh::HostKeyStatus::Unknown,
+                ),
+                decision: decision_sender,
+            }),
+            Some(false)
+        );
+        let target = manager.pending_apps.first().unwrap();
+        assert!(target.ssh_host_key_prompts.contains_key(&target_ssh_pane));
+        assert!(!target.ssh_host_key_prompts.contains_key(&source_ssh_pane));
+
+        let (response_sender, _response_receiver) = mpsc::sync_channel(1);
+        assert_eq!(
+            manager.dispatch_user_event_to_owner(super::WindowUserEvent::SecretPrompt {
+                window_id: rssh_core::WindowId::new(1),
+                pane_id: source_ssh_pane,
+                runtime_generation: 77,
+                prompt: rssh_ssh::SecretPrompt::password("ops"),
+                response: response_sender,
+            }),
+            Some(false)
+        );
+        let target = manager.pending_apps.first().unwrap();
+        assert!(target.ssh_secret_prompts.contains_key(&target_ssh_pane));
+        assert!(!target.ssh_secret_prompts.contains_key(&source_ssh_pane));
+        assert_eq!(
+            target.metrics.connection_state(),
+            super::ConnectionState::AwaitingSecret
         );
     }
 

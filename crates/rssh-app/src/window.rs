@@ -5,6 +5,7 @@ use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet},
     error::Error,
+    fmt,
     fs::{self, File},
     io::{self, Write},
     ops::{Deref, DerefMut},
@@ -38,6 +39,7 @@ use rssh_pty::{
     PtyCommand, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
 };
 use rssh_ssh::SshAuthMethod;
+use rssh_runtime::{LocalPtyTransport, PaneWorkerConfig, SessionTransport};
 use rssh_ssh::{
     HostKeyChallenge, HostKeyDecision, HostKeyVerifier, RusshChannelOpener, RusshHostKeyPolicy,
     SecretPrompt, SecretPromptKind, SecretProvider, SshChannelConnector, SshConnectionPhase,
@@ -739,7 +741,10 @@ pub fn run(
 /// work on the CLI thread.  The app is intentionally created from the small
 /// default projection first; its CPU bootstrap frame is presented before the
 /// SSH transport (and any future deferred configuration work) is started.
-pub fn run_ssh_gui(options: &SshOptions) -> Result<(), Box<dyn Error>> {
+pub fn run_ssh_gui(
+    options: &SshOptions,
+    process_started_at: Instant,
+) -> Result<(), Box<dyn Error>> {
     let launch = pane_launch_from_ssh_options(options);
     let mut app = NativeWindowApp::new_with_workspace_class_position_and_osc52_policy(
         None,
@@ -749,6 +754,8 @@ pub fn run_ssh_gui(options: &SshOptions) -> Result<(), Box<dyn Error>> {
         None,
         None,
     );
+    configure_ssh_gui_initial_size(&mut app, options);
+    app.metrics.startup_trace = StartupTrace::from_process_started_at(process_started_at);
     app.set_initial_pane_launch(launch);
     app.set_renderer_mode(if options.benchmark_startup {
         RendererMode::Cpu
@@ -782,6 +789,21 @@ pub fn run_ssh_gui(options: &SshOptions) -> Result<(), Box<dyn Error>> {
         print!("{}", manager.metrics_report());
     }
     Ok(())
+}
+
+fn configure_ssh_gui_initial_size(app: &mut NativeWindowApp, options: &SshOptions) {
+    let size = match &options.target {
+        SshTarget::Direct(request) => request.config.initial_size,
+        SshTarget::OpenSsh(target) => target.initial_size,
+    };
+    app.initial_cols = size.columns;
+    app.initial_rows = size.rows;
+    *app.runtime = TerminalRuntime::new(size);
+    app.snapshot = terminal_runtime_snapshot(&app.runtime, PaneStableViewport::default());
+    let frame_size = app.initial_frame_size();
+    app.frame_width = frame_size.width;
+    app.frame_height = frame_size.height;
+    app.window_frame.set_size(frame_size);
 }
 
 fn pane_launch_from_ssh_options(options: &SshOptions) -> PaneLaunch {
@@ -7757,3 +7779,75 @@ include!("window_parts/part15.rs");
 include!("window_parts/tab_session.rs");
 include!("window_parts/runtime_helpers.rs");
 include!("window_parts/functional_observer.rs");
+
+#[cfg(test)]
+mod ssh_gui_startup_contract_tests {
+    use super::*;
+
+    fn gui_options_with_size(columns: u16, rows: u16) -> SshOptions {
+        let command = crate::cli::parse_args([
+            "rssh",
+            "ssh",
+            "--gui",
+            "--host",
+            "example.test",
+            "--user",
+            "alice",
+            "--cols",
+            &columns.to_string(),
+            "--rows",
+            &rows.to_string(),
+        ])
+        .expect("SSH GUI arguments should parse");
+        let crate::cli::AppCommand::Ssh(options) = command else {
+            panic!("expected SSH command");
+        };
+        options
+    }
+
+    #[test]
+    fn ssh_gui_initial_size_configures_terminal_and_window() {
+        let options = gui_options_with_size(132, 43);
+        let mut app = NativeWindowApp::new_with_workspace_class_position_and_osc52_policy(
+            None,
+            options.osc52_policy,
+            PtyCommand::default_shell(),
+            None,
+            None,
+            None,
+        );
+
+        configure_ssh_gui_initial_size(&mut app, &options);
+
+        let expected = TerminalSize::new(132, 43);
+        assert_eq!(app.runtime.terminal().grid().size(), expected);
+        assert_eq!(app.initial_cols, expected.columns);
+        assert_eq!(app.initial_rows, expected.rows);
+        assert_eq!(app.initial_frame_size(), app.frame_size_for_terminal_size(expected));
+    }
+
+    #[test]
+    fn openssh_gui_initial_size_configures_terminal_and_window() {
+        let command = crate::cli::parse_args([
+            "rssh", "ssh", "--gui", "--target", "prod", "--cols", "101", "--rows", "37",
+        ])
+        .expect("OpenSSH GUI arguments should parse");
+        let crate::cli::AppCommand::Ssh(options) = command else {
+            panic!("expected SSH command");
+        };
+        let mut app = NativeWindowApp::new_with_workspace_class_position_and_osc52_policy(
+            None,
+            options.osc52_policy,
+            PtyCommand::default_shell(),
+            None,
+            None,
+            None,
+        );
+
+        configure_ssh_gui_initial_size(&mut app, &options);
+
+        let expected = TerminalSize::new(101, 37);
+        assert_eq!(app.runtime.terminal().grid().size(), expected);
+        assert_eq!(app.initial_frame_size(), app.frame_size_for_terminal_size(expected));
+    }
+}

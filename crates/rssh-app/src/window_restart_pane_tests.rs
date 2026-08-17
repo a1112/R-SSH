@@ -162,6 +162,35 @@ fn window_app_restart_pane_installs_fresh_runtime_without_touching_other_owner()
 }
 
 #[test]
+fn ssh_retry_preserves_terminal_presentation_and_allocates_a_new_generation() {
+    let mut app = NativeWindowApp::new(None);
+    app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+        "ops@example.test:2222",
+        SshAuthDescription::PasswordPrompt,
+        SshKnownHostsPolicy::Prompt,
+    )));
+    app.runtime.resize(rssh_core::TerminalSize::new(32, 2));
+    app.handle_pty_output(b"remote output survives retry")
+        .unwrap();
+    app.active_runtime_generation = 44_001;
+    app.active_runtime_transport = Some(PaneRuntimeTransportKind::NativeSsh);
+    let pane = app.active_pane_id();
+    let snapshot_before = app.snapshot.clone();
+    let generation_before = app.active_runtime_generation;
+
+    app.restart_pane_runtime_with(pane, |app, _| {
+        let mut runtime = app.new_inactive_pane_runtime();
+        runtime.runtime_generation = 44_002;
+        Ok::<_, Box<dyn std::error::Error>>(runtime)
+    })
+    .unwrap();
+
+    assert_eq!(app.snapshot, snapshot_before);
+    assert_ne!(app.active_runtime_generation, generation_before);
+    assert_eq!(app.active_runtime_generation, 44_002);
+}
+
+#[test]
 fn window_manager_ignores_events_from_retired_pane_runtime_generation() {
     let mut app = NativeWindowApp::new(None);
     let pane_id = app.active_pane_id();
@@ -178,6 +207,12 @@ fn window_manager_ignores_events_from_retired_pane_runtime_generation() {
     .unwrap();
     let active_generation = app.active_runtime_generation;
     assert_ne!(active_generation, retired_generation);
+    let current_ssh_cancellation = Arc::new(AtomicBool::new(false));
+    let (current_ssh_sender, _current_ssh_receiver) = std::sync::mpsc::channel();
+    app.ssh_writer_senders
+        .insert(pane_id, current_ssh_sender);
+    app.ssh_writer_cancellations
+        .insert(pane_id, Arc::clone(&current_ssh_cancellation));
     let mut manager = NativeWindowManager::new(app);
 
     assert_eq!(
@@ -197,11 +232,22 @@ fn window_manager_ignores_events_from_retired_pane_runtime_generation() {
         }),
         Some(false)
     );
+    assert_eq!(
+        manager.dispatch_user_event_to_owner(WindowUserEvent::SshState {
+            window_id,
+            pane_id,
+            runtime_generation: retired_generation,
+            state: ConnectionState::Failed,
+        }),
+        Some(false)
+    );
 
     let app = manager.startup_app.as_ref().unwrap();
     assert_eq!(app.active_runtime_generation, active_generation);
     assert_eq!(app.session_process_id, Some(41_302));
     assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('f'));
+    assert!(app.ssh_writer_cancellations.contains_key(&pane_id));
+    assert!(!current_ssh_cancellation.load(Ordering::Acquire));
 }
 
 #[test]

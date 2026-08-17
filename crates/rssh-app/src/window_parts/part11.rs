@@ -1,6 +1,9 @@
 impl Drop for NativeWindowApp {
     fn drop(&mut self) {
         self.stop_active_runtime();
+        if let Some(mut runtime) = self.runtime.take_worker() {
+            runtime.shutdown();
+        }
 
         let inactive_panes = self.pane_runtimes.keys().copied().collect::<Vec<_>>();
         for pane_id in inactive_panes {
@@ -18,18 +21,34 @@ impl NativeWindowApp {
     fn cancel_ssh_runtime(&mut self, pane_id: rssh_core::PaneId) {
         self.resolve_host_key_prompt_for_pane(pane_id, HostKeyDecision::Cancel);
         self.resolve_secret_prompt_for_pane(pane_id, None);
+        if let Some(cancellation) = self.ssh_writer_cancellations.get(&pane_id) {
+            cancellation.store(true, Ordering::Release);
+        }
+        if let Some(cancellation) = self.ssh_connection_cancellations.remove(&pane_id) {
+            cancellation.cancel();
+        }
         if let Some(sender) = self.ssh_writer_senders.remove(&pane_id) {
             let _ = sender.send(NativeSshCommand::Cancel);
         }
     }
 
     fn finish_active_runtime_after_exit(&mut self) -> Option<PtyExitStatus> {
-        self.cancel_ssh_runtime(self.app_shell.active_pane_id());
-        if let Some(mut runtime) = self.runtime.take_worker() {
-            runtime.shutdown();
+        let active = self.app_shell.active_pane_id();
+        self.cancel_ssh_runtime(active);
+        let active_is_local = self.active_runtime_transport
+            == Some(PaneRuntimeTransportKind::LocalPty)
+            || self
+                .runtime
+                .worker()
+                .is_some_and(|runtime| runtime.contains_pane(active));
+        if active_is_local {
+            if let Some(runtime) = self.runtime.worker_mut() {
+                let _ = runtime.begin_close_by_pane(active, Duration::ZERO);
+            }
             self.session_process_id = None;
             self.session_tty_name = None;
             self.active_runtime_generation = 0;
+            self.active_runtime_transport = None;
             return None;
         }
         if let Err(error) = self.finish_active_pane_output() {
@@ -48,13 +67,22 @@ impl NativeWindowApp {
     }
 
     fn stop_active_runtime(&mut self) {
-        self.cancel_ssh_runtime(self.app_shell.active_pane_id());
-        if let Some(mut runtime) = self.runtime.take_worker() {
-            let _ = runtime.begin_close(Duration::ZERO);
-            runtime.shutdown();
+        let active = self.app_shell.active_pane_id();
+        self.cancel_ssh_runtime(active);
+        let active_is_local = self.active_runtime_transport
+            == Some(PaneRuntimeTransportKind::LocalPty)
+            || self
+                .runtime
+                .worker()
+                .is_some_and(|runtime| runtime.contains_pane(active));
+        if active_is_local {
+            if let Some(runtime) = self.runtime.worker_mut() {
+                let _ = runtime.begin_close_by_pane(active, Duration::ZERO);
+            }
             self.session_process_id = None;
             self.session_tty_name = None;
             self.active_runtime_generation = 0;
+            self.active_runtime_transport = None;
             return;
         }
         let cleanup = stop_pty_lifecycle(
@@ -66,6 +94,14 @@ impl NativeWindowApp {
             &mut self.writer_thread,
         );
         report_pane_pty_cleanup("active pane PTY cleanup", &cleanup);
+    }
+
+    fn stop_local_runtime_for_pane(&mut self, pane_id: rssh_core::PaneId) {
+        if let Some(runtime) = self.runtime.worker_mut()
+            && runtime.contains_pane(pane_id)
+        {
+            let _ = runtime.begin_close_by_pane(pane_id, Duration::ZERO);
+        }
     }
 }
 

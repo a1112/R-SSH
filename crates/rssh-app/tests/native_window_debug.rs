@@ -355,10 +355,98 @@ fn native_window_reconfigures_the_direct_surface_after_resize() {
     );
 }
 
+#[test]
+fn ssh_gui_auto_presents_cpu_then_gpu_on_the_same_window() {
+    const COMMAND_INTENT: &str =
+        "rssh-app ssh --gui --renderer auto (CPU first frame then GPU candidate)";
+    const ARGUMENTS: &[&str] = &[
+        "ssh",
+        "--gui",
+        "--renderer",
+        "auto",
+        "--host",
+        "127.0.0.1",
+        "--user",
+        "test",
+        "--port",
+        "9",
+        "--metrics-json",
+    ];
+    let _native_window = native_window_test_guard();
+    let output = run_hybrid_ssh_gui(COMMAND_INTENT, ARGUMENTS, false);
+    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
+    let metrics: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!("hybrid GUI emitted invalid metrics: {error}\n{diagnostics}")
+        });
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "{diagnostics}");
+    assert!(
+        stderr.contains("first_present") && stderr.contains("final_renderer=cpu"),
+        "the bootstrap frame was not presented by the CPU renderer\n{diagnostics}"
+    );
+    assert_eq!(metrics["render_frames"], 2, "{diagnostics}");
+    assert_eq!(metrics["final_renderer"], "gpu", "{diagnostics}");
+    assert_eq!(metrics["gpu_presented_frames"], 1, "{diagnostics}");
+}
+
+#[test]
+fn ssh_gui_deferred_gpu_init_failure_presents_a_second_cpu_frame() {
+    const COMMAND_INTENT: &str =
+        "rssh-app ssh --gui --renderer auto (forced GPU init failure to CPU fallback)";
+    const ARGUMENTS: &[&str] = &[
+        "ssh",
+        "--gui",
+        "--renderer",
+        "auto",
+        "--host",
+        "127.0.0.1",
+        "--user",
+        "test",
+        "--port",
+        "9",
+        "--metrics-json",
+    ];
+    let _native_window = native_window_test_guard();
+    let output = run_hybrid_ssh_gui(COMMAND_INTENT, ARGUMENTS, true);
+    let diagnostics = diagnostics(COMMAND_INTENT, ARGUMENTS, &output);
+    let metrics: serde_json::Value =
+        serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
+            panic!("fallback GUI emitted invalid metrics: {error}\n{diagnostics}")
+        });
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "{diagnostics}");
+    assert!(
+        stderr.contains("deferred GPU initialization failed; using CPU renderer"),
+        "forced failure did not enter the CPU fallback path\n{diagnostics}"
+    );
+    assert_eq!(metrics["render_frames"], 2, "{diagnostics}");
+    assert_eq!(metrics["final_renderer"], "cpu", "{diagnostics}");
+    assert_eq!(metrics["gpu_presented_frames"], 0, "{diagnostics}");
+}
+
 fn native_window_test_guard() -> MutexGuard<'static, ()> {
     NATIVE_WINDOW_TEST_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn run_hybrid_ssh_gui(
+    command_intent: &str,
+    args: &[&str],
+    force_gpu_init_failure: bool,
+) -> ChildOutput {
+    let mut command = Command::new(RSSH_APP_EXECUTABLE);
+    command.args(args).env("RSSH_TEST_SSH_GUI_FRAME_LIMIT", "2");
+    if force_gpu_init_failure {
+        command.env("RSSH_TEST_DEFERRED_GPU_INIT_FAILURE", "1");
+    }
+    ChildGuard::spawn(command, PROCESS_DEADLINE)
+        .unwrap_or_else(|error| panic!("failed to launch `{command_intent}`: {error}"))
+        .wait()
+        .unwrap_or_else(|error| panic!("`{command_intent}` did not complete: {error}"))
 }
 
 fn run_rssh_app(command_intent: &str, args: &[&str]) -> ChildOutput {
