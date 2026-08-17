@@ -35,6 +35,21 @@
       "crates/rssh-app/src/main.rs": {
         "rustfmt_skip": 1
       },
+      "crates/rssh-app/src/window_parts/part07.rs": {
+        "struct_fields": 68,
+        "unbounded_channels": 1
+      },
+      "crates/rssh-app/src/window_parts/part08.rs": {
+        "file_lines": 8081,
+        "impl_lines": 2108
+      },
+      "crates/rssh-app/src/window_parts/part10.rs": {
+        "impl_lines": 2237
+      },
+      "crates/rssh-app/src/window_ssh_gui.rs": {
+        "function_lines": 321,
+        "unbounded_channels": 1
+      },
       "crates/rssh-app/src/self_test.rs": {
         "unbounded_channels": 1
       },
@@ -53,6 +68,21 @@
       },
       "crates/rssh-app/src/main.rs": {
         "rustfmt_skip": 1
+      },
+      "crates/rssh-app/src/window_parts/part07.rs": {
+        "struct_fields": 68,
+        "unbounded_channels": 1
+      },
+      "crates/rssh-app/src/window_parts/part08.rs": {
+        "file_lines": 8081,
+        "impl_lines": 2108
+      },
+      "crates/rssh-app/src/window_parts/part10.rs": {
+        "impl_lines": 2237
+      },
+      "crates/rssh-app/src/window_ssh_gui.rs": {
+        "function_lines": 321,
+        "unbounded_channels": 1
       },
       "crates/rssh-app/src/self_test.rs": {
         "unbounded_channels": 1
