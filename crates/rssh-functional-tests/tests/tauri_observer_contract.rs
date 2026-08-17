@@ -61,6 +61,48 @@ fn tauri_close_snapshot_is_serialized_with_web_snapshot_publication() {
 }
 
 #[test]
+fn tauri_close_snapshot_cannot_be_overwritten_by_late_web_publication() {
+    let backend =
+        fs::read_to_string(root().join("tauri/src-tauri/src/lib.rs")).expect("Tauri backend");
+    assert!(backend.contains("closing: AtomicBool"));
+    assert!(backend.contains("closing: AtomicBool::new(false)"));
+
+    let web_publish = backend
+        .split("fn functional_observer_publish(")
+        .nth(1)
+        .expect("functional Web publication")
+        .split("pub fn run()")
+        .next()
+        .expect("bounded Web publication");
+    let web_lock = web_publish
+        .find(".publication")
+        .expect("serialize Web publication");
+    let closing_guard = web_publish
+        .find("state.closing.load(Ordering::Acquire)")
+        .expect("reject publications after close starts");
+    assert!(web_lock < closing_guard);
+
+    let close_publish = backend
+        .split("let mut final_observation_delivery = None;")
+        .nth(1)
+        .expect("functional close publication")
+        .split("if defer_main_window_close")
+        .next()
+        .expect("bounded close publication");
+    let close_lock = close_publish
+        .find(".publication")
+        .expect("serialize close publication");
+    let closing_store = close_publish
+        .find("state.closing.store(true, Ordering::Release)")
+        .expect("close publication fence");
+    let close_snapshot = close_publish
+        .find("state.observer.snapshot()")
+        .expect("read final observer snapshot");
+    assert!(close_lock < closing_store);
+    assert!(closing_store < close_snapshot);
+}
+
+#[test]
 fn closing_the_main_window_drives_backend_cleanup_and_app_exit() {
     let backend =
         fs::read_to_string(root().join("tauri/src-tauri/src/lib.rs")).expect("Tauri backend");

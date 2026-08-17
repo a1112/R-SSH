@@ -1,7 +1,14 @@
 use std::{path::PathBuf, sync::Mutex};
 
 #[cfg(feature = "functional-test-observer")]
-use std::{collections::BTreeMap, env, io, path::Path, thread, time::Duration};
+use std::{
+    collections::BTreeMap,
+    env, io,
+    path::Path,
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+    time::Duration,
+};
 
 #[cfg(feature = "functional-test-observer")]
 use rssh_functional_tests::{
@@ -22,6 +29,7 @@ struct BackendState {
 struct FunctionalObserverState {
     observer: ObserverState,
     publication: Mutex<()>,
+    closing: AtomicBool,
 }
 
 #[cfg(feature = "functional-test-observer")]
@@ -55,6 +63,9 @@ fn functional_observer_publish(
         .publication
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state.closing.load(Ordering::Acquire) {
+        return Ok(());
+    }
     let current = state.observer.snapshot();
     state
         .observer
@@ -184,6 +195,7 @@ pub fn run() {
                     .publication
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
+                state.closing.store(true, Ordering::Release);
                 let mut snapshot = state.observer.snapshot();
                 snapshot.revision = snapshot.revision.saturating_add(1);
                 snapshot.runtime.transport_state = "closed".to_owned();
@@ -297,6 +309,7 @@ fn functional_observer_from_environment()
     Ok(Some(FunctionalObserverState {
         observer,
         publication: Mutex::new(()),
+        closing: AtomicBool::new(false),
     }))
 }
 
