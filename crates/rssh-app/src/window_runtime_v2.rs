@@ -630,6 +630,24 @@ mod tests {
     }
 
     #[test]
+    fn final_window_close_joins_all_window_scoped_local_workers_before_retirement() {
+        let (app, local_driver, _local_pane, _ssh_pane) = mixed_transport_app_with_local_worker();
+        local_driver.wait_until_reader_blocked();
+        let mut manager = NativeWindowManager::new_for_test(app);
+
+        manager
+            .finalize_app_close_at_location(ManagedWindowAppLocation::Startup)
+            .expect("startup app remains manager-owned until retirement");
+
+        let retired = manager
+            .retired_apps
+            .last()
+            .expect("closed app is retained until the event-loop boundary");
+        assert!(retired.runtime.worker().is_none());
+        assert_eq!(retired.metrics_snapshot().runtime_live_threads, 0);
+    }
+
+    #[test]
     fn local_v2_frame_stays_inactive_while_an_ssh_pane_is_active() {
         let mut app = NativeWindowApp::new(None);
         app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(

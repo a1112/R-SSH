@@ -2510,6 +2510,9 @@ impl NativeWindowManager {
             let app = self.app_at_location_mut(location)?;
             app.shutdown_gpu_for_window_close();
             app.stop_active_runtime();
+            if let Some(mut worker) = app.runtime.take_worker() {
+                worker.shutdown();
+            }
             for runtime in app.pane_runtimes.values_mut() {
                 let cleanup = runtime.close();
                 report_pane_pty_cleanup("window close pane PTY cleanup", &cleanup);

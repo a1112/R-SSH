@@ -666,8 +666,8 @@ impl NativeWindowApp {
     ) {
         if let Some((_, sender)) = self.ssh_host_key_prompts.remove(&pane_id) {
             let _ = sender.send(decision);
+            self.refresh_ssh_overlay();
         }
-        self.refresh_ssh_overlay();
     }
 
     pub(super) fn handle_secret_prompt(
@@ -709,8 +709,8 @@ impl NativeWindowApp {
         if let Some(mut prompt) = self.ssh_secret_prompts.remove(&pane_id) {
             let _ = prompt.response.send(value);
             prompt.input.clear();
+            self.refresh_ssh_overlay();
         }
-        self.refresh_ssh_overlay();
     }
 
     pub(super) fn retire_ssh_connection_state(&mut self, pane_id: rssh_core::PaneId) {
@@ -952,6 +952,17 @@ mod tests {
 
         assert!(writer_cancellation.load(std::sync::atomic::Ordering::Acquire));
         assert!(cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn cancelling_a_local_pane_during_shutdown_does_not_request_an_ssh_repaint() {
+        let mut app = NativeWindowApp::new(None);
+        let pane_id = app.active_pane_id();
+        app.frame_needs_full_repaint = false;
+
+        app.cancel_ssh_runtime(pane_id);
+
+        assert!(!app.frame_needs_full_repaint);
     }
 
     #[test]
