@@ -10,6 +10,44 @@
 
 ---
 
+### Task 0: Remove the final R-Term to R-SSH identity dependency
+
+**Files:**
+- Modify: `crates/rterm-types/src/lib.rs`
+- Modify: `crates/rssh-domain/src/lib.rs`
+- Modify: `crates/rssh-runtime/Cargo.toml`
+- Modify: `crates/rssh-runtime/src/api.rs`
+- Modify: `crates/rssh-runtime/src/hub.rs`
+- Modify: `crates/rssh-runtime/src/terminal.rs`
+- Modify: `crates/rssh-runtime/src/task10_runtime_trace_codec.rs`
+- Modify: `crates/rssh-runtime/tests/api_contract.rs`
+- Modify: `crates/rssh-runtime/tests/burst.rs`
+- Modify: `crates/rssh-runtime/tests/pane_worker.rs`
+
+**Step 1: Extend the existing architecture contract and observe RED**
+
+Require the `rterm-runtime` manifest and source tree to contain no `rssh-domain`,
+`rssh-core`, or `rssh_domain` references. Require its public pane token APIs to
+accept the neutral `rterm_types::PaneId`.
+
+**Step 2: Move the shared identity to the neutral leaf crate**
+
+Define `PaneId` in `rterm-types`; re-export that exact type from `rssh-domain`
+for source compatibility. Migrate runtime implementation and tests to R-Term
+types and remove the two reverse manifest dependencies.
+
+**Step 3: Verify the boundary**
+
+Run the focused API contract, all `rterm-runtime` targets and workspace Clippy.
+Confirm with `cargo metadata --locked --no-deps` that no package whose name
+starts with `rterm-` depends on a package whose name starts with `rssh-`.
+
+**Step 4: Commit**
+
+```powershell
+git commit -m "refactor: remove R-Term reverse dependencies"
+```
+
 ### Task 1: Freeze the machine-readable R-Term release contract
 
 **Files:**
