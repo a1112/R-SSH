@@ -3,6 +3,7 @@ members = [
     "crates/rssh-app",
     "crates/rssh-config",
     "crates/rssh-core",
+    "crates/rssh-diagnostics",
     "crates/rssh-terminal",
     "crates/rssh-renderer",
     "crates/rssh-runtime",

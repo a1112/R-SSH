@@ -4933,6 +4933,14 @@ name = "rssh-core"
 version = "0.1.0"
 
 [[package]]
+name = "rssh-diagnostics"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rssh-fonts"
 version = "0.1.0"
 dependencies = [
