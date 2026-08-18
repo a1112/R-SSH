@@ -299,6 +299,7 @@ impl NativeWindowApp {
         let (pty_size, runtime) = self.prepare_pane_spawn_runtime(pane_id)?;
         let request_launch = launch.clone();
         let app_window_id = self.app_window_id;
+        let ssh_runtime = self.runtime.composition().ssh_runtime_owner();
         let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let writer_cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let connection_cancellation = rssh_ssh::RusshConnectionCancellation::new();
@@ -457,6 +458,20 @@ impl NativeWindowApp {
                         return;
                     }
                 };
+                let runtime_handle = match ssh_runtime.get_or_try_init() {
+                    Ok(runtime_handle) => runtime_handle,
+                    Err(error) => {
+                        let _ = connector_event_proxy.send_event(WindowUserEvent::SshState {
+                            window_id: app_window_id,
+                            pane_id,
+                            runtime_generation,
+                            state: ConnectionState::Failed,
+                        });
+                        let _ = connector_command_sender.send(NativeSshCommand::Cancel);
+                        eprintln!("SSH async runtime initialization failed: {error}");
+                        return;
+                    }
+                };
                 let phase_proxy = connector_event_proxy.clone();
                 let phase_reporter = move |phase: SshConnectionPhase| {
                     let state = connection_state_for_phase(phase);
@@ -469,6 +484,7 @@ impl NativeWindowApp {
                 };
 
                 let mut opener = RusshChannelOpener::default()
+                    .with_runtime_handle(runtime_handle)
                     .with_host_key_policy(russh_host_key_policy(policy))
                     .with_phase_reporter(phase_reporter)
                     .with_connection_cancellation(connector_connection_cancellation.clone());
@@ -892,6 +908,29 @@ mod tests {
         assert!(
             request_resolution > connector_worker,
             "OpenSSH alias resolution must not execute on the event thread"
+        );
+    }
+
+    #[test]
+    fn native_ssh_runtime_initializes_inside_the_connector_worker() {
+        let source = include_str!("window_ssh_gui.rs");
+        let body = source
+            .split_once("pub(super) fn spawn_native_ssh_runtime")
+            .expect("spawn function")
+            .1
+            .split_once("pub(super) fn handle_ssh_state")
+            .expect("spawn function end")
+            .0;
+        let connector_worker = body
+            .find(".name(format!(\"rssh-ssh-connector-")
+            .expect("connector worker");
+        let initialization = body
+            .find("ssh_runtime.get_or_try_init()")
+            .expect("lazy runtime initialization");
+
+        assert!(
+            initialization > connector_worker,
+            "Tokio runtime construction must stay off the event and pre-first-present threads"
         );
     }
 

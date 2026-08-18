@@ -703,9 +703,129 @@ impl RusshConnectPlan {
     }
 }
 
+/// Bounded worker configuration for the application-owned native SSH runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RusshRuntimeConfig {
+    worker_threads: usize,
+    max_blocking_threads: usize,
+}
+
+impl RusshRuntimeConfig {
+    #[must_use]
+    pub const fn production() -> Self {
+        Self {
+            worker_threads: 2,
+            max_blocking_threads: 8,
+        }
+    }
+
+    #[must_use]
+    pub const fn worker_threads(self) -> usize {
+        self.worker_threads
+    }
+
+    #[must_use]
+    pub const fn max_blocking_threads(self) -> usize {
+        self.max_blocking_threads
+    }
+}
+
+/// Cloneable access to a Tokio runtime shared by native SSH connections.
+#[derive(Clone)]
+pub struct RusshRuntimeHandle {
+    runtime: Arc<tokio::runtime::Runtime>,
+    config: RusshRuntimeConfig,
+}
+
+impl std::fmt::Debug for RusshRuntimeHandle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RusshRuntimeHandle")
+            .field("config", &self.config)
+            .finish_non_exhaustive()
+    }
+}
+
+impl RusshRuntimeHandle {
+    fn build_production() -> Result<Self, SshSessionError> {
+        let config = RusshRuntimeConfig::production();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(config.worker_threads())
+            .max_blocking_threads(config.max_blocking_threads())
+            .thread_name("rssh-io")
+            .enable_io()
+            .enable_time()
+            .build()
+            .map_err(|error| {
+                SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
+            })?;
+        Ok(Self {
+            runtime: Arc::new(runtime),
+            config,
+        })
+    }
+
+    #[must_use]
+    pub const fn config(&self) -> RusshRuntimeConfig {
+        self.config
+    }
+
+    #[must_use]
+    pub fn shares_runtime_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.runtime, &other.runtime)
+    }
+}
+
+/// Lazily creates exactly one bounded runtime, even under concurrent access.
+#[derive(Debug, Default)]
+pub struct LazyRusshRuntime {
+    runtime: std::sync::OnceLock<RusshRuntimeHandle>,
+    initialization: std::sync::Mutex<()>,
+}
+
+impl LazyRusshRuntime {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            runtime: std::sync::OnceLock::new(),
+            initialization: std::sync::Mutex::new(()),
+        }
+    }
+
+    #[must_use]
+    pub fn is_initialized(&self) -> bool {
+        self.runtime.get().is_some()
+    }
+
+    /// Returns the shared runtime, constructing it on the calling thread only
+    /// when the first native SSH connection asks for it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the initialization lock is poisoned or
+    /// Tokio cannot construct the bounded runtime.
+    pub fn get_or_try_init(&self) -> Result<RusshRuntimeHandle, SshSessionError> {
+        if let Some(runtime) = self.runtime.get() {
+            return Ok(runtime.clone());
+        }
+        let _initialization = self.initialization.lock().map_err(|_| {
+            SshSessionError::new("SSH async runtime initialization lock is poisoned")
+        })?;
+        if let Some(runtime) = self.runtime.get() {
+            return Ok(runtime.clone());
+        }
+        let runtime = RusshRuntimeHandle::build_production()?;
+        self.runtime
+            .set(runtime.clone())
+            .map_err(|_| SshSessionError::new("SSH async runtime initialized concurrently"))?;
+        Ok(runtime)
+    }
+}
+
 #[derive(Clone)]
 pub struct RusshChannelOpener {
     client_config: Arc<russh::client::Config>,
+    runtime_handle: Option<RusshRuntimeHandle>,
     host_key_policy: RusshHostKeyPolicy,
     known_hosts_path: Option<PathBuf>,
     host_key_verifier: Option<HostKeyVerifier>,
@@ -731,6 +851,7 @@ impl std::fmt::Debug for RusshChannelOpener {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("RusshChannelOpener")
+            .field("runtime_handle", &self.runtime_handle)
             .field("host_key_policy", &self.host_key_policy)
             .field("known_hosts_path", &self.known_hosts_path)
             .field("host_key_verifier", &self.host_key_verifier)
@@ -757,6 +878,7 @@ impl Default for RusshChannelOpener {
 
         Self {
             client_config: Arc::new(client_config),
+            runtime_handle: None,
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
             host_key_verifier: None,
@@ -770,10 +892,30 @@ impl Default for RusshChannelOpener {
 }
 
 impl RusshChannelOpener {
+    /// Reuses an application-owned asynchronous runtime for connections opened
+    /// by this value instead of constructing a runtime per connection.
+    #[must_use]
+    pub fn with_runtime_handle(mut self, runtime_handle: RusshRuntimeHandle) -> Self {
+        self.runtime_handle = Some(runtime_handle);
+        self
+    }
+
+    #[must_use]
+    pub const fn runtime_handle(&self) -> Option<&RusshRuntimeHandle> {
+        self.runtime_handle.as_ref()
+    }
+
+    fn runtime_handle_or_create(&self) -> Result<RusshRuntimeHandle, SshSessionError> {
+        self.runtime_handle
+            .clone()
+            .map_or_else(RusshRuntimeHandle::build_production, Ok)
+    }
+
     #[must_use]
     pub fn new(client_config: russh::client::Config) -> Self {
         Self {
             client_config: Arc::new(client_config),
+            runtime_handle: None,
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
             known_hosts_path: None,
             host_key_verifier: None,
@@ -1123,15 +1265,10 @@ impl RusshChannelOpener {
         direct_tcpip_plan: &RusshDirectTcpIpOpenPlan,
     ) -> Result<RusshSshChannel, SshSessionError> {
         let plan = self.connect_plan(&request);
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| {
-                SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
-            })?;
+        let runtime = self.runtime_handle_or_create()?;
 
         let operation_timeout = self.operation_timeout;
-        let (handle, channel) = runtime.block_on(async {
+        let (handle, channel) = runtime.runtime.block_on(async {
             tokio::time::timeout(operation_timeout, async {
                 let mut handle = self.connect_async(request).await?;
                 self.authenticate_async(&mut handle, plan.auth_plan())
@@ -1153,7 +1290,7 @@ impl RusshChannelOpener {
         Ok(RusshSshChannel::new_with_inactivity_timeout(
             channel,
             handle,
-            runtime,
+            Arc::clone(&runtime.runtime),
             self.channel_inactivity_timeout,
         ))
     }
@@ -2159,17 +2296,16 @@ impl RusshSshChannel {
         handle: russh::client::Handle<RusshClientHandler>,
         runtime: tokio::runtime::Runtime,
     ) -> Self {
-        Self::new_with_inactivity_timeout(channel, handle, runtime, None)
+        Self::new_with_inactivity_timeout(channel, handle, Arc::new(runtime), None)
     }
 
     fn new_with_inactivity_timeout(
         channel: russh::Channel<russh::client::Msg>,
         handle: russh::client::Handle<RusshClientHandler>,
-        runtime: tokio::runtime::Runtime,
+        runtime: Arc<tokio::runtime::Runtime>,
         inactivity_timeout: Option<Duration>,
     ) -> Self {
         let (read_half, write_half) = channel.split();
-        let runtime = Arc::new(runtime);
 
         Self {
             reader: RusshChannelReader::new(read_half, Arc::clone(&runtime), inactivity_timeout),
@@ -2679,16 +2815,11 @@ impl SshChannelOpener for RusshChannelOpener {
     ) -> Result<Self::Channel, SshSessionError> {
         let plan = self.connect_plan(&request);
         let startup_plan = plan.channel_startup_plan();
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| {
-                SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
-            })?;
+        let runtime = self.runtime_handle_or_create()?;
 
         let operation_timeout = self.operation_timeout;
         let connection_cancellation = self.connection_cancellation.clone();
-        let (handle, channel) = runtime.block_on(async {
+        let (handle, channel) = runtime.runtime.block_on(async {
             let operation = async {
                 tokio::time::timeout(operation_timeout, async {
                     let mut handle = self.connect_async(request).await?;
@@ -2723,7 +2854,7 @@ impl SshChannelOpener for RusshChannelOpener {
         Ok(RusshSshChannel::new_with_inactivity_timeout(
             channel,
             handle,
-            runtime,
+            Arc::clone(&runtime.runtime),
             self.channel_inactivity_timeout,
         ))
     }
@@ -2737,6 +2868,54 @@ mod tests {
 
     use super::*;
     use crate::{SshConnectRequest, SshSessionConfig};
+
+    #[test]
+    fn lazy_russh_runtime_is_uninitialized_until_first_access_and_bounded() {
+        let runtime = LazyRusshRuntime::new();
+
+        assert!(!runtime.is_initialized());
+
+        let handle = runtime.get_or_try_init().expect("initialize SSH runtime");
+
+        assert!(runtime.is_initialized());
+        assert_eq!(handle.config(), RusshRuntimeConfig::production());
+        assert_eq!(handle.config().worker_threads(), 2);
+        assert_eq!(handle.config().max_blocking_threads(), 8);
+    }
+
+    #[test]
+    fn concurrent_lazy_russh_runtime_access_reuses_one_runtime() {
+        let runtime = Arc::new(LazyRusshRuntime::new());
+        let handles = (0..8)
+            .map(|_| {
+                let runtime = Arc::clone(&runtime);
+                std::thread::spawn(move || runtime.get_or_try_init().expect("initialize runtime"))
+            })
+            .map(|thread| thread.join().expect("join runtime initializer"))
+            .collect::<Vec<_>>();
+
+        assert!(
+            handles
+                .iter()
+                .skip(1)
+                .all(|handle| handles[0].shares_runtime_with(handle))
+        );
+    }
+
+    #[test]
+    fn channel_openers_can_share_an_injected_russh_runtime() {
+        let runtime = LazyRusshRuntime::new();
+        let handle = runtime.get_or_try_init().expect("initialize SSH runtime");
+        let first = RusshChannelOpener::default().with_runtime_handle(handle.clone());
+        let second = RusshChannelOpener::default().with_runtime_handle(handle);
+
+        assert!(
+            first
+                .runtime_handle()
+                .expect("first runtime")
+                .shares_runtime_with(second.runtime_handle().expect("second runtime"))
+        );
+    }
 
     type TestAuthFuture<'a> =
         Pin<Box<dyn Future<Output = Result<russh::client::AuthResult, SshSessionError>> + 'a>>;

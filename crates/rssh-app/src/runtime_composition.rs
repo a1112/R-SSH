@@ -14,6 +14,7 @@ use rssh_native::{
     input::{PendingPaneCommand, PendingPaneCommandQueue},
 };
 use rssh_pty::{LocalPtyTransport, PtySession};
+use rssh_ssh::LazyRusshRuntime;
 use rssh_terminal::Terminal;
 use rterm_runtime::{
     PaneHandle, PaneMetadataDelta, PaneNotice, PaneToken, PaneWorkerConfig, RuntimeBatch,
@@ -32,9 +33,10 @@ type AdoptLocalSession = fn(
     Arc<dyn Fn() + Send + Sync>,
 ) -> Result<SpawnedLocalPane, Box<dyn Error>>;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct RuntimeComposition {
     adopt_local_session: AdoptLocalSession,
+    ssh_runtime: Arc<LazyRusshRuntime>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,10 +52,27 @@ pub(crate) struct PaneRuntimeRoute {
 }
 
 impl RuntimeComposition {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             adopt_local_session: WindowPaneRuntime::adopt_local_session,
+            ssh_runtime: Arc::new(LazyRusshRuntime::new()),
         }
+    }
+
+    pub(crate) fn ssh_runtime_owner(&self) -> Arc<LazyRusshRuntime> {
+        Arc::clone(&self.ssh_runtime)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ssh_runtime_initialized(&self) -> bool {
+        self.ssh_runtime.is_initialized()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn ssh_runtime_handle(
+        &self,
+    ) -> Result<rssh_ssh::RusshRuntimeHandle, rssh_ssh::SshSessionError> {
+        self.ssh_runtime.get_or_try_init()
     }
 
     pub(crate) fn adopt_local_session(
@@ -145,7 +164,7 @@ pub(crate) struct ActiveWindowRuntime {
 }
 
 impl ActiveWindowRuntime {
-    pub(crate) const fn new(presentation: TerminalRuntime) -> Self {
+    pub(crate) fn new(presentation: TerminalRuntime) -> Self {
         Self {
             composition: RuntimeComposition::new(),
             presentation,
@@ -153,12 +172,12 @@ impl ActiveWindowRuntime {
         }
     }
 
-    pub(crate) const fn set_composition(&mut self, composition: RuntimeComposition) {
+    pub(crate) fn set_composition(&mut self, composition: RuntimeComposition) {
         self.composition = composition;
     }
 
-    pub(crate) const fn composition(&self) -> RuntimeComposition {
-        self.composition
+    pub(crate) fn composition(&self) -> RuntimeComposition {
+        self.composition.clone()
     }
 
     pub(crate) const fn worker(&self) -> Option<&WindowPaneRuntime> {
@@ -903,7 +922,25 @@ mod tests {
         testing::{ReadAction, ScriptedTransport, WriteAction},
     };
 
-    use super::{PaneCapturePolicy, PaneRuntimeRoute, TerminalSize, WindowPaneRuntime};
+    use super::{
+        PaneCapturePolicy, PaneRuntimeRoute, RuntimeComposition, TerminalSize, WindowPaneRuntime,
+    };
+
+    #[test]
+    fn cloned_compositions_share_one_lazy_ssh_runtime_without_initializing_it() {
+        let first = RuntimeComposition::new();
+        let second = first.clone();
+
+        assert!(!first.ssh_runtime_initialized());
+        assert!(!second.ssh_runtime_initialized());
+
+        let first_handle = first.ssh_runtime_handle().expect("initialize SSH runtime");
+        let second_handle = second.ssh_runtime_handle().expect("reuse SSH runtime");
+
+        assert!(first_handle.shares_runtime_with(&second_handle));
+        assert!(first.ssh_runtime_initialized());
+        assert!(second.ssh_runtime_initialized());
+    }
 
     fn runtime_with_queued_output_batches(
         output_batches: usize,
