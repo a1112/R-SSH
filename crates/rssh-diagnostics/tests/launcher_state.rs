@@ -33,6 +33,8 @@ fn defaults_encode_the_approved_sampling_contract() {
     assert_eq!(options.sample_interval, Duration::from_millis(100));
     assert_eq!(options.sample_count, 10);
     assert_eq!(options.shutdown_timeout, Duration::from_millis(2_000));
+    assert_eq!(options.columns, 80);
+    assert_eq!(options.rows, 24);
     assert!(options.json);
 }
 

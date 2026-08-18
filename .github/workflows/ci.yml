@@ -36,6 +36,8 @@ jobs:
           npm --prefix web test
           npm --prefix web run build
       - run: cargo fmt --all -- --check
+      - name: Verify deterministic Stage 0 diagnostics contracts
+        run: cargo test --locked -p rssh-diagnostics --all-targets -j1
       - name: Enforce shrinking Rust architecture budgets
         run: python scripts/ci/check-rust-architecture.py --policy scripts/ci/architecture-policy.json
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings

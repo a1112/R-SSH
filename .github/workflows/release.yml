@@ -41,7 +41,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
 
       - name: Build release benchmark
-        run: cargo build --locked --release -p rssh-app
+        shell: pwsh
+        run: |
+          cargo build --locked --release -p rssh-app
+          cargo build --locked --release -p rssh-diagnostics --bin rssh-bench-launcher
 
       - name: Enforce SSH GUI cold-start budgets
         shell: pwsh
@@ -51,6 +54,25 @@ jobs:
           -Warmups 5
           -Samples 30
           -SkipBuild
+
+      - name: Collect Stage 0 GUI diagnostics (report-only memory targets)
+        shell: pwsh
+        run: >
+          ./scripts/ci/run-stage0-diagnostics.ps1
+          -Profile release
+          -Warmups 5
+          -Samples 30
+          -OutputDirectory artifacts/stage0-diagnostics
+          -SkipBuild
+
+      - name: Upload Stage 0 raw and aggregate diagnostics
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage0-diagnostics-windows-x64
+          if-no-files-found: error
+          path: |
+            artifacts/stage0-diagnostics/raw
+            artifacts/stage0-diagnostics/aggregate.json
 
       - name: Enforce absolute and same-machine median budgets
         shell: pwsh

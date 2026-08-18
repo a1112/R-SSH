@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::{MarkerKind, RunConfiguration, Scenario};
 
-pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--json]";
+pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LauncherOptions {
@@ -15,6 +15,8 @@ pub struct LauncherOptions {
     pub sample_interval: Duration,
     pub sample_count: u32,
     pub shutdown_timeout: Duration,
+    pub columns: u16,
+    pub rows: u16,
     pub json: bool,
 }
 
@@ -35,6 +37,8 @@ impl LauncherOptions {
         let mut sample_interval_ms = 100_u64;
         let mut sample_count = 10_u32;
         let mut shutdown_timeout_ms = 2_000_u64;
+        let mut columns = 80_u16;
+        let mut rows = 24_u16;
         let mut json = false;
 
         while let Some(argument) = arguments.next() {
@@ -80,6 +84,12 @@ impl LauncherOptions {
                         "--shutdown-timeout-ms",
                     )?;
                 }
+                "--cols" => {
+                    columns = parse_positive(&next_value(&mut arguments, "--cols")?, "--cols")?;
+                }
+                "--rows" => {
+                    rows = parse_positive(&next_value(&mut arguments, "--rows")?, "--rows")?;
+                }
                 "--json" => json = true,
                 _ => return Err(LauncherCliError::UnknownArgument(argument)),
             }
@@ -96,6 +106,8 @@ impl LauncherOptions {
             sample_interval: Duration::from_millis(sample_interval_ms),
             sample_count,
             shutdown_timeout: Duration::from_millis(shutdown_timeout_ms),
+            columns,
+            rows,
             json,
         })
     }
@@ -106,6 +118,8 @@ impl LauncherOptions {
             stabilization_ms: duration_millis(self.stabilization),
             sample_interval_ms: duration_millis(self.sample_interval),
             sample_count: self.sample_count,
+            columns: self.columns,
+            rows: self.rows,
             ..RunConfiguration::default()
         }
     }

@@ -301,6 +301,100 @@ fn ssh_profile_prompt_policy_has_a_dedicated_mapping_test() {
     );
 }
 
+#[test]
+fn stage0_shared_ci_runs_deterministic_tests_without_absolute_memory_gates() {
+    let ci = read_repo_file(".github/workflows/ci.yml");
+
+    assert!(ci.contains("cargo test --locked -p rssh-diagnostics --all-targets -j1"));
+    assert!(!ci.contains("run-stage0-diagnostics.ps1"));
+    assert!(!ci.contains("stage0_empty_window_target_bytes"));
+    assert!(!ci.contains("stage0_ssh1_target_bytes"));
+}
+
+#[test]
+fn stage0_fixed_runner_collects_both_scenarios_and_uploads_raw_and_aggregate_json() {
+    let release = read_repo_file(".github/workflows/release.yml");
+    let fixed_performance = release
+        .split("  fixed-performance:\n")
+        .nth(1)
+        .expect("release workflow fixed-performance job")
+        .split("\n  build-package:")
+        .next()
+        .expect("fixed-performance job boundary");
+
+    for contract in [
+        "cargo build --locked --release -p rssh-app",
+        "cargo build --locked --release -p rssh-diagnostics --bin rssh-bench-launcher",
+        "scripts/ci/run-stage0-diagnostics.ps1",
+        "-Profile release",
+        "-Warmups 5",
+        "-Samples 30",
+        "-SkipBuild",
+        "stage0-diagnostics/raw",
+        "stage0-diagnostics/aggregate.json",
+        "actions/upload-artifact@",
+    ] {
+        assert!(
+            fixed_performance.contains(contract),
+            "fixed runner is missing Stage 0 contract: {contract}"
+        );
+    }
+
+    let runner = read_repo_file("scripts/ci/run-stage0-diagnostics.ps1");
+    for contract in [
+        "empty-window",
+        "ssh1",
+        "$Warmups = 5",
+        "$Samples = 30",
+        "--cols",
+        "80",
+        "--rows",
+        "24",
+        "RSSH_BENCHMARK_WINDOW_SCALE_FACTOR",
+        "stage0_empty_window_target_bytes",
+        "47185920",
+        "stage0_ssh1_target_bytes",
+        "62914560",
+        "Write-Warning",
+    ] {
+        assert!(
+            runner.contains(contract),
+            "Stage 0 runner is missing: {contract}"
+        );
+    }
+    assert!(
+        !runner.contains("throw \"Stage 0 memory target"),
+        "45/60 MiB targets must remain report-only during Stage 0"
+    );
+}
+
+#[test]
+fn stage0_documentation_freezes_metric_semantics_schema_and_gate_status() {
+    let documentation = read_repo_file("docs/benchmarks/stage0-schema-v2.md");
+    for contract in [
+        "rssh.diagnostics/v2",
+        "windows_private_working_set_bytes",
+        "linux_pss_bytes",
+        "macos_phys_footprint_bytes",
+        "45 MiB",
+        "60 MiB",
+        "report-only",
+        "first-present p95",
+        "500 ms",
+        "raw/",
+        "aggregate.json",
+        "unsupported",
+    ] {
+        assert!(
+            documentation.contains(contract),
+            "Stage 0 documentation is missing: {contract}"
+        );
+    }
+    let readme = read_repo_file("README.md");
+    assert!(readme.contains("run-stage0-diagnostics"));
+    assert!(readme.contains("stage0-schema-v2.md"));
+}
+
 fn assert_workload(baseline: &Value, name: &str, measured: [u64; 6], gates: [u64; 4]) {
     let workload = &baseline["runtime"]["workloads"][name];
     assert_eq!(

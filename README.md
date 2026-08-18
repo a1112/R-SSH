@@ -587,6 +587,19 @@ Native SSH accepts Ed25519 and supported ECDSA private keys. Native RSA
 private-key authentication is disabled because the Rust RSA implementation has
 an unresolved timing-side-channel advisory; use the OpenSSH backend when a
 legacy RSA identity is unavoidable.
+
+### Stage 0 GUI diagnostics
+
+The cross-platform Stage 0 launcher measures a fresh empty native window and a
+fresh one-pane native SSH GUI process with versioned lifecycle markers and an
+identity-bound native memory metric. On Windows, run
+`scripts/ci/run-stage0-diagnostics.ps1`; on Linux or macOS, run
+`scripts/ci/run-stage0-diagnostics.sh`. Both runners retain individual v2 JSON
+records plus an aggregate report. The existing fixed-runner startup limit stays
+blocking, while the initial steady-memory targets remain report-only. See the
+[Stage 0 schema and runner contract](docs/benchmarks/stage0-schema-v2.md) for
+commands, exact platform metric semantics, artifact layout, failure behavior,
+and threshold graduation rules.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing

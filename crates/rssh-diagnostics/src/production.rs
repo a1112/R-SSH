@@ -586,9 +586,9 @@ fn diagnostic_command(
         "--renderer",
         "auto",
         "--cols",
-        "80",
+        &options.columns.to_string(),
         "--rows",
-        "24",
+        &options.rows.to_string(),
     ]);
     command.env("RSSH_BENCHMARK_WINDOW_SCALE_FACTOR", "1");
     if let Some(fixture) = fixture {
