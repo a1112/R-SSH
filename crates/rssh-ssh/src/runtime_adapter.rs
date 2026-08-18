@@ -5,13 +5,13 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use rssh_ssh::{
+use crate::{
     SshConnectRequest, SshSessionError, SshSessionResult, SshShellConnector, SshShellReader,
     SshShellSession, SshShellWriter,
 };
 use rterm_types::TerminalSize;
 
-use super::{
+use rterm_runtime::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,
     SessionTransport,
 };

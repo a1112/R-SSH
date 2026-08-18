@@ -98,7 +98,7 @@ impl NativeWindowApp {
 
     fn apply_active_pane_delta(
         &mut self,
-        delta: rssh_runtime::RuntimeDelta<'_>,
+        delta: rterm_runtime::RuntimeDelta<'_>,
         previous_dimensions: rssh_terminal::TerminalStableDimensions,
         started: Option<Instant>,
     ) -> io::Result<()> {
@@ -350,7 +350,7 @@ impl NativeWindowApp {
         &mut self,
         pane_id: rssh_core::PaneId,
         runtime: &mut PaneRuntime,
-        delta: rssh_runtime::RuntimeDelta<'_>,
+        delta: rterm_runtime::RuntimeDelta<'_>,
         previous_dimensions: rssh_terminal::TerminalStableDimensions,
         has_unseen_output: Option<bool>,
         started: Option<Instant>,
@@ -425,7 +425,7 @@ impl NativeWindowApp {
         &mut self,
         pane_id: rssh_core::PaneId,
         runtime: &mut PaneRuntime,
-        delta: &rssh_runtime::RuntimeDelta<'_>,
+        delta: &rterm_runtime::RuntimeDelta<'_>,
     ) -> io::Result<()> {
         for message in delta.diagnostics() {
             #[cfg(feature = "functional-test-observer")]

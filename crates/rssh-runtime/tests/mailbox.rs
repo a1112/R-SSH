@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rssh_runtime::{
+use rterm_runtime::{
     MailboxItem, MailboxLimits, MailboxLimitsError, RecvError, RecvTimeoutError, SendError,
     TryRecvError, TrySendError, bounded_mailbox,
 };

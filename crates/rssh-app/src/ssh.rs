@@ -13,12 +13,11 @@ use rssh_core::{
     session::{SessionLifecycle, SessionState},
 };
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
-use rssh_runtime::SshTransport;
 use rssh_ssh::{
     RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshForwardCancellation, RusshForwardDeadlines,
     RusshHostKeyPolicy, RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan, SshAuthMethod,
     SshChannelConnector, SshConnectRequest, SshInputEvent, SshInputEventReceiver, SshSessionConfig,
-    SshSessionStartup, SshShellConnector, ssh_input_event_channel,
+    SshSessionStartup, SshShellConnector, SshTransport, ssh_input_event_channel,
 };
 use serde::Serialize;
 

@@ -2316,13 +2316,13 @@ fn pane_progress_from_terminal_progress(progress: TerminalProgress) -> PaneProgr
 }
 
 const fn terminal_progress_from_runtime(
-    progress: rssh_runtime::RuntimeProgress,
+    progress: rterm_runtime::RuntimeProgress,
 ) -> TerminalProgress {
     match progress {
-        rssh_runtime::RuntimeProgress::None => TerminalProgress::None,
-        rssh_runtime::RuntimeProgress::Percentage(value) => TerminalProgress::Percentage(value),
-        rssh_runtime::RuntimeProgress::Error(value) => TerminalProgress::Error(value),
-        rssh_runtime::RuntimeProgress::Indeterminate => TerminalProgress::Indeterminate,
+        rterm_runtime::RuntimeProgress::None => TerminalProgress::None,
+        rterm_runtime::RuntimeProgress::Percentage(value) => TerminalProgress::Percentage(value),
+        rterm_runtime::RuntimeProgress::Error(value) => TerminalProgress::Error(value),
+        rterm_runtime::RuntimeProgress::Indeterminate => TerminalProgress::Indeterminate,
     }
 }
 

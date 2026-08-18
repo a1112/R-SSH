@@ -36,10 +36,11 @@ use rssh_native::input::{
     encode_paste as encode_window_paste,
 };
 use rssh_pty::{
-    PtyCommand, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession, PtySize,
+    LocalPtyTransport, PtyCommand, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySession,
+    PtySize,
 };
 use rssh_ssh::SshAuthMethod;
-use rssh_runtime::{LocalPtyTransport, PaneWorkerConfig, SessionTransport};
+use rterm_runtime::{PaneWorkerConfig, SessionTransport};
 use rssh_ssh::{
     HostKeyChallenge, HostKeyDecision, HostKeyVerifier, RusshChannelOpener, RusshHostKeyPolicy,
     SecretPrompt, SecretPromptKind, SecretProvider, SshChannelConnector, SshConnectionPhase,

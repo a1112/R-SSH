@@ -3430,8 +3430,8 @@ struct PaneRuntime {
 enum ActiveV2Close {
     Open,
     Closed {
-        pane: rssh_runtime::PaneToken,
-        exit: Option<rssh_runtime::SessionExit>,
+        pane: rterm_runtime::PaneToken,
+        exit: Option<rterm_runtime::SessionExit>,
     },
 }
 

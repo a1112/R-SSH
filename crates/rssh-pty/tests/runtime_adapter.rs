@@ -2,11 +2,10 @@ use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 use rssh_domain::PaneId;
-use rssh_pty::PtyCommand;
-use rssh_runtime::{
-    LocalPtyTransport, PaneNotice, PaneWorkerConfig, RuntimeBuffers, RuntimeEffectKind,
-    RuntimeEffectRef, RuntimeHub, SessionControl, SessionInterrupt, SessionTransport, SystemClock,
-    TerminalRuntime,
+use rssh_pty::{LocalPtyTransport, PtyCommand};
+use rterm_runtime::{
+    PaneNotice, PaneWorkerConfig, RuntimeBuffers, RuntimeEffectKind, RuntimeEffectRef, RuntimeHub,
+    SessionControl, SessionInterrupt, SessionTransport, SystemClock, TerminalRuntime,
 };
 use rterm_types::TerminalSize;
 

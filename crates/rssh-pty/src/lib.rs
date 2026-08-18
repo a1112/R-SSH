@@ -18,6 +18,12 @@ use portable_pty::{
     PtySize as PortablePtySize, native_pty_system,
 };
 
+#[cfg(feature = "runtime-adapter")]
+mod runtime_adapter;
+
+#[cfg(feature = "runtime-adapter")]
+pub use runtime_adapter::{LocalPtyControl, LocalPtyInterrupt, LocalPtyTransport};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtyBackend {
     WindowsConpty,

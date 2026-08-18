@@ -1,7 +1,7 @@
 use std::{error::Error, fmt};
 
 use rssh_domain::WindowId;
-use rssh_runtime::PaneToken;
+use rterm_runtime::PaneToken;
 
 use crate::{
     ClipboardEffect, NotificationEffect, PersistenceEffect, RendererEffect, RuntimePortEffect,

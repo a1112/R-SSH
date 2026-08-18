@@ -1,2 +1,2 @@
 #[cfg(test)]
-pub(crate) use rssh_runtime::query_dcs::*;
+pub(crate) use rterm_runtime::query_dcs::*;

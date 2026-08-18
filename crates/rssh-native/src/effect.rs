@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use rssh_runtime::{EffectSequence, PaneToken, RuntimeRevision, TerminalStateSummary};
+use rterm_runtime::{EffectSequence, PaneToken, RuntimeRevision, TerminalStateSummary};
 use rterm_types::{DamageRegion, TerminalSize};
 
 use crate::PaneSplitDirection;
@@ -38,7 +38,7 @@ pub enum RuntimePortEffect {
     },
     ApplyModeChange {
         context: HostEffectContext,
-        change: rssh_runtime::TerminalModeChange,
+        change: rterm_runtime::TerminalModeChange,
     },
     Restart {
         pane: PaneToken,

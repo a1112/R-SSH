@@ -4901,10 +4901,10 @@ dependencies = [
  "rssh-native",
  "rssh-pty",
  "rssh-renderer",
- "rssh-runtime",
  "rssh-ssh",
  "rssh-test-support",
  "rterm-fonts",
+ "rterm-runtime",
  "rterm-terminal",
  "serde",
  "serde_json",
@@ -4977,7 +4977,7 @@ version = "0.1.0"
 dependencies = [
  "rssh-config",
  "rssh-domain",
- "rssh-runtime",
+ "rterm-runtime",
  "rterm-types",
 ]
 
@@ -4986,6 +4986,9 @@ name = "rssh-pty"
 version = "0.1.0"
 dependencies = [
  "portable-pty",
+ "rssh-domain",
+ "rterm-runtime",
+ "rterm-types",
 ]
 
 [[package]]
@@ -5007,27 +5010,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "rssh-runtime"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "flate2",
- "proc-macro2",
- "rssh-core",
- "rssh-domain",
- "rssh-pty",
- "rssh-ssh",
- "rterm-terminal",
- "rterm-types",
- "sha2 0.11.0",
- "syn 2.0.117",
-]
-
-[[package]]
 name = "rssh-ssh"
 version = "0.1.0"
 dependencies = [
+ "rssh-domain",
  "rssh-test-support",
+ "rterm-runtime",
  "rterm-types",
  "russh",
  "tokio",
@@ -5083,6 +5071,21 @@ dependencies = [
  "ttf-parser",
  "unicode-segmentation",
  "unicode-width",
+]
+
+[[package]]
+name = "rterm-runtime"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "proc-macro2",
+ "rssh-core",
+ "rssh-domain",
+ "rterm-terminal",
+ "rterm-types",
+ "sha2 0.11.0",
+ "syn 2.0.117",
 ]
 
 [[package]]

@@ -6,13 +6,23 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+runtime-adapter = ["dep:rterm-runtime"]
+
 [dependencies]
 russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring"] }
+rterm-runtime = { path = "../rssh-runtime", version = "0.1.0", optional = true }
 rterm-types = { path = "../rterm-types", version = "0.1.0" }
 tokio = { version = "1", features = ["io-util", "net", "rt-multi-thread", "time"] }
 
 [dev-dependencies]
+rssh-domain = { path = "../rssh-domain", version = "0.1.0" }
 rssh-test-support = { path = "../rssh-test-support", version = "0.1.0" }
+
+[[test]]
+name = "runtime_adapter"
+path = "tests/runtime_adapter.rs"
+required-features = ["runtime-adapter"]
 
 [lints]
 workspace = true

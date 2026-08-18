@@ -12,7 +12,7 @@ use rssh_native::{
     RendererEffect, RuntimeDrain, RuntimePortEffect, SpawnEffect, TimerId, TimerIntent, TurnBudget,
     UriEffect, WindowEffect, WindowIntent, WindowPortEffect, WindowState, WinitHost,
 };
-use rssh_runtime::{
+use rterm_runtime::{
     Clock, EffectSequence, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
     RuntimeRevision, TerminalStateSummary,
 };
@@ -472,7 +472,7 @@ fn token_only_runtime_event_can_deliver_a_real_batch_without_transport_bytes() {
             visible_digest: 2,
         })),
         damage: vec![DamageRegion::new(0, 0, 1, 1)],
-        metadata: rssh_runtime::PaneMetadataDelta::default(),
+        metadata: rterm_runtime::PaneMetadataDelta::default(),
         effects: Vec::new(),
         metrics: RuntimeBatchMetrics::default(),
     };

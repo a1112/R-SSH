@@ -1,4 +1,4 @@
-use rssh_runtime::{PaneToken, RuntimeProgress};
+use rterm_runtime::{PaneToken, RuntimeProgress};
 
 use crate::WindowState;
 

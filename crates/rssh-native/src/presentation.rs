@@ -1,7 +1,7 @@
 use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 
 use rssh_domain::PaneId;
-use rssh_runtime::{PaneToken, RuntimeRevision};
+use rterm_runtime::{PaneToken, RuntimeRevision};
 use rterm_types::DamageRegion;
 
 use crate::{OverlayPresentation, PaneLayout, PaneRenderRect, PaneSeparator, TabPresentation};

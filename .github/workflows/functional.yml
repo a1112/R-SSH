@@ -30,10 +30,10 @@ jobs:
           python scripts/ci/check-functional-hermeticity.py
           cargo build --locked -p rssh-app
           cargo test --locked -p rssh-functional-tests -- --nocapture 2>&1 | tee functional-tests.libtest
-          cargo test --locked -p rssh-runtime --features test-support --test pane_worker -- --nocapture 2>&1 | tee -a functional-tests.libtest
-          cargo test --locked -p rssh-runtime --features local-transport --test local_transport -- --nocapture 2>&1 | tee -a functional-tests.libtest
-          cargo test --locked -p rssh-runtime --test terminal_delta -- --nocapture 2>&1 | tee -a functional-tests.libtest
-          cargo test --locked -p rssh-runtime --features ssh-transport --test ssh_transport -- --nocapture 2>&1 | tee -a functional-tests.libtest
+          cargo test --locked -p rterm-runtime --features test-support --test pane_worker -- --nocapture 2>&1 | tee -a functional-tests.libtest
+          cargo test --locked -p rssh-pty --features runtime-adapter --test runtime_adapter -- --nocapture 2>&1 | tee -a functional-tests.libtest
+          cargo test --locked -p rterm-runtime --test terminal_delta -- --nocapture 2>&1 | tee -a functional-tests.libtest
+          cargo test --locked -p rssh-ssh --features runtime-adapter --test runtime_adapter -- --nocapture 2>&1 | tee -a functional-tests.libtest
           cargo test --locked -p rssh-config --test reload -- --nocapture 2>&1 | tee -a functional-tests.libtest
           cargo test --locked -p rssh-app --test openssh_loopback -- --nocapture 2>&1 | tee -a functional-tests.libtest
           cargo test --locked -p rssh-app --test transfer_loopback -- --nocapture 2>&1 | tee -a functional-tests.libtest

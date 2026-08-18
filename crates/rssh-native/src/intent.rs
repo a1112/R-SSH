@@ -1,5 +1,5 @@
 use rssh_config::EffectiveConfig;
-use rssh_runtime::{RuntimeBatch, TerminalStateSummary};
+use rterm_runtime::{RuntimeBatch, TerminalStateSummary};
 use rterm_types::TerminalSize;
 use std::sync::Arc;
 

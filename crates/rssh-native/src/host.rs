@@ -4,7 +4,7 @@ use std::{
 };
 
 use rssh_domain::WindowId;
-use rssh_runtime::{Clock, PaneToken, SystemClock};
+use rterm_runtime::{Clock, PaneToken, SystemClock};
 use rterm_types::TerminalSize;
 
 use crate::{

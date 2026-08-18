@@ -7,13 +7,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rssh_domain::PaneId;
-use rssh_runtime::{
-    PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub, SessionControl, SessionInterrupt,
-    SessionTransport, SshTransport,
-};
 use rssh_ssh::{
     SshConnectRequest, SshExitSignal, SshSessionConfig, SshSessionError, SshSessionResult,
-    SshShellConnector, SshShellReader, SshShellSession, SshShellWriter,
+    SshShellConnector, SshShellReader, SshShellSession, SshShellWriter, SshTransport,
+};
+use rterm_runtime::{
+    PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub, SessionControl, SessionInterrupt,
+    SessionTransport,
 };
 use rterm_types::TerminalSize;
 
@@ -235,9 +235,9 @@ fn ssh_adapter_connects_preserves_partial_io_resize_exit_and_close_order() {
     assert_eq!(output, b"remote-output");
     assert_eq!(
         parts.control.poll_exit().expect("poll SSH exit"),
-        Some(rssh_runtime::SessionExit {
+        Some(rterm_runtime::SessionExit {
             status: Some(u32::MAX),
-            signal: Some(rssh_runtime::SessionExitSignal {
+            signal: Some(rterm_runtime::SessionExitSignal {
                 name: "TERM".to_owned(),
                 core_dumped: true,
                 error_message: "remote stopped".to_owned(),
@@ -314,7 +314,7 @@ fn ssh_adapter_reports_clean_disconnect_without_inventing_exit_metadata() {
     assert!(output.is_empty());
     assert_eq!(
         parts.control.poll_exit().expect("poll clean disconnect"),
-        Some(rssh_runtime::SessionExit {
+        Some(rterm_runtime::SessionExit {
             status: None,
             signal: None,
         })
@@ -323,7 +323,7 @@ fn ssh_adapter_reports_clean_disconnect_without_inventing_exit_metadata() {
 
 #[test]
 fn runtime_hub_reconnects_ssh_with_a_fresh_generation_and_no_stale_output() {
-    let mut hub = RuntimeHub::new(rssh_runtime::SystemClock);
+    let mut hub = RuntimeHub::new(rterm_runtime::SystemClock);
     let config = PaneWorkerConfig {
         capture_host_stream: true,
         ..PaneWorkerConfig::default()
@@ -372,7 +372,10 @@ fn runtime_hub_reconnects_ssh_with_a_fresh_generation_and_no_stale_output() {
     assert_eq!(hub.live_thread_count(), 0);
 }
 
-fn drain_host_stream_until_closed(hub: &mut RuntimeHub, token: rssh_runtime::PaneToken) -> Vec<u8> {
+fn drain_host_stream_until_closed(
+    hub: &mut RuntimeHub,
+    token: rterm_runtime::PaneToken,
+) -> Vec<u8> {
     let mut output = Vec::new();
     loop {
         match hub.recv_notice().expect("SSH generation notice") {

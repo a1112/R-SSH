@@ -9,7 +9,7 @@ use std::{
 };
 
 use rssh_domain::PaneId;
-use rssh_runtime::{
+use rterm_runtime::{
     EffectSequence, EffectSequenceCursor, EffectSequenceError, MetadataChange, PaneGeneration,
     PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
     RuntimeEffect, RuntimeEffectKind, RuntimeProgress, RuntimeRevision, SequenceKind,
@@ -670,7 +670,7 @@ fn public_runtime_values_are_send_and_sync() {
 }
 
 #[test]
-fn core_manifest_and_public_source_stay_neutral_with_feature_gated_adapters() {
+fn core_manifest_and_public_source_stay_transport_neutral() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("read runtime manifest");
     for forbidden in [
@@ -687,20 +687,18 @@ fn core_manifest_and_public_source_stay_neutral_with_feature_gated_adapters() {
             "runtime manifest must not depend on {forbidden}"
         );
     }
-    for optional_adapter in [
-        "rssh-pty = { path = \"../rssh-pty\", version = \"0.1.0\", optional = true }",
-        "rssh-ssh = { path = \"../rssh-ssh\", version = \"0.1.0\", optional = true }",
+    for concrete_transport in [
+        "rssh-pty",
+        "rssh-ssh",
+        "local-transport",
+        "ssh-transport",
+        "transport-adapters",
     ] {
         assert!(
-            manifest.contains(optional_adapter),
-            "transport adapter dependency must remain optional: {optional_adapter}"
+            !manifest.contains(concrete_transport),
+            "runtime manifest must not own concrete transport {concrete_transport}"
         );
     }
-    assert!(
-        manifest.contains("local-transport = [\"dep:rssh-pty\"]")
-            && manifest.contains("ssh-transport = [\"dep:rssh-ssh\"]"),
-        "concrete transport dependencies must be enabled only by named features"
-    );
 
     let mut source = String::new();
     append_transport_neutral_rust_sources(&root.join("src"), &mut source);

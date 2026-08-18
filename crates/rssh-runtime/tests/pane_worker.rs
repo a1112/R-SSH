@@ -4,8 +4,10 @@ use std::{
 };
 
 use rssh_domain::PaneId;
-use rssh_runtime::testing::{ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction};
-use rssh_runtime::{
+use rterm_runtime::testing::{
+    ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction,
+};
+use rterm_runtime::{
     BatchPolicy, MailboxLimits, PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub,
     SessionExit, SubmitResult, TerminalRuntime,
 };
@@ -16,7 +18,7 @@ fn scripted_session(
     writes: impl IntoIterator<Item = WriteAction>,
 ) -> (
     ScriptedTransport,
-    rssh_runtime::testing::ScriptedSessionDriver,
+    rterm_runtime::testing::ScriptedSessionDriver,
 ) {
     ScriptedTransport::new(reads, writes, [ExitAction::Pending])
 }
@@ -33,7 +35,7 @@ fn recv_matching_notice(
     }
 }
 
-fn recv_ready(hub: &mut RuntimeHub<VirtualClock>, token: rssh_runtime::PaneToken) {
+fn recv_ready(hub: &mut RuntimeHub<VirtualClock>, token: rterm_runtime::PaneToken) {
     assert_eq!(
         recv_matching_notice(
             hub,
@@ -43,7 +45,7 @@ fn recv_ready(hub: &mut RuntimeHub<VirtualClock>, token: rssh_runtime::PaneToken
     );
 }
 
-fn recv_wake(hub: &mut RuntimeHub<VirtualClock>, token: rssh_runtime::PaneToken) {
+fn recv_wake(hub: &mut RuntimeHub<VirtualClock>, token: rterm_runtime::PaneToken) {
     assert_eq!(
         recv_matching_notice(
             hub,
@@ -251,7 +253,7 @@ fn explicitly_enabled_host_stream_is_published_losslessly_and_in_order() {
         .collect::<Vec<_>>();
     assert!(drain.effects.iter().any(|effect| matches!(
         effect.effect.kind(),
-        RuntimeEffectKind::ModeChange(rssh_runtime::TerminalModeChange::ApplicationCursorKeys(
+        RuntimeEffectKind::ModeChange(rterm_runtime::TerminalModeChange::ApplicationCursorKeys(
             true
         ))
     )));
@@ -559,7 +561,7 @@ fn queued_output_batches_once_wakes_once_replaces_frames_and_preserves_effects()
     assert!(frame.full_repaint);
     assert_eq!(frame.snapshot.grid().size(), TerminalSize::new(81, 24));
     assert_eq!(
-        rssh_runtime::TerminalStateSummary::capture_terminal(&frame.snapshot),
+        rterm_runtime::TerminalStateSummary::capture_terminal(&frame.snapshot),
         frame.state
     );
     assert_eq!(

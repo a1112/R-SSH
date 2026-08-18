@@ -3,7 +3,7 @@ use rssh_native::{
     ClipboardEffect, PaneCommand, PaneLifecycleIntent, SpawnEffect, UriEffect, WindowEffect,
     WindowIntent, WindowState, commands::CommandIntent, reduce,
 };
-use rssh_runtime::{PaneToken, PaneTokenAllocator};
+use rterm_runtime::{PaneToken, PaneTokenAllocator};
 
 fn token(pane: u64) -> PaneToken {
     PaneTokenAllocator::new()

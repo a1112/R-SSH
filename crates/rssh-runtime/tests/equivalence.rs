@@ -2,8 +2,8 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rssh_runtime::{RuntimeBuffers, RuntimeEffectRef, TerminalRuntime};
 use rssh_terminal::Terminal;
+use rterm_runtime::{RuntimeBuffers, RuntimeEffectRef, TerminalRuntime};
 use rterm_types::{DamageRegion, TerminalSize};
 
 const REQUIRED_TRANSCRIPTS: &[&str] = &[

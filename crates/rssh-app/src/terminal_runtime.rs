@@ -3,15 +3,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rssh_core::TerminalSize;
-use rssh_runtime::RuntimeBuffers;
 use rssh_terminal::Terminal;
+use rterm_runtime::RuntimeBuffers;
 
-pub(crate) use rssh_runtime::terminal::{TerminalNotification, TerminalProgress};
+pub(crate) use rterm_runtime::terminal::{TerminalNotification, TerminalProgress};
 
 const PROCESS_CWD_PROBE_INTERVAL: Duration = Duration::from_secs(1);
 
 pub(crate) struct TerminalRuntime {
-    pub(crate) inner: rssh_runtime::TerminalRuntime,
+    pub(crate) inner: rterm_runtime::TerminalRuntime,
     pub(crate) storage: TerminalRuntimeStorage,
     presentation_snapshot: Option<Arc<Terminal>>,
 }
@@ -30,7 +30,7 @@ struct ProcessCwdProbeState {
 impl TerminalRuntime {
     pub(crate) fn new(size: TerminalSize) -> Self {
         Self {
-            inner: rssh_runtime::TerminalRuntime::new(size),
+            inner: rterm_runtime::TerminalRuntime::new(size),
             storage: TerminalRuntimeStorage::new(),
             presentation_snapshot: None,
         }
@@ -38,7 +38,7 @@ impl TerminalRuntime {
 
     pub(crate) fn new_with_query_scan_work(size: TerminalSize) -> Self {
         Self {
-            inner: rssh_runtime::TerminalRuntime::new_with_query_scan_work(size),
+            inner: rterm_runtime::TerminalRuntime::new_with_query_scan_work(size),
             storage: TerminalRuntimeStorage::new(),
             presentation_snapshot: None,
         }
@@ -46,7 +46,7 @@ impl TerminalRuntime {
 
     pub(crate) fn from_terminal(terminal: Terminal) -> Self {
         Self {
-            inner: rssh_runtime::TerminalRuntime::from_terminal(terminal),
+            inner: rterm_runtime::TerminalRuntime::from_terminal(terminal),
             storage: TerminalRuntimeStorage::new(),
             presentation_snapshot: None,
         }
@@ -100,7 +100,7 @@ impl TerminalRuntimeStorage {
 }
 
 impl Deref for TerminalRuntime {
-    type Target = rssh_runtime::TerminalRuntime;
+    type Target = rterm_runtime::TerminalRuntime;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn presentation_snapshot_reuses_the_worker_terminal_arc() {
         let size = TerminalSize::new(80, 24);
-        let worker = rssh_runtime::TerminalRuntime::new(size);
+        let worker = rterm_runtime::TerminalRuntime::new(size);
         let snapshot = std::sync::Arc::new(worker.terminal().clone());
         let mut presentation = TerminalRuntime::new(size);
 
