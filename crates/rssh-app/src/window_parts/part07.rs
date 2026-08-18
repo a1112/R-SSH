@@ -1406,6 +1406,14 @@ impl DerefMut for NativeAppliedConfig {
     }
 }
 
+#[derive(Clone)]
+struct NativeDiagnosticGuiState {
+    markers: DiagnosticMarkerHandle,
+    scenario: DiagnosticScenario,
+    hold_duration: Duration,
+    hold_deadline: Option<Instant>,
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct NativeWindowApp {
     app_window_id: rssh_core::WindowId,
@@ -1438,6 +1446,8 @@ struct NativeWindowApp {
     presentation_owner: PresentationOwner,
     deferred_gpu_generation: u64,
     benchmark_startup: bool,
+    diagnostic_gui: Option<NativeDiagnosticGuiState>,
+    suppress_transport_start: bool,
     transport_start_requested: bool,
     // Prompts are keyed by pane so a slow host-key or secret decision in one
     // SSH pane cannot overwrite another pane's independent connection.
@@ -1706,8 +1716,11 @@ enum ManagedWindowAppLocation {
 const fn should_spawn_transport_during_materialization(
     renderer_mode: RendererMode,
     benchmark_startup: bool,
+    suppress_transport_start: bool,
 ) -> bool {
-    matches!(renderer_mode, RendererMode::Gpu) && !benchmark_startup
+    matches!(renderer_mode, RendererMode::Gpu)
+        && !benchmark_startup
+        && !suppress_transport_start
 }
 
 impl NativeWindowManager {
@@ -1860,6 +1873,7 @@ impl NativeWindowManager {
         if should_spawn_transport_during_materialization(
             app.renderer_mode,
             app.benchmark_startup,
+            app.suppress_transport_start,
         ) {
             app.spawn_pty()?;
         }
@@ -2284,6 +2298,14 @@ impl NativeWindowManager {
                 }
             }
         }
+        for app in self
+            .startup_app
+            .iter_mut()
+            .chain(self.pending_apps.iter_mut())
+            .chain(self.windows.values_mut())
+        {
+            app.mark_diagnostic_config_ready();
+        }
         self.finish_deferred_startup_after_config();
         true
     }
@@ -2300,7 +2322,11 @@ impl NativeWindowManager {
         for app in self
             .windows
             .values_mut()
-            .filter(|app| app.rendered_frames > 0 && !app.benchmark_startup)
+            .filter(|app| {
+                app.rendered_frames > 0
+                    && !app.benchmark_startup
+                    && !app.suppress_transport_start
+            })
         {
             if app.transport_start_requested {
                 continue;
@@ -2556,6 +2582,7 @@ impl NativeWindowManager {
             WindowUserEvent::ReloadConfigurationRequested
             | WindowUserEvent::ConfigFileChanged
             | WindowUserEvent::DeferredConfigReady
+            | WindowUserEvent::DiagnosticShutdownRequested
             | WindowUserEvent::MoveTabToWindow { .. } => false,
             WindowUserEvent::RuntimeWakeWindow { .. } => match app.poll_active_v2_runtime() {
                 Ok(Some(close_window)) => close_window,
@@ -3075,6 +3102,7 @@ pub(crate) enum WindowUserEvent {
     ReloadConfigurationRequested,
     ConfigFileChanged,
     DeferredConfigReady,
+    DiagnosticShutdownRequested,
     MoveTabToWindow {
         source_window_id: rssh_core::WindowId,
         target_window_id: rssh_core::WindowId,
@@ -3147,6 +3175,7 @@ impl WindowUserEvent {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
             | Self::DeferredConfigReady
+            | Self::DiagnosticShutdownRequested
             | Self::MoveTabToWindow { .. }
             | Self::RuntimeWakeWindow { .. }
             | Self::DeferredGpuInitialized { .. } => None,
@@ -3182,6 +3211,7 @@ impl WindowUserEvent {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
             | Self::DeferredConfigReady
+            | Self::DiagnosticShutdownRequested
             | Self::MoveTabToWindow { .. }
             | Self::RuntimeWakeWindow { .. }
             | Self::DeferredGpuInitialized { .. } => None,
@@ -4151,6 +4181,14 @@ const fn presentation_owner_after_gpu_frame(
 
 fn release_bootstrap_staging_after_gpu_activation(bootstrap_frame: &mut Vec<u8>) {
     *bootstrap_frame = Vec::new();
+}
+
+fn visible_snapshot_cell_count(snapshot: &TerminalRenderSnapshot) -> usize {
+    snapshot
+        .cells()
+        .iter()
+        .filter(|cell| !cell.text.trim().is_empty())
+        .count()
 }
 
 fn finalize_native_gpu_frame<E>(

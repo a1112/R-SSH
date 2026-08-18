@@ -18,6 +18,7 @@ const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
 pub enum AppCommand {
     Bench(BenchOptions),
     Doctor(DoctorOptions),
+    DiagnosticGui(DiagnosticGuiOptions),
     Local(LocalOptions),
     Profile(ProfileOptions),
     ProfileCheck(ProfileCheckOptions),
@@ -31,6 +32,16 @@ pub enum AppCommand {
     Version(VersionOptions),
     Window(WindowOptions),
     Help,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticGuiOptions {
+    pub run_id: String,
+    pub scenario: rssh_diagnostics::Scenario,
+    pub hold_ms: u64,
+    pub renderer: RendererMode,
+    pub columns: u16,
+    pub rows: u16,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -439,6 +450,7 @@ where
             }
             parse_doctor(&doctor_args)
         }
+        "diagnostic-gui" => parse_diagnostic_gui(&args.collect::<Vec<_>>()),
         "version" => {
             let version_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&version_args) {
@@ -491,6 +503,70 @@ where
         "-h" | "--help" | "help" => Ok(AppCommand::Help),
         unknown => Err(format!("unknown command: {unknown}")),
     }
+}
+
+fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
+    let mut run_id = None;
+    let mut scenario = None;
+    let mut hold_ms = None;
+    let mut renderer = RendererMode::Auto;
+    let mut columns = DEFAULT_SSH_COLUMNS;
+    let mut rows = DEFAULT_SSH_ROWS;
+    let mut index = 0;
+
+    while index < args.len() {
+        let option = args[index].as_str();
+        index += 1;
+        let value = required_option_value(args.get(index), option)?;
+        match option {
+            "--run-id" => run_id = Some(value.to_owned()),
+            "--scenario" => {
+                scenario = Some(match value {
+                    "empty-window" => rssh_diagnostics::Scenario::EmptyWindow,
+                    "ssh1" => {
+                        return Err(
+                            "ssh1 diagnostic scenario is not available until its fixture contract is configured"
+                                .to_owned(),
+                        );
+                    }
+                    _ => {
+                        return Err(format!(
+                            "invalid diagnostic scenario: {value}; expected empty-window or ssh1"
+                        ));
+                    }
+                });
+            }
+            "--hold-ms" => {
+                hold_ms = Some(parse_positive_u64(value, "--hold-ms")?);
+            }
+            "--renderer" => renderer = RendererMode::parse(value)?,
+            "--cols" => columns = parse_dimension(Some(&args[index]), "--cols")?,
+            "--rows" => rows = parse_dimension(Some(&args[index]), "--rows")?,
+            value => return Err(format!("unexpected diagnostic GUI option: {value}")),
+        }
+        index += 1;
+    }
+
+    let run_id = run_id.ok_or_else(|| "diagnostic-gui requires --run-id".to_owned())?;
+    if run_id.trim().is_empty() {
+        return Err("--run-id must not be empty".to_owned());
+    }
+    Ok(AppCommand::DiagnosticGui(DiagnosticGuiOptions {
+        run_id,
+        scenario: scenario.ok_or_else(|| "diagnostic-gui requires --scenario".to_owned())?,
+        hold_ms: hold_ms.ok_or_else(|| "diagnostic-gui requires --hold-ms".to_owned())?,
+        renderer,
+        columns,
+        rows,
+    }))
+}
+
+fn parse_positive_u64(value: &str, option: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| format!("{option} must be a positive integer"))
 }
 
 fn parse_global_window_config_prefix(

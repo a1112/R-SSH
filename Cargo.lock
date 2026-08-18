@@ -4896,6 +4896,7 @@ dependencies = [
  "rpassword",
  "rssh-config",
  "rssh-core",
+ "rssh-diagnostics",
  "rssh-fonts",
  "rssh-functional-tests",
  "rssh-native",

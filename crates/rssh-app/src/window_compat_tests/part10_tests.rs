@@ -1212,6 +1212,7 @@
         assert!(!super::should_spawn_transport_during_materialization(
             detached.renderer_mode,
             detached.benchmark_startup,
+            detached.suppress_transport_start,
         ));
     }
 

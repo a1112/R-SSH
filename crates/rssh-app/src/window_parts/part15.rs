@@ -3129,6 +3129,10 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WindowUserEvent) {
+        if matches!(event, WindowUserEvent::DiagnosticShutdownRequested) {
+            event_loop.exit();
+            return;
+        }
         if self.handle_manager_user_event(&event) {
             return;
         }
@@ -3239,6 +3243,16 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
         let now = Instant::now();
         let mut next_frame_limit_redraw = None;
         for app in self.windows.values_mut() {
+            if let Some(deadline) = app.diagnostic_hold_deadline() {
+                if now >= deadline {
+                    event_loop.exit();
+                    return;
+                }
+                next_frame_limit_redraw = Some(
+                    next_frame_limit_redraw
+                        .map_or(deadline, |earliest: Instant| earliest.min(deadline)),
+                );
+            }
             let mut regular_redraw_needed =
                 app.frame_needs_full_repaint || !app.pending_frame_damage.is_empty();
             regular_redraw_needed |= app.frame_limit_refresh_pending();
@@ -3305,6 +3319,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
         if self.renderer_mode == RendererMode::Gpu
             && !self.benchmark_startup
+            && !self.suppress_transport_start
             && let Err(error) = self.spawn_pty()
         {
             eprintln!("PTY error: {error}");
@@ -3324,6 +3339,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 self.reload_configuration();
             }
             WindowUserEvent::DeferredConfigReady | WindowUserEvent::MoveTabToWindow { .. } => {}
+            WindowUserEvent::DiagnosticShutdownRequested => event_loop.exit(),
             WindowUserEvent::RuntimeWakeWindow { .. } => {
                 self.handle_runtime_wake_window(event_loop);
             }
@@ -3570,7 +3586,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.apply_window_scale_factor(startup_window_scale_factor(
-                    self.benchmark_startup,
+                    self.diagnostic_scale_override_enabled(),
                     scale_factor,
                 ));
                 self.update_ime_cursor_area();

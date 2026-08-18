@@ -570,6 +570,8 @@ impl NativeWindowApp {
                 presentation_owner: PresentationOwner::Bootstrap,
                 deferred_gpu_generation: 0,
                 benchmark_startup: false,
+                diagnostic_gui: None,
+                suppress_transport_start: false,
                 transport_start_requested: false,
                 ssh_host_key_prompts: HashMap::new(),
                 ssh_secret_prompts: HashMap::new(),
@@ -760,6 +762,125 @@ impl NativeWindowApp {
 
     fn set_benchmark_startup(&mut self, enabled: bool) {
         self.benchmark_startup = enabled;
+    }
+
+    fn set_diagnostic_gui(
+        &mut self,
+        markers: DiagnosticMarkerHandle,
+        scenario: DiagnosticScenario,
+        hold_duration: Duration,
+    ) {
+        self.suppress_transport_start = scenario == DiagnosticScenario::EmptyWindow;
+        self.diagnostic_gui = Some(NativeDiagnosticGuiState {
+            markers,
+            scenario,
+            hold_duration,
+            hold_deadline: None,
+        });
+    }
+
+    fn diagnostic_scale_override_enabled(&self) -> bool {
+        self.benchmark_startup || self.diagnostic_gui.is_some()
+    }
+
+    fn diagnostic_hold_deadline(&self) -> Option<Instant> {
+        self.diagnostic_gui
+            .as_ref()
+            .and_then(|diagnostic| diagnostic.hold_deadline)
+    }
+
+    fn emit_diagnostic_marker(
+        &self,
+        kind: DiagnosticMarkerKind,
+        renderer: Option<DiagnosticRendererKind>,
+        connection_state: Option<DiagnosticConnectionState>,
+    ) {
+        if let Some(diagnostic) = &self.diagnostic_gui
+            && let Err(error) = diagnostic.markers.emit(kind, renderer, connection_state)
+        {
+            eprintln!("failed to emit diagnostic marker {kind:?}: {error}");
+        }
+    }
+
+    fn mark_diagnostic_window_created(&self) {
+        self.emit_diagnostic_marker(DiagnosticMarkerKind::WindowCreated, None, None);
+    }
+
+    fn mark_diagnostic_config_ready(&self) {
+        self.emit_diagnostic_marker(DiagnosticMarkerKind::ConfigReady, None, None);
+    }
+
+    fn mark_diagnostic_first_present(
+        &mut self,
+        renderer: DiagnosticRendererKind,
+        visible_cell_count: usize,
+    ) {
+        if let Some(diagnostic) = &self.diagnostic_gui {
+            let mut extra = HashMap::new();
+            extra.insert(
+                "visible_cell_count".to_owned(),
+                serde_json::json!(visible_cell_count),
+            );
+            if let Err(error) = diagnostic.markers.emit_with_extra(
+                DiagnosticMarkerKind::FirstPresent,
+                Some(renderer),
+                Some(DiagnosticConnectionState::NotStarted),
+                extra,
+            ) {
+                eprintln!("failed to emit diagnostic first present: {error}");
+            }
+        }
+        if renderer == DiagnosticRendererKind::Gpu {
+            self.emit_diagnostic_marker(
+                DiagnosticMarkerKind::GpuReady,
+                Some(DiagnosticRendererKind::Gpu),
+                None,
+            );
+        }
+        if let Some(diagnostic) = self.diagnostic_gui.as_mut()
+            && diagnostic.scenario == DiagnosticScenario::EmptyWindow
+            && diagnostic.hold_deadline.is_none()
+        {
+            if let Err(error) = diagnostic.markers.emit(
+                DiagnosticMarkerKind::ScenarioReady,
+                Some(renderer),
+                Some(DiagnosticConnectionState::NotStarted),
+            ) {
+                eprintln!("failed to emit diagnostic scenario readiness: {error}");
+            }
+            diagnostic.hold_deadline = Some(Instant::now() + diagnostic.hold_duration);
+        }
+    }
+
+    fn mark_diagnostic_gpu_ready(&self) {
+        self.emit_diagnostic_marker(
+            DiagnosticMarkerKind::GpuReady,
+            Some(DiagnosticRendererKind::Gpu),
+            None,
+        );
+    }
+
+    fn record_first_present(
+        &mut self,
+        renderer: RendererKind,
+        snapshot: &TerminalRenderSnapshot,
+    ) {
+        let diagnostic_renderer = match renderer {
+            RendererKind::Cpu => {
+                self.metrics.record_first_present(RendererKind::Cpu);
+                DiagnosticRendererKind::Cpu
+            }
+            RendererKind::Gpu => {
+                self.metrics.record_first_present(RendererKind::Gpu);
+                DiagnosticRendererKind::Gpu
+            }
+        };
+        self.mark_diagnostic_first_present(
+            diagnostic_renderer,
+            visible_snapshot_cell_count(snapshot),
+        );
+        self.metrics
+            .record_first_frame_private_bytes(current_process_private_bytes());
     }
 
     fn set_initial_pane_launch(&mut self, launch: PaneLaunch) {
@@ -7269,6 +7390,10 @@ impl NativeWindowApp {
         app
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "native window creation keeps platform setup and presentation ownership atomic"
+    )]
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
         let initial_size = self.initial_frame_size();
         #[cfg(target_os = "windows")]
@@ -7342,7 +7467,8 @@ impl NativeWindowApp {
             window.set_corner_preference(CornerPreference::Round);
         }
         self.apply_window_scale_factor(startup_window_scale_factor(
-            self.benchmark_startup, window.scale_factor(),
+            self.diagnostic_scale_override_enabled(),
+            window.scale_factor(),
         ));
         let size = window
             .request_inner_size(self.initial_frame_size())
@@ -7375,6 +7501,7 @@ impl NativeWindowApp {
         }
         self.refresh_window_frame_from_window();
         self.update_ime_cursor_area();
+        self.mark_diagnostic_window_created();
 
         Ok(())
     }
@@ -7660,9 +7787,7 @@ impl NativeWindowApp {
         };
 
         if presented && self.rendered_frames == 0 {
-            self.metrics.record_first_present(RendererKind::Gpu);
-            self.metrics
-                .record_first_frame_private_bytes(current_process_private_bytes());
+            self.record_first_present(RendererKind::Gpu, &snapshot);
         }
 
         if presented {
@@ -7688,6 +7813,7 @@ impl NativeWindowApp {
             && self.presentation_owner == PresentationOwner::GpuActive
         {
             self.metrics.mark_renderer(RendererKind::Gpu);
+            self.mark_diagnostic_gpu_ready();
         }
         if self.presentation_owner == PresentationOwner::GpuActive {
             // Keep the softbuffer surface (but release the RGBA staging
@@ -7784,9 +7910,7 @@ impl NativeWindowApp {
             return;
         }
         if self.rendered_frames == 0 {
-            self.metrics.record_first_present(RendererKind::Cpu);
-            self.metrics
-                .record_first_frame_private_bytes(current_process_private_bytes());
+            self.record_first_present(RendererKind::Cpu, snapshot);
         }
         self.metrics.record_render_frame(started.elapsed());
         self.metrics.record_frame_render_mode(mode);
@@ -7807,7 +7931,8 @@ impl NativeWindowApp {
         // network setup can overlap deferred configuration/GPU work.  Local
         // PTYs are started by the manager after that configuration attempt;
         // keeping them out of this branch avoids spawning against defaults.
-        if !self.transport_start_requested
+        if !self.suppress_transport_start
+            && !self.transport_start_requested
             && matches!(
                 self.app_shell.active_pane().launch().domain(),
                 PaneLaunchDomain::Ssh(_)

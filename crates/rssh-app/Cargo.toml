@@ -20,6 +20,7 @@ regex = "1"
 rpassword = "7"
 rssh-config = { path = "../rssh-config", version = "0.1.0" }
 rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rssh-diagnostics = { path = "../rssh-diagnostics", version = "0.1.0" }
 rssh-fonts = { path = "../rssh-fonts", version = "0.1.0" }
 rssh-functional-tests = { path = "../rssh-functional-tests", version = "0.1.0", optional = true }
 rssh-native = { path = "../rssh-native", version = "0.1.0" }
