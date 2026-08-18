@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "api_compatibility_line": "0.1",
+  "last_known_good_rterm_ref": "31e40c191fcaaed118f5a8822854a66882de4564",
+  "vendor_patch_strategy": "consumer-root-path-patch",
+  "history_map_file": "docs/release/rterm-history-paths.txt",
+  "packages": [
+    {
+      "name": "rterm-types",
+      "path": "crates/rterm-types",
+      "version": "0.1.0",
+      "dependencies": []
+    },
+    {
+      "name": "rterm-terminal",
+      "path": "crates/rssh-terminal",
+      "version": "0.1.0",
+      "dependencies": ["rterm-types"]
+    },
+    {
+      "name": "rterm-runtime",
+      "path": "crates/rssh-runtime",
+      "version": "0.1.0",
+      "dependencies": ["rterm-terminal", "rterm-types"]
+    },
+    {
+      "name": "rterm-fonts",
+      "path": "crates/rterm-fonts",
+      "version": "0.1.0",
+      "dependencies": []
+    },
+    {
+      "name": "rterm-render-core",
+      "path": "crates/rterm-render-core",
+      "version": "0.1.0",
+      "dependencies": ["rterm-fonts", "rterm-terminal", "rterm-types"]
+    },
+    {
+      "name": "rterm-render-cpu",
+      "path": "crates/rterm-render-cpu",
+      "version": "0.1.0",
+      "dependencies": [
+        "rterm-fonts",
+        "rterm-render-core",
+        "rterm-terminal",
+        "rterm-types"
+      ]
+    },
+    {
+      "name": "rterm-render-wgpu",
+      "path": "crates/rterm-render-wgpu",
+      "version": "0.1.0",
+      "dependencies": [
+        "rterm-fonts",
+        "rterm-render-core",
+        "rterm-render-cpu",
+        "rterm-terminal",
+        "rterm-types"
+      ]
+    }
+  ],
+  "vendor_trees": [
+    {
+      "name": "glyphon",
+      "path": "vendor/glyphon-0.12.0",
+      "tree": "af83a55c6afdddbcd5827a6a5dd7c3784882ea6a"
+    },
+    {
+      "name": "gpu-allocator",
+      "path": "vendor/gpu-allocator-0.28.0",
+      "tree": "c5da8f1a1e932e61f1da0cb07f56c57361d1b2ff"
+    }
+  ]
+}
