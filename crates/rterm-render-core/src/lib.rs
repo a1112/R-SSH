@@ -2,6 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    ops::{Deref, DerefMut},
     sync::Arc,
 };
 
@@ -13,18 +14,9 @@ use rssh_terminal::{
 pub use rterm_types::DamageRegion;
 use sha2::{Digest, Sha256};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct RenderCell {
-    pub row: u16,
-    pub column: u16,
-    /// Complete terminal grapheme. Empty for continuation cells.
-    pub text: String,
-    /// Logical width stored on a grapheme leader.
-    pub columns: u8,
-    pub continuation: bool,
-    /// Temporary first-scalar compatibility field for the bitmap renderer.
-    pub ch: char,
+pub struct RenderStyle {
     pub foreground: Color,
     pub background: Color,
     pub underline_color: Color,
@@ -41,7 +33,96 @@ pub struct RenderCell {
     pub overline: bool,
     pub vertical_align: VerticalAlign,
     pub inverse: bool,
+}
+
+impl Default for RenderStyle {
+    fn default() -> Self {
+        Self {
+            foreground: Color::Default,
+            background: Color::Default,
+            underline_color: Color::Default,
+            underline_style: UnderlineStyle::None,
+            bold: false,
+            faint: false,
+            italic: false,
+            blink: false,
+            rapid_blink: false,
+            underline: false,
+            double_underline: false,
+            conceal: false,
+            strikethrough: false,
+            overline: false,
+            vertical_align: VerticalAlign::Baseline,
+            inverse: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderCell {
+    pub row: u16,
+    pub column: u16,
+    /// Complete terminal grapheme. Empty for continuation cells.
+    pub text: Arc<str>,
+    /// Logical width stored on a grapheme leader.
+    pub columns: u8,
+    pub continuation: bool,
+    /// Temporary first-scalar compatibility field for the bitmap renderer.
+    pub ch: char,
+    style: Arc<RenderStyle>,
     pub hyperlink: Option<Arc<str>>,
+}
+
+impl RenderCell {
+    #[must_use]
+    pub fn new(row: u16, column: u16, text: impl Into<Arc<str>>) -> Self {
+        let text = text.into();
+        Self {
+            row,
+            column,
+            columns: u8::from(!text.is_empty()),
+            continuation: false,
+            ch: text.chars().next().unwrap_or(' '),
+            text,
+            style: Arc::new(RenderStyle::default()),
+            hyperlink: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_style(mut self, style: RenderStyle) -> Self {
+        self.style = Arc::new(style);
+        self
+    }
+
+    #[must_use]
+    pub const fn grapheme(&self) -> &Arc<str> {
+        &self.text
+    }
+
+    #[must_use]
+    pub const fn style(&self) -> &Arc<RenderStyle> {
+        &self.style
+    }
+
+    #[must_use]
+    pub const fn hyperlink(&self) -> Option<&Arc<str>> {
+        self.hyperlink.as_ref()
+    }
+}
+
+impl Deref for RenderCell {
+    type Target = RenderStyle;
+
+    fn deref(&self) -> &Self::Target {
+        &self.style
+    }
+}
+
+impl DerefMut for RenderCell {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::make_mut(&mut self.style)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,7 +161,14 @@ pub struct RenderInlineImage {
     pub source_height: Option<u32>,
     pub target_x: Option<u32>,
     pub target_y: Option<u32>,
-    pub data: Vec<u8>,
+    pub data: Arc<[u8]>,
+}
+
+impl RenderInlineImage {
+    #[must_use]
+    pub const fn payload(&self) -> &Arc<[u8]> {
+        &self.data
+    }
 }
 
 /// Pixel rectangle for one cell-granular inline-image fragment.
@@ -330,13 +418,16 @@ impl TerminalRenderSnapshot {
             }
         }
 
+        intern_render_cells(&mut cells);
+
         let (
-            inline_images,
+            mut inline_images,
             inline_image_fragments,
             inline_image_parent_origins,
             empty_inline_image_attachment_parents,
             inline_image_attachment_viewport_offsets,
         ) = render_inline_images_from_terminal(terminal, first_source_row, size.rows, size.columns);
+        intern_render_image_payloads(&mut inline_images);
 
         Self {
             cells,
@@ -366,33 +457,11 @@ impl TerminalRenderSnapshot {
                     continue;
                 }
 
-                cells.push(RenderCell {
-                    row,
-                    column,
-                    text: cell.text().to_owned(),
-                    columns: cell.columns(),
-                    continuation: cell.is_continuation(),
-                    ch: cell.primary_char(),
-                    foreground: cell.foreground,
-                    background: cell.background,
-                    underline_color: cell.underline_color,
-                    underline_style: cell.underline_style,
-                    bold: cell.bold,
-                    faint: cell.faint,
-                    italic: cell.italic,
-                    blink: cell.blink,
-                    rapid_blink: cell.rapid_blink,
-                    underline: cell.underline,
-                    double_underline: cell.double_underline,
-                    conceal: cell.conceal,
-                    strikethrough: cell.strikethrough,
-                    overline: cell.overline,
-                    vertical_align: cell.vertical_align,
-                    inverse: cell.inverse,
-                    hyperlink: cell.hyperlink.clone(),
-                });
+                cells.push(render_cell_from_terminal(row, column, cell, false));
             }
         }
+
+        intern_render_cells(&mut cells);
 
         Self {
             cells,
@@ -445,7 +514,7 @@ impl TerminalRenderSnapshot {
                         .min(columns.saturating_sub(column))
                         .max(1);
                     clusters.push(rssh_fonts::TerminalCluster::new(
-                        cell.text.clone(),
+                        cell.text.as_ref().to_owned(),
                         usize::from(column)..usize::from(column.saturating_add(width)),
                     ));
                     column = column.saturating_add(width);
@@ -1160,7 +1229,7 @@ fn render_inline_image_item(
         source_height: image.source_height,
         target_x: image.target_x,
         target_y: image.target_y,
-        data: image.data.clone(),
+        data: Arc::from(image.data.as_slice()),
     })
 }
 
@@ -1231,32 +1300,72 @@ fn append_render_cell(
         return;
     }
 
-    let inverse = cell.inverse ^ screen_reverse;
-    cells.push(RenderCell {
+    cells.push(render_cell_from_terminal(row, column, cell, screen_reverse));
+}
+
+fn render_cell_from_terminal(
+    row: u16,
+    column: u16,
+    cell: &Cell,
+    screen_reverse: bool,
+) -> RenderCell {
+    RenderCell {
         row,
         column,
-        text: cell.text().to_owned(),
+        text: Arc::from(cell.text()),
         columns: cell.columns(),
         continuation: cell.is_continuation(),
         ch: cell.primary_char(),
-        foreground: cell.foreground,
-        background: cell.background,
-        underline_color: cell.underline_color,
-        underline_style: cell.underline_style,
-        bold: cell.bold,
-        faint: cell.faint,
-        italic: cell.italic,
-        blink: cell.blink,
-        rapid_blink: cell.rapid_blink,
-        underline: cell.underline,
-        double_underline: cell.double_underline,
-        conceal: cell.conceal,
-        strikethrough: cell.strikethrough,
-        overline: cell.overline,
-        vertical_align: cell.vertical_align,
-        inverse,
+        style: Arc::new(RenderStyle {
+            foreground: cell.foreground,
+            background: cell.background,
+            underline_color: cell.underline_color,
+            underline_style: cell.underline_style,
+            bold: cell.bold,
+            faint: cell.faint,
+            italic: cell.italic,
+            blink: cell.blink,
+            rapid_blink: cell.rapid_blink,
+            underline: cell.underline,
+            double_underline: cell.double_underline,
+            conceal: cell.conceal,
+            strikethrough: cell.strikethrough,
+            overline: cell.overline,
+            vertical_align: cell.vertical_align,
+            inverse: cell.inverse ^ screen_reverse,
+        }),
         hyperlink: cell.hyperlink.clone(),
-    });
+    }
+}
+
+fn intern_render_cells(cells: &mut [RenderCell]) {
+    let mut graphemes = HashMap::<Arc<str>, Arc<str>>::new();
+    let mut styles = HashMap::<RenderStyle, Arc<RenderStyle>>::new();
+
+    for cell in cells {
+        if let Some(grapheme) = graphemes.get(cell.text.as_ref()) {
+            cell.text = Arc::clone(grapheme);
+        } else {
+            graphemes.insert(Arc::clone(&cell.text), Arc::clone(&cell.text));
+        }
+
+        if let Some(style) = styles.get(cell.style.as_ref()) {
+            cell.style = Arc::clone(style);
+        } else {
+            styles.insert(cell.style.as_ref().clone(), Arc::clone(&cell.style));
+        }
+    }
+}
+
+fn intern_render_image_payloads(images: &mut [RenderInlineImage]) {
+    let mut payloads = HashMap::<Arc<[u8]>, Arc<[u8]>>::new();
+    for image in images {
+        if let Some(payload) = payloads.get(image.data.as_ref()) {
+            image.data = Arc::clone(payload);
+        } else {
+            payloads.insert(Arc::clone(&image.data), Arc::clone(&image.data));
+        }
+    }
 }
 
 fn cell_has_renderable_content(cell: &Cell) -> bool {

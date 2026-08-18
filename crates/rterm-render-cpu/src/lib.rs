@@ -19,7 +19,7 @@ pub use text::{
 pub use rterm_render_core::{
     AttachmentViewportClip, DEFAULT_DPI, DamageRegion, KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF,
     RenderCell, RenderCellColorRole, RenderCursor, RenderGeometry, RenderIndexedPalette,
-    RenderInlineImage, RenderInlineImageFragment, RuntimeInlineImageFragment,
+    RenderInlineImage, RenderInlineImageFragment, RenderStyle, RuntimeInlineImageFragment,
     SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, SCROLLBAR_WIDTH, TerminalContentDigest,
     TerminalRenderSnapshot, terminal_bytes_content_digest, terminal_snapshot_content_digest,
 };

@@ -8,10 +8,7 @@ use std::{
 };
 
 use font8x8::UnicodeFonts as _;
-use rssh_terminal::{
-    Cell, Color, CursorShape, InlineImageFormat, Terminal, TerminalGrid, UnderlineStyle,
-    VerticalAlign,
-};
+use rssh_terminal::{Cell, Color, CursorShape, InlineImageFormat, Terminal, TerminalGrid};
 use rterm_render_core::render_inline_images_from_terminal;
 use rterm_types::TerminalSize;
 
@@ -831,10 +828,10 @@ fn render_snapshot_preserves_grapheme_once_on_leader() {
         .iter()
         .find(|cell| cell.column == 1)
         .unwrap();
-    assert_eq!(leader.text, "👍🏽");
+    assert_eq!(leader.text.as_ref(), "👍🏽");
     assert_eq!(leader.columns, 2);
     assert!(!leader.continuation);
-    assert_eq!(continuation.text, "");
+    assert_eq!(continuation.text.as_ref(), "");
     assert!(continuation.continuation);
     assert_eq!(continuation.ch, ' ');
 }
@@ -1071,7 +1068,7 @@ fn render_snapshot_preserves_iterm_inline_image_metadata() {
             source_height: None,
             target_x: None,
             target_y: None,
-            data: b"ABCD".to_vec(),
+            data: b"ABCD".to_vec().into(),
         }]
     );
 }
@@ -1694,56 +1691,8 @@ fn render_snapshot_can_offset_rows_and_overlay_cells() {
 
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal)
         .with_row_offset(1)
-        .with_overlay_cells([RenderCell {
-            row: 0,
-            column: 0,
-            text: "T".to_owned(),
-            columns: 1,
-            continuation: false,
-            ch: 'T',
-            foreground: Color::Default,
-            background: Color::Default,
-            underline_color: Color::Default,
-            underline_style: UnderlineStyle::None,
-            bold: false,
-            faint: false,
-            italic: false,
-            blink: false,
-            rapid_blink: false,
-            underline: false,
-            double_underline: false,
-            conceal: false,
-            strikethrough: false,
-            overline: false,
-            vertical_align: VerticalAlign::Baseline,
-            inverse: false,
-            hyperlink: None,
-        }])
-        .with_overlay_cells([RenderCell {
-            row: 1,
-            column: 0,
-            text: "O".to_owned(),
-            columns: 1,
-            continuation: false,
-            ch: 'O',
-            foreground: Color::Default,
-            background: Color::Default,
-            underline_color: Color::Default,
-            underline_style: UnderlineStyle::None,
-            bold: false,
-            faint: false,
-            italic: false,
-            blink: false,
-            rapid_blink: false,
-            underline: false,
-            double_underline: false,
-            conceal: false,
-            strikethrough: false,
-            overline: false,
-            vertical_align: VerticalAlign::Baseline,
-            inverse: false,
-            hyperlink: None,
-        }]);
+        .with_overlay_cells([RenderCell::new(0, 0, "T")])
+        .with_overlay_cells([RenderCell::new(1, 0, "O")]);
 
     assert_eq!(snapshot_char(&snapshot, 0, 0), Some('T'));
     assert_eq!(snapshot_char(&snapshot, 1, 0), Some('O'));

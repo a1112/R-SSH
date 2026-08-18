@@ -8,7 +8,7 @@ use rssh_fonts::{
     FontCatalog, FontConfig, RasterCache, RasterCacheConfig, RasterContent, RasterRequest,
     ShapedRow, TerminalCluster, TerminalShaper,
 };
-use rssh_terminal::{Color, UnderlineStyle, VerticalAlign};
+use rssh_terminal::VerticalAlign;
 
 use super::{
     CursorRenderStyle, DamageRegion, ImageDrawLayer, PixelRenderer, Rect, RenderCell,
@@ -897,31 +897,7 @@ pub fn vertical_align_baseline(baseline: f32, cell_height: u32, style: &RenderCe
 }
 
 fn blank_cell(row: u16, column: usize) -> RenderCell {
-    RenderCell {
-        row,
-        column: u16::try_from(column).unwrap_or(u16::MAX),
-        text: " ".to_owned(),
-        columns: 1,
-        continuation: false,
-        ch: ' ',
-        foreground: Color::Default,
-        background: Color::Default,
-        underline_color: Color::Default,
-        underline_style: UnderlineStyle::None,
-        bold: false,
-        faint: false,
-        italic: false,
-        blink: false,
-        rapid_blink: false,
-        underline: false,
-        double_underline: false,
-        conceal: false,
-        strikethrough: false,
-        overline: false,
-        vertical_align: VerticalAlign::Baseline,
-        inverse: false,
-        hyperlink: None,
-    }
+    RenderCell::new(row, u16::try_from(column).unwrap_or(u16::MAX), " ")
 }
 
 fn same_shape_run_style(left: &RenderCell, right: &RenderCell) -> bool {
