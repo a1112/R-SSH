@@ -209,7 +209,7 @@ impl NativeWindowApp {
                 .parse_duration
                 .saturating_add(metrics.snapshot_duration),
         );
-        let snapshot_is_empty = self.snapshot.cells().is_empty();
+        let snapshot_is_empty = self.snapshot.iter_cells().next().is_none();
         self.metrics.record_first_rendered_cell(snapshot_is_empty);
     }
 

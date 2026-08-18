@@ -5062,7 +5062,7 @@ fn hyperlink_rules_snapshot(
         return snapshot;
     }
 
-    let hyperlinks = hyperlink_rule_cell_links(snapshot.cells(), rules);
+    let hyperlinks = hyperlink_rule_cell_links(snapshot.iter_cells(), rules);
     if hyperlinks.is_empty() {
         return snapshot;
     }
@@ -5083,14 +5083,14 @@ fn hyperlink_rule_at_cell(
     column: u16,
     rules: &[NativeHyperlinkRule],
 ) -> Option<Arc<str>> {
-    hyperlink_rule_cell_links(snapshot.cells(), rules).remove(&(row, column))
+    hyperlink_rule_cell_links(snapshot.iter_cells(), rules).remove(&(row, column))
 }
 
-fn hyperlink_rule_cell_links(
-    cells: &[RenderCell],
+fn hyperlink_rule_cell_links<'a>(
+    cells: impl Iterator<Item = &'a RenderCell>,
     rules: &[NativeHyperlinkRule],
 ) -> HashMap<(u16, u16), Arc<str>> {
-    if cells.is_empty() || rules.is_empty() {
+    if rules.is_empty() {
         return HashMap::new();
     }
 
@@ -5482,8 +5482,7 @@ fn visual_bell_background_cells(
     background_rgba: [u8; 4],
 ) -> Vec<RenderCell> {
     let occupied_cells: HashSet<(u16, u16)> = snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .map(|cell| (cell.row, cell.column))
         .collect();
     let mut cells = Vec::new();
@@ -5500,31 +5499,11 @@ fn visual_bell_background_cells(
                 continue;
             }
 
-            cells.push(RenderCell {
-                row,
-                column,
-                text: " ".to_owned(),
-                columns: 1,
-                continuation: false,
-                ch: ' ',
+            cells.push(RenderCell::new(row, column, " ").with_style(RenderStyle {
                 foreground: Color::Default,
                 background,
-                underline_color: Color::Default,
-                underline_style: UnderlineStyle::None,
-                bold: false,
-                faint: false,
-                italic: false,
-                blink: false,
-                rapid_blink: false,
-                underline: false,
-                double_underline: false,
-                conceal: false,
-                strikethrough: false,
-                overline: false,
-                vertical_align: VerticalAlign::Baseline,
-                inverse: false,
-                hyperlink: None,
-            });
+                ..RenderStyle::default()
+            }));
         }
     }
 
@@ -5541,8 +5520,7 @@ fn visual_bell_color_from_snapshot(
     }
 
     snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .map(|cell| visual_bell_color_from_foreground(cell.foreground, default_foreground))
         .find(|color| *color != Color::Rgb(255, 255, 255))
         .unwrap_or(default_foreground)
@@ -5565,8 +5543,7 @@ fn visual_bell_cursor_base_color(
     };
 
     snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .find(|cell| cell.row == cursor.row && cell.column == cursor.column)
         .map_or(Color::Default, visual_bell_effective_cell_foreground)
 }
@@ -5619,7 +5596,7 @@ fn snapshot_has_active_text_blink(
     regular_blink_active: bool,
     rapid_blink_active: bool,
 ) -> bool {
-    snapshot.cells().iter().any(|cell| {
+    snapshot.iter_cells().any(|cell| {
         cell.blink
             && ((regular_blink_active && !cell.rapid_blink)
                 || (rapid_blink_active && cell.rapid_blink))

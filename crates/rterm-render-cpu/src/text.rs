@@ -249,7 +249,7 @@ fn render_base_layers(
         renderer.animation_frame,
         renderer.animation_elapsed_ms,
     );
-    for cell in snapshot.cells() {
+    for cell in snapshot.iter_cells() {
         let mut projected = cell.clone();
         projected.column = visual_columns
             .get(&(cell.row, cell.column))
@@ -287,8 +287,7 @@ fn snapshot_visual_columns(
     let rows = u16::try_from(geometry.target_height / geometry.cell_height).unwrap_or(u16::MAX);
     let mut result = HashMap::new();
     for row in snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .filter(|cell| cell.row < rows && !cell.continuation)
         .map(|cell| cell.row)
         .collect::<BTreeSet<_>>()
@@ -345,8 +344,7 @@ fn render_top_layers(
                 ..cursor
             });
         let cursor_cell = snapshot
-            .cells()
-            .iter()
+            .iter_cells()
             .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
         let colors = cursor_colors(
             snapshot,
@@ -494,8 +492,7 @@ fn render_shaped_foreground(
     let columns = u16::try_from(geometry.target_width / geometry.cell_width).unwrap_or(u16::MAX);
     let rows = u16::try_from(geometry.target_height / geometry.cell_height).unwrap_or(u16::MAX);
     let row_numbers = snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .filter(|cell| cell.row < rows && !cell.continuation)
         .map(|cell| cell.row)
         .collect::<BTreeSet<_>>();
@@ -833,8 +830,7 @@ fn blend_rgba_pixel(surface: &mut Surface<'_>, x: u32, y: u32, foreground: [u8; 
 pub fn row_shape_plan(snapshot: &TerminalRenderSnapshot, row: u16, columns: u16) -> RowShapePlan {
     let mut clusters = snapshot.terminal_clusters_for_row(row, columns);
     let cells = snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .filter(|cell| cell.row == row)
         .map(|cell| (usize::from(cell.column), cell))
         .collect::<HashMap<_, _>>();

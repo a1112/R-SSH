@@ -275,7 +275,7 @@ impl NativeWindowApp {
                 {
                     if let Some(cell) = cells.get_mut(row_start.saturating_add(column_offset)) {
                         cell.ch = ch;
-                        cell.text = ch.to_string();
+                        cell.text = ch.to_string().into();
                     }
                 }
             }

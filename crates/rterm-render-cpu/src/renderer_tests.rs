@@ -1317,18 +1317,13 @@ fn graphics_fragment_snapshot_keeps_parent_data_when_only_offset_fragment_is_in_
     assert_eq!(inline_image_fragments[0].row, 0);
     assert_eq!(inline_image_parent_origins, vec![(0, -1)]);
 
-    let snapshot = TerminalRenderSnapshot {
-        cells: Vec::new(),
-        cursor: None,
-        cursor_color: None,
+    let snapshot = TerminalRenderSnapshot::from_inline_image_projection((
         inline_images,
         inline_image_fragments,
         inline_image_parent_origins,
         empty_inline_image_attachment_parents,
         inline_image_attachment_viewport_offsets,
-        inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
-        scrollback_offset: 0,
-    };
+    ));
     let mut target = vec![0; 24 * 16 * 4];
     let renderer = PixelRenderer::default();
     renderer.render(&snapshot, &mut target, 24, 16, 8, 16);
@@ -1552,18 +1547,13 @@ fn graphics_fragment_viewport_retains_runtime_boundary_candidate_without_default
     assert_eq!(inline_image_fragments.len(), 1);
     assert_eq!(inline_image_parent_origins, vec![(0, -1)]);
 
-    let snapshot = TerminalRenderSnapshot {
-        cells: Vec::new(),
-        cursor: None,
-        cursor_color: None,
+    let snapshot = TerminalRenderSnapshot::from_inline_image_projection((
         inline_images,
         inline_image_fragments,
         inline_image_parent_origins,
         empty_inline_image_attachment_parents,
         inline_image_attachment_viewport_offsets,
-        inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
-        scrollback_offset: 0,
-    };
+    ));
     let mut target = vec![0; 24 * 20 * 4];
     PixelRenderer::default().render(&snapshot, &mut target, 24, 20, 8, 20);
     assert_eq!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);
@@ -1614,18 +1604,13 @@ fn graphics_fragment_viewport_does_not_draw_default_boundary_false_positive() {
     assert_eq!(inline_images.len(), 1);
     assert_eq!(inline_image_fragments.len(), 1);
 
-    let snapshot = TerminalRenderSnapshot {
-        cells: Vec::new(),
-        cursor: None,
-        cursor_color: None,
+    let snapshot = TerminalRenderSnapshot::from_inline_image_projection((
         inline_images,
         inline_image_fragments,
         inline_image_parent_origins,
         empty_inline_image_attachment_parents,
         inline_image_attachment_viewport_offsets,
-        inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
-        scrollback_offset: 0,
-    };
+    ));
     let mut target = vec![0; 24 * 8 * 4];
     PixelRenderer::default().render(&snapshot, &mut target, 24, 8, 8, 8);
     assert_ne!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);

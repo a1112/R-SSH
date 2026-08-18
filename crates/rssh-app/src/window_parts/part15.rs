@@ -2071,31 +2071,12 @@ fn ui_render_cell(
     background: Color,
     bold: bool,
 ) -> RenderCell {
-    RenderCell {
-        row,
-        column,
-        text: ch.to_string(),
-        columns: 1,
-        continuation: false,
-        ch,
+    RenderCell::new(row, column, ch.to_string()).with_style(RenderStyle {
         foreground,
         background,
-        underline_color: Color::Default,
-        underline_style: UnderlineStyle::None,
         bold,
-        faint: false,
-        italic: false,
-        blink: false,
-        rapid_blink: false,
-        underline: false,
-        double_underline: false,
-        conceal: false,
-        strikethrough: false,
-        overline: false,
-        vertical_align: rssh_terminal::VerticalAlign::Baseline,
-        inverse: false,
-        hyperlink: None,
-    }
+        ..RenderStyle::default()
+    })
 }
 
 fn encode_modified_window_key(key: &Key, modifiers: ModifiersState) -> Option<Vec<u8>> {

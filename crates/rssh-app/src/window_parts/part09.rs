@@ -171,7 +171,7 @@ impl NativeWindowApp {
         }
         self.metrics.record_bells(delta.bell_count());
         self.dispatch_bells(self.app_shell.active_pane_id(), delta.bell_count());
-        let snapshot_is_empty = self.snapshot.cells().is_empty();
+        let snapshot_is_empty = self.snapshot.iter_cells().next().is_none();
         self.metrics
             .record_first_rendered_cell(snapshot_is_empty);
         if let Some(started) = started {
@@ -413,7 +413,7 @@ impl NativeWindowApp {
         }
         self.metrics.record_bells(delta.bell_count());
         self.dispatch_bells(pane_id, delta.bell_count());
-        let snapshot_is_empty = self.snapshot.cells().is_empty();
+        let snapshot_is_empty = self.snapshot.iter_cells().next().is_none();
         self.metrics.record_first_rendered_cell(snapshot_is_empty);
         if let Some(started) = started {
             self.metrics.record_pty_chunk_process(started.elapsed());
@@ -2140,8 +2140,7 @@ impl NativeWindowApp {
     fn wheel_target_hyperlink(&self, target: WheelTarget) -> Option<Arc<str>> {
         let snapshot = self.pane_snapshot(target.pane_id)?;
         snapshot
-            .cells()
-            .iter()
+            .iter_cells()
             .find(|cell| cell.row == target.cell.row && cell.column == target.cell.column)
             .and_then(|cell| cell.hyperlink.clone())
             .or_else(|| {
@@ -4493,7 +4492,7 @@ impl NativeWindowApp {
                 Color::Default,
                 false,
             );
-            grapheme.clone_into(&mut leader.text);
+            leader.text = Arc::<str>::from(grapheme);
             leader.columns = u8::try_from(columns).unwrap_or(u8::MAX);
             leader.underline = true;
             leader.underline_style = UnderlineStyle::Single;
@@ -4507,7 +4506,7 @@ impl NativeWindowApp {
                     Color::Default,
                     false,
                 );
-                continuation.text.clear();
+                continuation.text = Arc::from("");
                 continuation.columns = 0;
                 continuation.continuation = true;
                 continuation.underline = true;

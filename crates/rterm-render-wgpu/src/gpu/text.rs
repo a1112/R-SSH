@@ -478,8 +478,7 @@ impl GpuText {
             self.geometry = Some(geometry);
         }
         let visible_rows = snapshot
-            .cells()
-            .iter()
+            .iter_cells()
             .map(|cell| cell.row)
             .filter(|row| *row < rows)
             .collect::<BTreeSet<_>>();

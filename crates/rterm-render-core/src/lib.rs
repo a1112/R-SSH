@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use font8x8::{BASIC_FONTS, UnicodeFonts as _};
@@ -202,9 +202,27 @@ pub struct RenderInlineImageFragment {
 pub const KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF: i32 = i32::MIN / 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderRowSnapshot {
+    row: u16,
+    cells: Arc<[RenderCell]>,
+}
+
+impl RenderRowSnapshot {
+    #[must_use]
+    pub const fn row(&self) -> u16 {
+        self.row
+    }
+
+    #[must_use]
+    pub fn cells(&self) -> &[RenderCell] {
+        &self.cells
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TerminalRenderSnapshot {
-    #[doc(hidden)]
-    pub cells: Vec<RenderCell>,
+    rows: Vec<Arc<RenderRowSnapshot>>,
+    compatibility_cells: OnceLock<Arc<[RenderCell]>>,
     #[doc(hidden)]
     pub cursor: Option<RenderCursor>,
     #[doc(hidden)]
@@ -225,6 +243,248 @@ pub struct TerminalRenderSnapshot {
     pub inline_image_attachment_viewport_clips: HashMap<(usize, i64, i64), AttachmentViewportClip>,
     #[doc(hidden)]
     pub scrollback_offset: usize,
+}
+
+impl PartialEq for TerminalRenderSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.rows == other.rows
+            && self.cursor == other.cursor
+            && self.cursor_color == other.cursor_color
+            && self.inline_images == other.inline_images
+            && self.inline_image_fragments == other.inline_image_fragments
+            && self.inline_image_parent_origins == other.inline_image_parent_origins
+            && self.empty_inline_image_attachment_parents
+                == other.empty_inline_image_attachment_parents
+            && self.inline_image_attachment_viewport_offsets
+                == other.inline_image_attachment_viewport_offsets
+            && self.inline_image_attachment_viewport_clips
+                == other.inline_image_attachment_viewport_clips
+            && self.scrollback_offset == other.scrollback_offset
+    }
+}
+
+impl Eq for TerminalRenderSnapshot {}
+
+pub const DEFAULT_SNAPSHOT_CACHE_BYTE_BUDGET: usize = 8 * 1024 * 1024;
+pub const DEFAULT_SNAPSHOT_IMAGE_CACHE_BYTE_BUDGET: usize = 32 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SnapshotCacheConfig {
+    pub snapshot_budget_bytes: usize,
+    pub image_budget_bytes: usize,
+}
+
+impl SnapshotCacheConfig {
+    #[must_use]
+    pub const fn new(snapshot_budget_bytes: usize, image_budget_bytes: usize) -> Self {
+        Self {
+            snapshot_budget_bytes,
+            image_budget_bytes,
+        }
+    }
+}
+
+impl Default for SnapshotCacheConfig {
+    fn default() -> Self {
+        Self::new(
+            DEFAULT_SNAPSHOT_CACHE_BYTE_BUDGET,
+            DEFAULT_SNAPSHOT_IMAGE_CACHE_BYTE_BUDGET,
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SnapshotCacheMetrics {
+    pub snapshot_budget_bytes: usize,
+    pub image_budget_bytes: usize,
+    pub active_snapshot_bytes: usize,
+    pub retained_snapshot_bytes: usize,
+    pub retained_image_bytes: usize,
+    pub retained_rows: usize,
+    pub retained_images: usize,
+    pub row_hits: u64,
+    pub row_misses: u64,
+    pub image_hits: u64,
+    pub image_misses: u64,
+    pub evictions: u64,
+    pub oversize_bypasses: u64,
+}
+
+#[derive(Debug)]
+pub struct TerminalSnapshotCache {
+    config: SnapshotCacheConfig,
+    rows: Vec<Arc<RenderRowSnapshot>>,
+    image_payloads: Vec<Arc<[u8]>>,
+    metrics: SnapshotCacheMetrics,
+}
+
+impl TerminalSnapshotCache {
+    #[must_use]
+    pub fn new(config: SnapshotCacheConfig) -> Self {
+        Self {
+            config,
+            rows: Vec::new(),
+            image_payloads: Vec::new(),
+            metrics: SnapshotCacheMetrics {
+                snapshot_budget_bytes: config.snapshot_budget_bytes,
+                image_budget_bytes: config.image_budget_bytes,
+                ..SnapshotCacheMetrics::default()
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn build(&mut self, terminal: &Terminal) -> TerminalRenderSnapshot {
+        let mut snapshot = TerminalRenderSnapshot::from_terminal(terminal);
+        self.canonicalize(&mut snapshot);
+        self.retain_from(&snapshot);
+        snapshot
+    }
+
+    #[must_use]
+    pub fn update(
+        &mut self,
+        previous: &TerminalRenderSnapshot,
+        terminal: &Terminal,
+        damage: &[DamageRegion],
+    ) -> TerminalRenderSnapshot {
+        let mut snapshot = previous.clone();
+        snapshot.update_from_terminal_damage(terminal, damage);
+        self.canonicalize(&mut snapshot);
+        self.retain_from(&snapshot);
+        snapshot
+    }
+
+    #[must_use]
+    pub const fn metrics(&self) -> SnapshotCacheMetrics {
+        self.metrics
+    }
+
+    pub fn set_config(&mut self, config: SnapshotCacheConfig) {
+        self.config = config;
+        self.metrics.snapshot_budget_bytes = config.snapshot_budget_bytes;
+        self.metrics.image_budget_bytes = config.image_budget_bytes;
+        self.trim_to_budget();
+    }
+
+    fn canonicalize(&mut self, snapshot: &mut TerminalRenderSnapshot) {
+        for row in &mut snapshot.rows {
+            if let Some(cached) = self
+                .rows
+                .iter()
+                .find(|cached| cached.as_ref() == row.as_ref())
+            {
+                *row = Arc::clone(cached);
+                self.metrics.row_hits = self.metrics.row_hits.saturating_add(1);
+            } else {
+                self.metrics.row_misses = self.metrics.row_misses.saturating_add(1);
+            }
+        }
+        for image in &mut snapshot.inline_images {
+            if let Some(cached) = self
+                .image_payloads
+                .iter()
+                .find(|cached| cached.as_ref() == image.data.as_ref())
+            {
+                image.data = Arc::clone(cached);
+                self.metrics.image_hits = self.metrics.image_hits.saturating_add(1);
+            } else {
+                self.metrics.image_misses = self.metrics.image_misses.saturating_add(1);
+            }
+        }
+        snapshot.compatibility_cells = OnceLock::new();
+    }
+
+    fn retain_from(&mut self, snapshot: &TerminalRenderSnapshot) {
+        let old_rows = std::mem::take(&mut self.rows);
+        let old_images = std::mem::take(&mut self.image_payloads);
+        self.metrics.retained_snapshot_bytes = 0;
+        self.metrics.retained_image_bytes = 0;
+
+        for row in &snapshot.rows {
+            let bytes = render_row_retained_bytes(row);
+            if self
+                .metrics
+                .retained_snapshot_bytes
+                .checked_add(bytes)
+                .is_some_and(|total| total <= self.config.snapshot_budget_bytes)
+            {
+                self.rows.push(Arc::clone(row));
+                self.metrics.retained_snapshot_bytes =
+                    self.metrics.retained_snapshot_bytes.saturating_add(bytes);
+            } else {
+                self.metrics.oversize_bypasses = self.metrics.oversize_bypasses.saturating_add(1);
+            }
+        }
+
+        let mut seen_payloads = HashSet::<*const [u8]>::new();
+        for image in &snapshot.inline_images {
+            let identity = Arc::as_ptr(&image.data);
+            if !seen_payloads.insert(identity) {
+                continue;
+            }
+            let bytes = image.data.len();
+            if self
+                .metrics
+                .retained_image_bytes
+                .checked_add(bytes)
+                .is_some_and(|total| total <= self.config.image_budget_bytes)
+            {
+                self.image_payloads.push(Arc::clone(&image.data));
+                self.metrics.retained_image_bytes =
+                    self.metrics.retained_image_bytes.saturating_add(bytes);
+            } else {
+                self.metrics.oversize_bypasses = self.metrics.oversize_bypasses.saturating_add(1);
+            }
+        }
+
+        self.metrics.evictions = self.metrics.evictions.saturating_add(
+            old_rows
+                .iter()
+                .filter(|old| !self.rows.iter().any(|new| Arc::ptr_eq(old, new)))
+                .count()
+                .saturating_add(
+                    old_images
+                        .iter()
+                        .filter(|old| !self.image_payloads.iter().any(|new| Arc::ptr_eq(old, new)))
+                        .count(),
+                ) as u64,
+        );
+        self.metrics.retained_rows = self.rows.len();
+        self.metrics.retained_images = self.image_payloads.len();
+        self.metrics.active_snapshot_bytes = snapshot_retained_bytes(snapshot);
+    }
+
+    fn trim_to_budget(&mut self) {
+        while self.metrics.retained_snapshot_bytes > self.config.snapshot_budget_bytes {
+            let Some(row) = self.rows.pop() else {
+                break;
+            };
+            self.metrics.retained_snapshot_bytes = self
+                .metrics
+                .retained_snapshot_bytes
+                .saturating_sub(render_row_retained_bytes(&row));
+            self.metrics.evictions = self.metrics.evictions.saturating_add(1);
+        }
+        while self.metrics.retained_image_bytes > self.config.image_budget_bytes {
+            let Some(image) = self.image_payloads.pop() else {
+                break;
+            };
+            self.metrics.retained_image_bytes = self
+                .metrics
+                .retained_image_bytes
+                .saturating_sub(image.len());
+            self.metrics.evictions = self.metrics.evictions.saturating_add(1);
+        }
+        self.metrics.retained_rows = self.rows.len();
+        self.metrics.retained_images = self.image_payloads.len();
+    }
+}
+
+impl Default for TerminalSnapshotCache {
+    fn default() -> Self {
+        Self::new(SnapshotCacheConfig::default())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -356,11 +616,11 @@ pub fn terminal_snapshot_content_digest(
     let mut digest = Sha256::new();
     digest.update(b"rssh-terminal-render-plan-v1\0");
     digest.update(
-        u64::try_from(snapshot.cells().len())
+        u64::try_from(snapshot.iter_cells().count())
             .unwrap_or(u64::MAX)
             .to_le_bytes(),
     );
-    for cell in snapshot.cells() {
+    for cell in snapshot.iter_cells() {
         digest.update(cell.row.to_le_bytes());
         digest.update(cell.column.to_le_bytes());
         digest.update([cell.columns, u8::from(cell.continuation)]);
@@ -375,6 +635,32 @@ pub fn terminal_snapshot_content_digest(
 }
 
 impl TerminalRenderSnapshot {
+    #[doc(hidden)]
+    #[must_use]
+    pub fn from_inline_image_projection(projection: TerminalInlineImageProjection) -> Self {
+        let (
+            mut inline_images,
+            inline_image_fragments,
+            inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
+            inline_image_attachment_viewport_offsets,
+        ) = projection;
+        intern_render_image_payloads(&mut inline_images);
+        Self {
+            rows: Vec::new(),
+            compatibility_cells: OnceLock::new(),
+            cursor: None,
+            cursor_color: None,
+            inline_images,
+            inline_image_fragments,
+            inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
+            inline_image_attachment_viewport_offsets,
+            inline_image_attachment_viewport_clips: HashMap::new(),
+            scrollback_offset: 0,
+        }
+    }
+
     #[must_use]
     pub fn from_grid(grid: &TerminalGrid) -> Self {
         Self::from_grid_with_cursor(grid, None)
@@ -430,7 +716,8 @@ impl TerminalRenderSnapshot {
         intern_render_image_payloads(&mut inline_images);
 
         Self {
-            cells,
+            rows: rows_from_cells(cells, size.rows),
+            compatibility_cells: OnceLock::new(),
             cursor,
             cursor_color: None,
             inline_images,
@@ -464,7 +751,8 @@ impl TerminalRenderSnapshot {
         intern_render_cells(&mut cells);
 
         Self {
-            cells,
+            rows: rows_from_cells(cells, size.rows),
+            compatibility_cells: OnceLock::new(),
             cursor,
             cursor_color: None,
             inline_images: Vec::new(),
@@ -479,7 +767,28 @@ impl TerminalRenderSnapshot {
 
     #[must_use]
     pub fn cells(&self) -> &[RenderCell] {
-        &self.cells
+        self.compatibility_cells
+            .get_or_init(|| self.iter_cells().cloned().collect::<Vec<_>>().into())
+            .as_ref()
+    }
+
+    #[must_use]
+    pub fn rows(&self) -> &[Arc<RenderRowSnapshot>] {
+        &self.rows
+    }
+
+    pub fn iter_cells(&self) -> impl Iterator<Item = &RenderCell> {
+        self.rows.iter().flat_map(|row| row.cells.iter())
+    }
+
+    fn flattened_cells(&self) -> Vec<RenderCell> {
+        self.iter_cells().cloned().collect()
+    }
+
+    fn replace_cells(&mut self, mut cells: Vec<RenderCell>, row_count: u16) {
+        intern_render_cells(&mut cells);
+        self.rows = rows_from_cells(cells, row_count);
+        self.compatibility_cells = OnceLock::new();
     }
 
     /// Reconstructs one immutable row as complete graphemes with terminal-owned spans.
@@ -493,8 +802,7 @@ impl TerminalRenderSnapshot {
         columns: u16,
     ) -> Vec<rssh_fonts::TerminalCluster> {
         let mut by_column = self
-            .cells
-            .iter()
+            .iter_cells()
             .filter(|cell| cell.row == row)
             .map(|cell| (cell.column, cell))
             .collect::<HashMap<_, _>>();
@@ -534,7 +842,7 @@ impl TerminalRenderSnapshot {
     #[must_use]
     pub fn missing_glyphs(&self) -> Vec<char> {
         let mut missing = Vec::new();
-        for cell in &self.cells {
+        for cell in self.iter_cells() {
             // The native GPU path supplies the modern terminal UI symbols
             // from its configured fallback catalog.  Keep the compatibility
             // warning focused on characters that neither the legacy 8x8
@@ -590,9 +898,14 @@ impl TerminalRenderSnapshot {
             return self;
         }
 
-        for cell in &mut self.cells {
+        let mut cells = self.flattened_cells();
+        for cell in &mut cells {
             cell.row = cell.row.saturating_add(offset);
         }
+        let row_count = u16::try_from(self.rows.len())
+            .unwrap_or(u16::MAX)
+            .saturating_add(offset);
+        self.replace_cells(cells, row_count);
         for image in &mut self.inline_images {
             image.row = image.row.saturating_add(offset);
         }
@@ -628,8 +941,8 @@ impl TerminalRenderSnapshot {
         rows: u16,
         columns: u16,
     ) -> Self {
-        self.cells
-            .retain(|cell| cell.row < rows && cell.column < columns);
+        let mut cells = self.flattened_cells();
+        cells.retain(|cell| cell.row < rows && cell.column < columns);
         let old_inline_images = std::mem::take(&mut self.inline_images);
         let old_inline_image_parent_origins = std::mem::take(&mut self.inline_image_parent_origins);
         let old_inline_image_fragments = std::mem::take(&mut self.inline_image_fragments);
@@ -702,10 +1015,11 @@ impl TerminalRenderSnapshot {
                 Some(fragment)
             })
             .collect();
-        for cell in &mut self.cells {
+        for cell in &mut cells {
             cell.row = cell.row.saturating_add(origin_row);
             cell.column = cell.column.saturating_add(origin_column);
         }
+        self.replace_cells(cells, origin_row.saturating_add(rows));
         for image in &mut self.inline_images {
             image.row = image.row.saturating_add(origin_row);
             image.column = image.column.saturating_add(origin_column);
@@ -773,21 +1087,51 @@ impl TerminalRenderSnapshot {
         if cells.is_empty() {
             return self;
         }
-        let overlay_positions = cells
-            .iter()
-            .map(|cell| (cell.row, cell.column))
-            .collect::<HashSet<_>>();
-        self.cells
-            .retain(|cell| !overlay_positions.contains(&(cell.row, cell.column)));
-        self.cells.extend(cells);
-        self.cells.sort_by_key(|cell| (cell.row, cell.column));
+        let mut by_row = HashMap::<u16, Vec<RenderCell>>::new();
+        for cell in cells {
+            by_row.entry(cell.row).or_default().push(cell);
+        }
+        let required_rows = by_row
+            .keys()
+            .copied()
+            .max()
+            .map_or(0, |row| row.saturating_add(1));
+        while self.rows.len() < usize::from(required_rows) {
+            let row = u16::try_from(self.rows.len()).unwrap_or(u16::MAX);
+            self.rows.push(empty_render_row(row));
+        }
+        for (row, overlay) in by_row {
+            let positions = overlay
+                .iter()
+                .map(|cell| cell.column)
+                .collect::<HashSet<_>>();
+            let mut row_cells = self.rows[usize::from(row)].cells.to_vec();
+            row_cells.retain(|cell| !positions.contains(&cell.column));
+            row_cells.extend(overlay);
+            row_cells.sort_by_key(|cell| cell.column);
+            intern_render_cells(&mut row_cells);
+            self.rows[usize::from(row)] = Arc::new(RenderRowSnapshot {
+                row,
+                cells: row_cells.into(),
+            });
+        }
+        self.compatibility_cells = OnceLock::new();
         self
     }
 
     #[must_use]
     pub fn with_overlay_snapshot(mut self, snapshot: Self) -> Self {
-        self.cells.extend(snapshot.cells);
-        self.cells.sort_by_key(|cell| (cell.row, cell.column));
+        let overlay_cells = snapshot.iter_cells().cloned().collect::<Vec<_>>();
+        let row_count = self
+            .rows
+            .len()
+            .max(snapshot.rows.len())
+            .try_into()
+            .unwrap_or(u16::MAX);
+        let mut cells = self.flattened_cells();
+        cells.extend(overlay_cells);
+        cells.sort_by_key(|cell| (cell.row, cell.column));
+        self.replace_cells(cells, row_count);
         let parent_index_offset = self.inline_images.len();
         self.inline_images.extend(snapshot.inline_images);
         self.empty_inline_image_attachment_parents.extend(
@@ -846,7 +1190,13 @@ impl TerminalRenderSnapshot {
 
     #[must_use]
     pub fn with_cells_mapped(mut self, mut map_cell: impl FnMut(RenderCell) -> RenderCell) -> Self {
-        self.cells = self.cells.into_iter().map(&mut map_cell).collect();
+        let row_count = self.rows.len().try_into().unwrap_or(u16::MAX);
+        let cells = self
+            .flattened_cells()
+            .into_iter()
+            .map(&mut map_cell)
+            .collect();
+        self.replace_cells(cells, row_count);
         self
     }
 
@@ -855,17 +1205,24 @@ impl TerminalRenderSnapshot {
         mut self,
         mut map_color: impl FnMut(RenderCellColorRole, Color) -> Color,
     ) -> Self {
-        for cell in &mut self.cells {
+        let row_count = self.rows.len().try_into().unwrap_or(u16::MAX);
+        let mut cells = self.flattened_cells();
+        for cell in &mut cells {
             cell.foreground = map_color(RenderCellColorRole::Foreground, cell.foreground);
             cell.background = map_color(RenderCellColorRole::Background, cell.background);
             cell.underline_color = map_color(RenderCellColorRole::Underline, cell.underline_color);
         }
+        self.replace_cells(cells, row_count);
         self
     }
 
     pub fn update_from_terminal_damage(&mut self, terminal: &Terminal, damage: &[DamageRegion]) {
         let grid = terminal.grid();
         let size = grid.size();
+        while self.rows.len() < usize::from(size.rows) {
+            let row = u16::try_from(self.rows.len()).unwrap_or(u16::MAX);
+            self.rows.push(empty_render_row(row));
+        }
         for region in damage.iter().copied().filter(|region| !region.is_empty()) {
             let start_row = region.y.min(size.rows);
             let end_row = region.y.saturating_add(region.height).min(size.rows);
@@ -875,30 +1232,35 @@ impl TerminalRenderSnapshot {
                 continue;
             }
 
-            self.cells.retain(|cell| {
-                cell.row < start_row
-                    || cell.row >= end_row
-                    || cell.column < start_column
-                    || cell.column >= end_column
-            });
-
             for row in start_row..end_row {
-                for column in start_column..end_column {
+                let mut row_cells = Vec::new();
+                for column in 0..size.columns {
                     let Some(cell) = grid.get(row, column) else {
                         continue;
                     };
                     append_render_cell(
-                        &mut self.cells,
+                        &mut row_cells,
                         row,
                         column,
                         cell,
                         terminal.screen_reverse_video(),
                     );
                 }
+                intern_render_cells(&mut row_cells);
+                self.rows[usize::from(row)] = Arc::new(RenderRowSnapshot {
+                    row,
+                    cells: row_cells.into(),
+                });
             }
         }
 
-        self.cells.sort_by_key(|cell| (cell.row, cell.column));
+        self.rows.truncate(usize::from(size.rows));
+        self.compatibility_cells = OnceLock::new();
+        let previous_payloads = self
+            .inline_images
+            .iter()
+            .map(|image| Arc::clone(&image.data))
+            .collect::<Vec<_>>();
         (
             self.inline_images,
             self.inline_image_fragments,
@@ -906,6 +1268,15 @@ impl TerminalRenderSnapshot {
             self.empty_inline_image_attachment_parents,
             self.inline_image_attachment_viewport_offsets,
         ) = render_inline_images_from_terminal(terminal, 0, size.rows, size.columns);
+        for image in &mut self.inline_images {
+            if let Some(payload) = previous_payloads
+                .iter()
+                .find(|payload| payload.as_ref() == image.data.as_ref())
+            {
+                image.data = Arc::clone(payload);
+            }
+        }
+        intern_render_image_payloads(&mut self.inline_images);
         self.inline_image_attachment_viewport_clips.clear();
         self.cursor = render_cursor_from_terminal(terminal, 0);
     }
@@ -916,11 +1287,14 @@ impl TerminalRenderSnapshot {
 
     #[must_use]
     pub fn with_inverse_overlay(mut self, mut selected: impl FnMut(u16, u16) -> bool) -> Self {
-        for cell in &mut self.cells {
+        let row_count = self.rows.len().try_into().unwrap_or(u16::MAX);
+        let mut cells = self.flattened_cells();
+        for cell in &mut cells {
             if selected(cell.row, cell.column) {
                 cell.inverse = !cell.inverse;
             }
         }
+        self.replace_cells(cells, row_count);
 
         self
     }
@@ -936,7 +1310,9 @@ impl TerminalRenderSnapshot {
             return self.with_inverse_overlay(selected);
         }
 
-        for cell in &mut self.cells {
+        let row_count = self.rows.len().try_into().unwrap_or(u16::MAX);
+        let mut cells = self.flattened_cells();
+        for cell in &mut cells {
             if selected(cell.row, cell.column) {
                 let inverse_foreground = cell.background;
                 let inverse_background = cell.foreground;
@@ -951,6 +1327,7 @@ impl TerminalRenderSnapshot {
                 cell.inverse = false;
             }
         }
+        self.replace_cells(cells, row_count);
 
         self
     }
@@ -1366,6 +1743,64 @@ fn intern_render_image_payloads(images: &mut [RenderInlineImage]) {
             payloads.insert(Arc::clone(&image.data), Arc::clone(&image.data));
         }
     }
+}
+
+fn rows_from_cells(cells: Vec<RenderCell>, minimum_row_count: u16) -> Vec<Arc<RenderRowSnapshot>> {
+    let row_count = cells
+        .iter()
+        .map(|cell| cell.row.saturating_add(1))
+        .max()
+        .unwrap_or(0)
+        .max(minimum_row_count);
+    let mut rows = (0..row_count).map(|_| Vec::new()).collect::<Vec<_>>();
+    for cell in cells {
+        rows[usize::from(cell.row)].push(cell);
+    }
+    rows.into_iter()
+        .enumerate()
+        .map(|(row, mut cells)| {
+            cells.sort_by_key(|cell| cell.column);
+            Arc::new(RenderRowSnapshot {
+                row: u16::try_from(row).unwrap_or(u16::MAX),
+                cells: cells.into(),
+            })
+        })
+        .collect()
+}
+
+fn empty_render_row(row: u16) -> Arc<RenderRowSnapshot> {
+    Arc::new(RenderRowSnapshot {
+        row,
+        cells: Arc::from([]),
+    })
+}
+
+fn render_row_retained_bytes(row: &RenderRowSnapshot) -> usize {
+    row.cells.iter().fold(
+        std::mem::size_of::<RenderRowSnapshot>()
+            .saturating_add(std::mem::size_of_val(row.cells.as_ref())),
+        |total, cell| {
+            total
+                .saturating_add(cell.text.len())
+                .saturating_add(std::mem::size_of::<RenderStyle>())
+                .saturating_add(cell.hyperlink.as_ref().map_or(0, |link| link.len()))
+        },
+    )
+}
+
+fn snapshot_retained_bytes(snapshot: &TerminalRenderSnapshot) -> usize {
+    let row_bytes = snapshot.rows.iter().fold(0usize, |total, row| {
+        total.saturating_add(render_row_retained_bytes(row))
+    });
+    let mut payloads = HashSet::<*const [u8]>::new();
+    let image_bytes = snapshot.inline_images.iter().fold(0usize, |total, image| {
+        if payloads.insert(Arc::as_ptr(&image.data)) {
+            total.saturating_add(image.data.len())
+        } else {
+            total
+        }
+    });
+    row_bytes.saturating_add(image_bytes)
 }
 
 fn cell_has_renderable_content(cell: &Cell) -> bool {

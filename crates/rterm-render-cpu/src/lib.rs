@@ -19,9 +19,10 @@ pub use text::{
 pub use rterm_render_core::{
     AttachmentViewportClip, DEFAULT_DPI, DamageRegion, KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF,
     RenderCell, RenderCellColorRole, RenderCursor, RenderGeometry, RenderIndexedPalette,
-    RenderInlineImage, RenderInlineImageFragment, RenderStyle, RuntimeInlineImageFragment,
-    SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, SCROLLBAR_WIDTH, TerminalContentDigest,
-    TerminalRenderSnapshot, terminal_bytes_content_digest, terminal_snapshot_content_digest,
+    RenderInlineImage, RenderInlineImageFragment, RenderRowSnapshot, RenderStyle,
+    RuntimeInlineImageFragment, SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, SCROLLBAR_WIDTH,
+    SnapshotCacheConfig, SnapshotCacheMetrics, TerminalContentDigest, TerminalRenderSnapshot,
+    TerminalSnapshotCache, terminal_bytes_content_digest, terminal_snapshot_content_digest,
 };
 
 /// Renders a stable bitmap probe for the first terminal row and hashes its
@@ -1254,7 +1255,7 @@ impl PixelRenderer {
             self.animation_elapsed_ms,
         );
 
-        for cell in snapshot.cells() {
+        for cell in snapshot.iter_cells() {
             render_cell_background(
                 &mut surface,
                 cell,
@@ -1278,7 +1279,7 @@ impl PixelRenderer {
             self.animation_elapsed_ms,
         );
 
-        for cell in snapshot.cells() {
+        for cell in snapshot.iter_cells() {
             render_cell_foreground(
                 &mut surface,
                 cell,
@@ -1310,8 +1311,7 @@ impl PixelRenderer {
 
         if let Some(cursor) = snapshot.cursor() {
             let cursor_cell = snapshot
-                .cells()
-                .iter()
+                .iter_cells()
                 .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
             let cursor_colors = cursor_colors(
                 snapshot,
@@ -1443,8 +1443,7 @@ impl PixelRenderer {
         }
 
         let damaged_cells = snapshot
-            .cells()
-            .iter()
+            .iter_cells()
             .filter(|cell| damage_contains_cell(damage, cell.row, cell.column))
             .collect::<Vec<_>>();
 
@@ -1517,8 +1516,7 @@ impl PixelRenderer {
             .filter(|cursor| damage_contains_cell(damage, cursor.row, cursor.column))
         {
             let cursor_cell = snapshot
-                .cells()
-                .iter()
+                .iter_cells()
                 .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
             let cursor_colors = cursor_colors(
                 snapshot,
@@ -4754,8 +4752,7 @@ pub fn cursor_colors(
     }
 
     let Some(cell) = snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .find(|cell| cell.row == cursor.row && cell.column == cursor.column)
     else {
         return CursorColors {

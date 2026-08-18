@@ -2845,7 +2845,7 @@
         assert_eq!(
             leaders
                 .iter()
-                .map(|cell| (cell.text.as_str(), cell.column, cell.columns))
+                .map(|cell| (cell.text.as_ref(), cell.column, cell.columns))
                 .collect::<Vec<_>>(),
             [("中", 0, 2), ("e\u{301}", 2, 1), ("👨‍👩‍👧‍👦", 3, 2)]
         );
