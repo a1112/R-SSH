@@ -6,10 +6,16 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+default = ["image-basic", "image-gif", "image-legacy"]
+image-basic = ["image/png", "image/jpeg"]
+image-gif = ["image/gif"]
+image-legacy = ["image/dds", "image/ff", "image/ico", "image/pnm", "image/tga", "image/tiff"]
+
 [dependencies]
 colorgrad = "0.6"
 font8x8 = "0.3"
-image = { version = "0.25", default-features = false, features = ["dds", "ff", "gif", "ico", "jpeg", "png", "pnm", "tga", "tiff"] }
+image = { version = "0.25", default-features = false }
 rterm-render-core = { path = "../rterm-render-core", version = "0.1.0" }
 rterm-types = { path = "../rterm-types", version = "0.1.0" }
 rssh-fonts = { package = "rterm-fonts", path = "../rterm-fonts", version = "0.1.0" }

@@ -5,7 +5,15 @@
         reason = "the generated binary test harness aggregates a large compatibility test inventory"
     )
 )]
+#![cfg_attr(
+    not(feature = "developer-full"),
+    allow(
+        dead_code,
+        reason = "reduced production feature sets intentionally compile out command entrypoints"
+    )
+)]
 
+#[cfg(feature = "diagnostic-tools")]
 mod bench;
 mod cli;
 mod config_lifecycle;
@@ -17,8 +25,11 @@ mod local;
 mod platform;
 mod profiles;
 mod runtime_composition;
+#[cfg(feature = "transfer-tools")]
 mod scp;
+#[cfg(feature = "diagnostic-tools")]
 mod self_test;
+#[cfg(feature = "transfer-tools")]
 mod sftp;
 mod ssh;
 mod startup_metrics;
@@ -80,14 +91,17 @@ where
     F: FnMut(&SshOptions, Instant) -> Result<(), Box<dyn std::error::Error>>,
 {
     match command {
+        #[cfg(feature = "diagnostic-tools")]
         AppCommand::Bench(options) => {
             bench::print_bench(&options)?;
             Ok(ExitCode::SUCCESS)
         }
+        #[cfg(feature = "diagnostic-tools")]
         AppCommand::Doctor(options) => {
             diagnostics::print_doctor(&options)?;
             Ok(ExitCode::SUCCESS)
         }
+        #[cfg(feature = "diagnostic-tools")]
         AppCommand::DiagnosticGui(options) => {
             window::run_diagnostic_gui(&options, process_started_at)?;
             Ok(ExitCode::SUCCESS)
@@ -114,11 +128,14 @@ where
             profiles::print_profile_show(&options)?;
             Ok(ExitCode::SUCCESS)
         }
+        #[cfg(feature = "transfer-tools")]
         AppCommand::Scp(options) => scp::run(&options).map(|status| pty_exit_code(&status)),
+        #[cfg(feature = "diagnostic-tools")]
         AppCommand::SelfTest(options) => {
             self_test::print_self_test(&options)?;
             Ok(ExitCode::SUCCESS)
         }
+        #[cfg(feature = "transfer-tools")]
         AppCommand::Sftp(options) => sftp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Ssh(options) if options.gui => {
             gui_runner(&options, process_started_at)?;
@@ -138,7 +155,22 @@ where
             print!("{}", cli::help_text());
             Ok(ExitCode::SUCCESS)
         }
+        #[cfg(not(feature = "diagnostic-tools"))]
+        AppCommand::Bench(_)
+        | AppCommand::Doctor(_)
+        | AppCommand::DiagnosticGui(_)
+        | AppCommand::SelfTest(_) => Err(feature_disabled("diagnostic-tools")),
+        #[cfg(not(feature = "transfer-tools"))]
+        AppCommand::Scp(_) | AppCommand::Sftp(_) => Err(feature_disabled("transfer-tools")),
     }
+}
+
+#[cfg(any(not(feature = "diagnostic-tools"), not(feature = "transfer-tools")))]
+fn feature_disabled(feature: &str) -> Box<dyn std::error::Error> {
+    Box::new(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        format!("this rssh-app build does not include the '{feature}' feature"),
+    ))
 }
 
 fn pty_exit_code(status: &PtyExitStatus) -> ExitCode {
@@ -181,6 +213,16 @@ mod tests {
     #[test]
     fn maps_large_pty_failure_to_generic_process_failure() {
         assert_eq!(pty_status_code(&PtyExitStatus::from_exit_code(300)), 1);
+    }
+
+    #[cfg(not(feature = "diagnostic-tools"))]
+    #[test]
+    fn reduced_gui_build_reports_disabled_diagnostic_entrypoints() {
+        let command = crate::cli::parse_args(["rssh", "bench"]).expect("parse bench command");
+        let error = run_command_with_gui(command, Instant::now(), &mut |_, _| Ok(()))
+            .expect_err("reduced GUI must reject diagnostic commands");
+
+        assert!(error.to_string().contains("diagnostic-tools"));
     }
 
     #[test]

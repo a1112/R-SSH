@@ -104,6 +104,57 @@ const fn connection_state_for_phase(phase: SshConnectionPhase) -> ConnectionStat
     }
 }
 
+fn report_native_ssh_connector_failure(
+    event_proxy: &EventLoopProxy<WindowUserEvent>,
+    command_sender: &mpsc::Sender<NativeSshCommand>,
+    window_id: rssh_core::WindowId,
+    pane_id: rssh_core::PaneId,
+    runtime_generation: u64,
+    message: &str,
+) {
+    let _ = event_proxy.send_event(WindowUserEvent::SshState {
+        window_id,
+        pane_id,
+        runtime_generation,
+        state: ConnectionState::Failed,
+    });
+    let _ = command_sender.send(NativeSshCommand::Cancel);
+    eprintln!("{message}");
+}
+
+fn configure_native_ssh_host_key_verification(
+    mut opener: RusshChannelOpener,
+    policy: SshKnownHostsPolicy,
+    known_hosts_path: Option<std::path::PathBuf>,
+    prompt_proxy: EventLoopProxy<WindowUserEvent>,
+    window_id: rssh_core::WindowId,
+    pane_id: rssh_core::PaneId,
+    runtime_generation: u64,
+) -> RusshChannelOpener {
+    if let Some(path) = known_hosts_path {
+        opener = opener.with_known_hosts_path(path);
+    }
+    if policy == SshKnownHostsPolicy::Prompt {
+        let verifier = HostKeyVerifier::new(move |challenge: HostKeyChallenge| {
+            let (decision_sender, decision_receiver) = mpsc::sync_channel(1);
+            let _ = prompt_proxy.send_event(WindowUserEvent::HostKeyPrompt {
+                window_id,
+                pane_id,
+                runtime_generation,
+                challenge,
+                decision: decision_sender,
+            });
+            async move {
+                decision_receiver
+                    .recv_timeout(Duration::from_secs(120))
+                    .unwrap_or(HostKeyDecision::Cancel)
+            }
+        });
+        opener = opener.with_host_key_verifier_handle(verifier);
+    }
+    opener
+}
+
 impl NativeWindowApp {
     fn refresh_ssh_overlay(&mut self) {
         self.frame_needs_full_repaint = true;
@@ -299,6 +350,7 @@ impl NativeWindowApp {
         let (pty_size, runtime) = self.prepare_pane_spawn_runtime(pane_id)?;
         let request_launch = launch.clone();
         let app_window_id = self.app_window_id;
+        let ssh_runtime = self.runtime.composition().ssh_runtime_owner();
         let connected = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let writer_cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let connection_cancellation = rssh_ssh::RusshConnectionCancellation::new();
@@ -316,10 +368,7 @@ impl NativeWindowApp {
             state: ConnectionState::Pending,
         });
 
-        // Input is serialized through a small worker so terminal event
-        // handling never blocks on network backpressure.  Data received while
-        // the connection overlay is pending is intentionally discarded by
-        // NativeSshWriter rather than cached.
+        // Serialize input off the event thread; NativeSshWriter drops data while connection is pending.
         let writer_event_proxy = event_proxy.clone();
         let writer_connected = Arc::clone(&connected);
         let writer_operation_cancellation = Arc::clone(&writer_cancellation);
@@ -446,14 +495,28 @@ impl NativeWindowApp {
                 let request = match ssh_request_from_pane_launch(&request_launch, pty_size) {
                     Ok(request) => request,
                     Err(error) => {
-                        let _ = connector_event_proxy.send_event(WindowUserEvent::SshState {
-                            window_id: app_window_id,
+                        report_native_ssh_connector_failure(
+                            &connector_event_proxy,
+                            &connector_command_sender,
+                            app_window_id,
                             pane_id,
                             runtime_generation,
-                            state: ConnectionState::Failed,
-                        });
-                        let _ = connector_command_sender.send(NativeSshCommand::Cancel);
-                        eprintln!("SSH target resolution failed: {error}");
+                            &format!("SSH target resolution failed: {error}"),
+                        );
+                        return;
+                    }
+                };
+                let runtime_handle = match ssh_runtime.get_or_try_init() {
+                    Ok(runtime_handle) => runtime_handle,
+                    Err(error) => {
+                        report_native_ssh_connector_failure(
+                            &connector_event_proxy,
+                            &connector_command_sender,
+                            app_window_id,
+                            pane_id,
+                            runtime_generation,
+                            &format!("SSH async runtime initialization failed: {error}"),
+                        );
                         return;
                     }
                 };
@@ -468,32 +531,20 @@ impl NativeWindowApp {
                     });
                 };
 
-                let mut opener = RusshChannelOpener::default()
+                let opener = RusshChannelOpener::default()
+                    .with_runtime_handle(runtime_handle)
                     .with_host_key_policy(russh_host_key_policy(policy))
                     .with_phase_reporter(phase_reporter)
                     .with_connection_cancellation(connector_connection_cancellation.clone());
-                if let Some(path) = known_hosts_path.clone() {
-                    opener = opener.with_known_hosts_path(path);
-                }
-                if policy == SshKnownHostsPolicy::Prompt {
-                    let prompt_proxy = connector_event_proxy.clone();
-                    let verifier = HostKeyVerifier::new(move |challenge: HostKeyChallenge| {
-                        let (decision_sender, decision_receiver) = mpsc::sync_channel(1);
-                        let _ = prompt_proxy.send_event(WindowUserEvent::HostKeyPrompt {
-                            window_id: app_window_id,
-                            pane_id,
-                            runtime_generation,
-                            challenge,
-                            decision: decision_sender,
-                        });
-                        async move {
-                            decision_receiver
-                                .recv_timeout(Duration::from_secs(120))
-                                .unwrap_or(HostKeyDecision::Cancel)
-                        }
-                    });
-                    opener = opener.with_host_key_verifier_handle(verifier);
-                }
+                let mut opener = configure_native_ssh_host_key_verification(
+                    opener,
+                    policy,
+                    known_hosts_path,
+                    connector_event_proxy.clone(),
+                    app_window_id,
+                    pane_id,
+                    runtime_generation,
+                );
 
                 let secret_proxy = connector_event_proxy.clone();
                 let secret_provider = SecretProvider::new(move |prompt: SecretPrompt| {
@@ -892,6 +943,29 @@ mod tests {
         assert!(
             request_resolution > connector_worker,
             "OpenSSH alias resolution must not execute on the event thread"
+        );
+    }
+
+    #[test]
+    fn native_ssh_runtime_initializes_inside_the_connector_worker() {
+        let source = include_str!("window_ssh_gui.rs");
+        let body = source
+            .split_once("pub(super) fn spawn_native_ssh_runtime")
+            .expect("spawn function")
+            .1
+            .split_once("pub(super) fn handle_ssh_state")
+            .expect("spawn function end")
+            .0;
+        let connector_worker = body
+            .find(".name(format!(\"rssh-ssh-connector-")
+            .expect("connector worker");
+        let initialization = body
+            .find("ssh_runtime.get_or_try_init()")
+            .expect("lazy runtime initialization");
+
+        assert!(
+            initialization > connector_worker,
+            "Tokio runtime construction must stay off the event and pre-first-present threads"
         );
     }
 

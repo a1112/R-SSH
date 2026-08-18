@@ -8,7 +8,7 @@ use std::{
 use std::io;
 
 use rssh_ssh::{
-    RusshChannelOpener, RusshConnectionCancellation, RusshDirectTcpIpOpenPlan,
+    LazyRusshRuntime, RusshChannelOpener, RusshConnectionCancellation, RusshDirectTcpIpOpenPlan,
     RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy,
     RusshRemoteTcpIpForwardPlan, SshChannel as _, SshChannelConnector, SshChannelOpener as _,
     SshConnectRequest, SshSessionConfig, SshSessionStartup, SshShellConnector as _,
@@ -20,6 +20,39 @@ use rssh_test_support::ssh::{
 use rterm_types::TerminalSize;
 
 const DEADLINE: Duration = Duration::from_secs(5);
+
+#[test]
+fn two_native_sessions_reuse_one_injected_lazy_runtime() {
+    let server = HermeticSshServer::start(DEADLINE).expect("start SSH fixture");
+    let runtime = LazyRusshRuntime::new();
+    assert!(!runtime.is_initialized());
+    let handle = runtime
+        .get_or_try_init()
+        .expect("initialize shared runtime");
+    let mut first = trusted_opener(&server).with_runtime_handle(handle.clone());
+    let mut second = trusted_opener(&server).with_runtime_handle(handle);
+
+    let mut first_channel = first
+        .open_channel(key_request(&server, SshSessionStartup::NoShell))
+        .expect("open first shared-runtime channel");
+    first_channel
+        .close_channel()
+        .expect("close first shared-runtime channel");
+    let mut second_channel = second
+        .open_channel(key_request(&server, SshSessionStartup::NoShell))
+        .expect("open second shared-runtime channel");
+    second_channel
+        .close_channel()
+        .expect("close second shared-runtime channel");
+
+    assert!(
+        first
+            .runtime_handle()
+            .expect("first runtime")
+            .shares_runtime_with(second.runtime_handle().expect("second runtime"))
+    );
+    server.stop(DEADLINE).expect("stop SSH fixture");
+}
 
 fn config(server: &HermeticSshServer, user: &str) -> SshSessionConfig {
     SshSessionConfig::new(

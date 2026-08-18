@@ -1863,6 +1863,7 @@ impl NativeWindowApp {
         reason = "compatibility reducer remains linear to preserve evaluation and precedence order"
     )]
     fn inherit_effective_config_from(&mut self, source: &Self) {
+        self.runtime.set_composition(source.runtime.composition());
         self.set_renderer_mode(source.renderer_mode);
         self.set_benchmark_startup(source.is_benchmark_startup());
         self.applied_config = Arc::clone(&source.applied_config);

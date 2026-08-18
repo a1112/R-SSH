@@ -138,7 +138,7 @@ fn ssh_gui_absolute_startup_gate_is_isolated_to_the_fixed_release_runner() {
     for argument in [
         "-Profile release",
         "-Warmups 5",
-        "-Samples 30",
+        "-Samples 40",
         "-SkipBuild",
     ] {
         assert!(

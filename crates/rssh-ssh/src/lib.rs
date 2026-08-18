@@ -11,10 +11,11 @@ const REDACTED_SECRET: &str = "<redacted>";
 #[cfg(feature = "runtime-adapter")]
 pub use runtime_adapter::{SshControl, SshInterrupt, SshReader, SshTransport, SshWriter};
 pub use russh_client::{
-    RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
-    RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshConnectionCancellation,
-    RusshDirectTcpIpOpenPlan, RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy,
-    RusshKnownHosts, RusshPrivateKeyAuth, RusshRemoteTcpIpForward, RusshRemoteTcpIpForwardPlan,
+    LazyRusshRuntime, RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener,
+    RusshChannelStartupPlan, RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan,
+    RusshConnectionCancellation, RusshDirectTcpIpOpenPlan, RusshForwardCancellation,
+    RusshForwardDeadlines, RusshHostKeyPolicy, RusshKnownHosts, RusshPrivateKeyAuth,
+    RusshRemoteTcpIpForward, RusshRemoteTcpIpForwardPlan, RusshRuntimeConfig, RusshRuntimeHandle,
     RusshSshChannel,
 };
 

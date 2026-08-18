@@ -65,7 +65,9 @@ fn package_smoke_and_machine_readable_manifests_are_mandatory() {
         );
     }
     assert!(workflow.matches("dist/signed-package-smoke").count() >= 6);
-    assert!(workflow.contains("cargo build --locked --release -p rssh-app --all-targets"));
+    assert!(workflow.contains(
+        "cargo build --locked --release -p rssh-app --no-default-features --features production-gui"
+    ));
     assert!(info_plist.contains("LSArchitecturePriority"));
     assert!(info_plist.contains("__ARCHITECTURE__"));
     let unix_smoke = read_repo_file("scripts/ci/package-smoke.sh");
@@ -258,7 +260,7 @@ fn build_matrix_maps_each_native_runner_without_secrets_or_write_permissions() {
     for command in [
         "cargo test --locked --workspace --all-targets",
         "cargo clippy --locked --workspace --all-targets -- -D warnings",
-        "cargo build --locked --release -p rssh-app --all-targets",
+        "cargo build --locked --release -p rssh-app --no-default-features --features production-gui",
     ] {
         assert!(build.contains(command), "build job is missing {command}");
     }

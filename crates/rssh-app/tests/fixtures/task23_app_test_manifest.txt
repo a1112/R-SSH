@@ -460,6 +460,7 @@ T23-PANES-dee82a6242b0|crates/rssh-app/src/local.rs|terminal_output_filter_handl
 T23-RUNTIME-de1e738f14dd|crates/rssh-app/src/main.rs|maps_pty_success_to_process_success|1|rssh-app|crate|runtime
 T23-RUNTIME-18f96b432a78|crates/rssh-app/src/main.rs|maps_pty_failure_to_process_exit_code|1|rssh-app|crate|runtime
 T23-RUNTIME-64fc609b77ec|crates/rssh-app/src/main.rs|maps_large_pty_failure_to_generic_process_failure|1|rssh-app|crate|runtime
+T23-COMPATIBILITY-723a5045502c|crates/rssh-app/src/main.rs|reduced_gui_build_reports_disabled_diagnostic_entrypoints|1|rssh-app|crate|compatibility
 T23-COMPATIBILITY-03a994c24078|crates/rssh-app/src/main.rs|gui_dispatch_preserves_the_process_start_instant|1|rssh-app|crate|compatibility
 T23-COMPATIBILITY-d2fae065530f|crates/rssh-app/src/main.rs|gui_profile_dispatch_preserves_the_process_start_instant|1|rssh-app|crate|compatibility
 T23-COMPATIBILITY-f8ad3623f2de|crates/rssh-app/src/platform.rs|macos_uses_application_support_without_xdg_override|1|rssh-app|platform::tests|compatibility
@@ -491,6 +492,7 @@ T23-COMMANDS-4c0e879670bc|crates/rssh-app/src/profiles.rs|shows_profile_as_json_
 T23-RUNTIME-c5d4a3a48e6d|crates/rssh-app/src/profiles.rs|ssh_profile_gui_true_maps_to_native_gui_renderer_options|1|rssh-app|profiles::tests|runtime
 T23-RUNTIME-9d648795729f|crates/rssh-app/src/profiles.rs|gui_ssh_profile_prompt_policy_maps_to_interactive_verification|1|rssh-app|profiles::tests|runtime
 T23-RUNTIME-81f6cff0a78a|crates/rssh-app/src/profiles.rs|gui_ssh_profile_rejects_forwarding_and_no_shell|1|rssh-app|profiles::tests|runtime
+T23-INPUT-29417355a4d6|crates/rssh-app/src/runtime_composition.rs|cloned_compositions_share_one_lazy_ssh_runtime_without_initializing_it|1|rssh-app|runtime_composition::tests|input
 T23-INPUT-9b0c14f48539|crates/rssh-app/src/runtime_composition.rs|scheduled_runtime_continuation_wakes_the_window_without_another_transport_notice|1|rssh-app|runtime_composition::tests|input
 T23-INPUT-fe6c138d4a0e|crates/rssh-app/src/runtime_composition.rs|close_drains_every_published_runtime_batch_before_closed_event|1|rssh-app|runtime_composition::tests|input
 T23-PANES-5bc7bd58726b|crates/rssh-app/src/runtime_composition.rs|one_runtime_revision_is_not_split_into_stale_host_batches|1|rssh-app|runtime_composition::tests|panes
@@ -4002,6 +4004,7 @@ T23-PANES-7ea24fdd4636|crates/rssh-app/src/window_runtime_v2.rs|local_v2_frame_s
 T23-PRESENTATION-fbf3a2544e7a|crates/rssh-app/src/window_runtime_v2.rs|inactive_v2_frame_updates_its_owned_presentation_and_metadata|1|rssh-app|window_runtime_v2::tests|presentation
 T23-INPUT-ebd7298fa59f|crates/rssh-app/src/window_runtime_v2.rs|inactive_v2_close_does_not_close_the_active_runtime_owner|1|rssh-app|window_runtime_v2::tests|input
 T23-RUNTIME-5cbda4a3c4f1|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_request_resolution_occurs_inside_the_connector_worker|1|rssh-app|window_ssh_gui::tests|runtime
+T23-INPUT-f6eb42925812|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_runtime_initializes_inside_the_connector_worker|1|rssh-app|window_ssh_gui::tests|input
 T23-RUNTIME-5230f3b5187f|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_writer_applies_only_latest_resize_queued_before_attach|1|rssh-app|window_ssh_gui::tests|runtime
 T23-RUNTIME-49d2598b9d60|crates/rssh-app/src/window_ssh_gui.rs|native_ssh_writer_cancel_stops_a_connection_attempt_before_attach|1|rssh-app|window_ssh_gui::tests|runtime
 T23-PANES-288a9d6bae10|crates/rssh-app/src/window_ssh_gui.rs|cancelling_a_local_pane_during_shutdown_does_not_request_an_ssh_repaint|1|rssh-app|window_ssh_gui::tests|panes
