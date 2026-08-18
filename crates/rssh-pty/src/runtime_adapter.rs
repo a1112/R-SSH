@@ -2,12 +2,10 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
-use rssh_pty::{
-    PtyCommand, PtyExitStatus, PtyMasterClose, PtySession, PtySessionInterrupt, PtySize,
-};
+use crate::{PtyCommand, PtyExitStatus, PtyMasterClose, PtySession, PtySessionInterrupt, PtySize};
 use rterm_types::TerminalSize;
 
-use super::{
+use rterm_runtime::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,
     SessionTransport,
 };
@@ -167,6 +165,6 @@ fn local_exit(status: &PtyExitStatus) -> SessionExit {
     }
 }
 
-fn local_error(context: &'static str) -> impl FnOnce(rssh_pty::PtyError) -> io::Error {
+fn local_error(context: &'static str) -> impl FnOnce(crate::PtyError) -> io::Error {
     move |error| io::Error::other(format!("local PTY {context} failed: {error}"))
 }

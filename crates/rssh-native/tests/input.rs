@@ -1,7 +1,7 @@
 use rssh_native::input::{
     CanonicalizePastedNewlines, PendingPaneCommand, PendingPaneCommandQueue, encode_paste,
 };
-use rssh_runtime::SubmitResult;
+use rterm_runtime::SubmitResult;
 use rterm_types::TerminalSize;
 
 #[test]

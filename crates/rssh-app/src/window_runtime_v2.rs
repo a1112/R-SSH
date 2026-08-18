@@ -52,7 +52,7 @@ impl NativeWindowApp {
 
     fn apply_active_v2_event(
         &mut self,
-        active_token: Option<rssh_runtime::PaneToken>,
+        active_token: Option<rterm_runtime::PaneToken>,
         event: RuntimeHostEvent,
         closed: &mut ActiveV2Close,
     ) -> Result<(), Box<dyn Error>> {
@@ -129,7 +129,7 @@ impl NativeWindowApp {
                 self.record_unknown_escape_sequence_warning(
                     pane.map_or(
                         self.app_shell.active_pane_id(),
-                        rssh_runtime::PaneToken::pane,
+                        rterm_runtime::PaneToken::pane,
                     ),
                     &message,
                 );
@@ -184,8 +184,8 @@ impl NativeWindowApp {
         &mut self,
         terminal: std::sync::Arc<rssh_terminal::Terminal>,
         damage: &[rssh_core::DamageRegion],
-        metadata: rssh_runtime::PaneMetadataDelta,
-        metrics: rssh_runtime::RuntimeBatchMetrics,
+        metadata: rterm_runtime::PaneMetadataDelta,
+        metrics: rterm_runtime::RuntimeBatchMetrics,
         full_repaint: bool,
     ) {
         let previous_dimensions = self.runtime.terminal().stable_dimensions();
@@ -215,11 +215,11 @@ impl NativeWindowApp {
 
     fn apply_inactive_v2_frame(
         &mut self,
-        pane: rssh_runtime::PaneToken,
+        pane: rterm_runtime::PaneToken,
         terminal: std::sync::Arc<rssh_terminal::Terminal>,
         damage: &[rssh_core::DamageRegion],
-        metadata: &rssh_runtime::PaneMetadataDelta,
-        metrics: rssh_runtime::RuntimeBatchMetrics,
+        metadata: &rterm_runtime::PaneMetadataDelta,
+        metrics: rterm_runtime::RuntimeBatchMetrics,
     ) {
         let pane_id = pane.pane();
         let Some(runtime) = self.pane_runtimes.get_mut(&pane_id) else {
@@ -287,7 +287,7 @@ impl NativeWindowApp {
         self.osc52_policy.allows_write()
     }
 
-    fn apply_v2_metadata(&mut self, metadata: rssh_runtime::PaneMetadataDelta) {
+    fn apply_v2_metadata(&mut self, metadata: rterm_runtime::PaneMetadataDelta) {
         if metadata.working_directory.is_some() {
             self.sync_active_pane_current_working_dir_from_runtime();
         }
@@ -299,8 +299,8 @@ impl NativeWindowApp {
         }
         if let Some(progress) = metadata.progress {
             let progress = match progress {
-                rssh_runtime::MetadataChange::Set(progress) => progress,
-                rssh_runtime::MetadataChange::Clear => rssh_runtime::RuntimeProgress::None,
+                rterm_runtime::MetadataChange::Set(progress) => progress,
+                rterm_runtime::MetadataChange::Clear => rterm_runtime::RuntimeProgress::None,
             };
             self.sync_pane_progress_from_value(
                 self.app_shell.active_pane_id(),
@@ -452,7 +452,7 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use rssh_runtime::testing::{
+    use rterm_runtime::testing::{
         ReadAction, ScriptedSessionDriver, ScriptedTransport, WriteAction,
     };
 
@@ -503,7 +503,7 @@ mod tests {
             },
             local_transport,
             size,
-            rssh_runtime::TerminalRuntime::new(size),
+            rterm_runtime::TerminalRuntime::new(size),
             PaneCapturePolicy {
                 host_stream: false,
                 visible_output: false,
@@ -546,7 +546,7 @@ mod tests {
             },
             local_transport,
             size,
-            rssh_runtime::TerminalRuntime::new(size),
+            rterm_runtime::TerminalRuntime::new(size),
             PaneCapturePolicy {
                 host_stream: false,
                 visible_output: false,
@@ -668,7 +668,7 @@ mod tests {
             .unwrap();
         let ssh_snapshot = app.snapshot.clone();
 
-        let mut allocator = rssh_runtime::PaneTokenAllocator::new();
+        let mut allocator = rterm_runtime::PaneTokenAllocator::new();
         let local_token = allocator.issue(local_pane).expect("local token");
         let size = app
             .pane_runtimes
@@ -688,13 +688,13 @@ mod tests {
                 pane: local_token,
                 terminal: Arc::new(terminal),
                 damage: vec![rssh_core::DamageRegion::new(0, 0, 1, 1)],
-                metadata: rssh_runtime::PaneMetadataDelta {
-                    title: Some(rssh_runtime::MetadataChange::Set(
+                metadata: rterm_runtime::PaneMetadataDelta {
+                    title: Some(rterm_runtime::MetadataChange::Set(
                         "local-v2-title".to_owned(),
                     )),
-                    ..rssh_runtime::PaneMetadataDelta::default()
+                    ..rterm_runtime::PaneMetadataDelta::default()
                 },
-                metrics: rssh_runtime::RuntimeBatchMetrics::default(),
+                metrics: rterm_runtime::RuntimeBatchMetrics::default(),
                 full_repaint: false,
             },
             &mut closed,
@@ -725,7 +725,7 @@ mod tests {
         })
         .unwrap();
         let active = app.active_pane_id();
-        let mut allocator = rssh_runtime::PaneTokenAllocator::new();
+        let mut allocator = rterm_runtime::PaneTokenAllocator::new();
         let inactive_token = allocator.issue(inactive).expect("inactive token");
         let active_token = allocator.issue(active).expect("active token");
         let size = app
@@ -746,13 +746,13 @@ mod tests {
                 pane: inactive_token,
                 terminal: Arc::new(terminal),
                 damage: vec![rssh_core::DamageRegion::new(0, 0, 1, 1)],
-                metadata: rssh_runtime::PaneMetadataDelta {
-                    title: Some(rssh_runtime::MetadataChange::Set(
+                metadata: rterm_runtime::PaneMetadataDelta {
+                    title: Some(rterm_runtime::MetadataChange::Set(
                         "inactive-v2-title".to_owned(),
                     )),
-                    ..rssh_runtime::PaneMetadataDelta::default()
+                    ..rterm_runtime::PaneMetadataDelta::default()
                 },
-                metrics: rssh_runtime::RuntimeBatchMetrics::default(),
+                metrics: rterm_runtime::RuntimeBatchMetrics::default(),
                 full_repaint: false,
             },
             &mut closed,
@@ -779,7 +779,7 @@ mod tests {
         })
         .unwrap();
         let active = app.active_pane_id();
-        let mut allocator = rssh_runtime::PaneTokenAllocator::new();
+        let mut allocator = rterm_runtime::PaneTokenAllocator::new();
         let inactive_token = allocator.issue(inactive).expect("inactive token");
         let active_token = allocator.issue(active).expect("active token");
         let mut closed = ActiveV2Close::Open;
@@ -788,7 +788,7 @@ mod tests {
             Some(active_token),
             RuntimeHostEvent::Closed {
                 pane: inactive_token,
-                exit: Some(rssh_runtime::SessionExit {
+                exit: Some(rterm_runtime::SessionExit {
                     status: Some(0),
                     signal: None,
                 }),

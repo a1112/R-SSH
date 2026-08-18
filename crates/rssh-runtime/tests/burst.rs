@@ -2,8 +2,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use rssh_domain::PaneId;
-use rssh_runtime::testing::{ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction};
-use rssh_runtime::{
+use rterm_runtime::testing::{
+    ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction,
+};
+use rterm_runtime::{
     BatchPolicy, EffectSequence, MailboxLimits, PaneNotice, PaneToken, PaneWorkerConfig,
     RuntimeBuffers, RuntimeEffectKind, RuntimeHub, SubmitResult, TerminalRuntime,
     TerminalStateSummary,

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use rssh_runtime::{
+use rterm_runtime::{
     BatchAdmission, BatchPolicy, BatchWindow, CoalesceLatest, DrainCompletion, LatestSlot,
     PublishAction,
 };

@@ -319,16 +319,16 @@
     fn install_local_v2_worker_for_window_transfer(
         app: &mut NativeWindowApp,
         pane: rssh_core::PaneId,
-    ) -> rssh_runtime::testing::ScriptedSessionDriver {
+    ) -> rterm_runtime::testing::ScriptedSessionDriver {
         let size = app
             .pane_runtime_ref(pane)
             .expect("transfer pane presentation")
             .terminal()
             .grid()
             .size();
-        let (transport, driver) = rssh_runtime::testing::ScriptedTransport::new(
-            [rssh_runtime::testing::ReadAction::Block],
-            [rssh_runtime::testing::WriteAction::accept(usize::MAX)],
+        let (transport, driver) = rterm_runtime::testing::ScriptedTransport::new(
+            [rterm_runtime::testing::ReadAction::Block],
+            [rterm_runtime::testing::WriteAction::accept(usize::MAX)],
             [],
         );
         let worker = crate::runtime_composition::WindowPaneRuntime::open_transport(
@@ -338,7 +338,7 @@
             },
             transport,
             size,
-            rssh_runtime::TerminalRuntime::new(size),
+            rterm_runtime::TerminalRuntime::new(size),
             crate::runtime_composition::PaneCapturePolicy {
                 host_stream: false,
                 visible_output: false,
@@ -355,11 +355,11 @@
     fn install_restarted_local_worker_after_window_transfer(
         app: &mut NativeWindowApp,
         pane: rssh_core::PaneId,
-    ) -> rssh_runtime::testing::ScriptedSessionDriver {
-        let (transport, driver) = rssh_runtime::testing::ScriptedTransport::new(
-            [rssh_runtime::testing::ReadAction::Block],
+    ) -> rterm_runtime::testing::ScriptedSessionDriver {
+        let (transport, driver) = rterm_runtime::testing::ScriptedTransport::new(
+            [rterm_runtime::testing::ReadAction::Block],
             std::iter::repeat_n(
-                rssh_runtime::testing::WriteAction::accept(usize::MAX),
+                rterm_runtime::testing::WriteAction::accept(usize::MAX),
                 4,
             ),
             [],
@@ -378,7 +378,7 @@
 
     fn publish_restarted_local_output(
         app: &mut NativeWindowApp,
-        driver: &rssh_runtime::testing::ScriptedSessionDriver,
+        driver: &rterm_runtime::testing::ScriptedSessionDriver,
         pane: rssh_core::PaneId,
         bytes: &'static [u8],
         expected: &str,
@@ -386,8 +386,8 @@
         let write_barrier = b"target-output-barrier";
         let accepted_before = driver.accepted_writes().len();
         driver.push_reads([
-            rssh_runtime::testing::ReadAction::bytes(bytes),
-            rssh_runtime::testing::ReadAction::Block,
+            rterm_runtime::testing::ReadAction::bytes(bytes),
+            rterm_runtime::testing::ReadAction::Block,
         ]);
         app.write_pty_bytes_to_pane(pane, write_barrier)
             .expect("target output barrier input");

@@ -8,7 +8,7 @@ use rssh_native::{
     PaneLifecycleIntent, PlatformIntent, RendererEffect, RuntimePortEffect, TimerId, TimerIntent,
     WindowEffect, WindowIntent, WindowPortEffect, WindowState, reduce,
 };
-use rssh_runtime::{
+use rterm_runtime::{
     EffectSequence, MetadataChange, PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch,
     RuntimeBatchMetrics, RuntimeEffect, RuntimeEffectKind, RuntimeProgress, RuntimeRevision,
     TerminalStateSummary,

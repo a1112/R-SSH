@@ -174,9 +174,9 @@ fn mapped_protocol_evidence_is_executed_by_the_contract_job() {
             "unexecuted focused evidence {identity}"
         );
     }
-    assert!(workflow.contains("--features test-support --test pane_worker"));
-    assert!(workflow.contains("--features local-transport --test local_transport"));
-    assert!(workflow.contains("--features ssh-transport --test ssh_transport"));
+    assert!(workflow.contains("-p rterm-runtime --features test-support --test pane_worker"));
+    assert!(workflow.contains("-p rssh-pty --features runtime-adapter --test runtime_adapter"));
+    assert!(workflow.contains("-p rssh-ssh --features runtime-adapter --test runtime_adapter"));
     assert!(workflow.contains("-p rssh-ssh --test loopback_native"));
     assert!(workflow.contains("-p rssh-web --lib"));
 }

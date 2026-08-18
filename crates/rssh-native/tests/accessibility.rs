@@ -1,6 +1,6 @@
 use rssh_domain::PaneId;
 use rssh_native::{WindowState, accessibility::build_accessibility_snapshot, panes::PaneState};
-use rssh_runtime::{PaneToken, PaneTokenAllocator, RuntimeProgress};
+use rterm_runtime::{PaneToken, PaneTokenAllocator, RuntimeProgress};
 
 fn token(pane: u64) -> PaneToken {
     PaneTokenAllocator::new()

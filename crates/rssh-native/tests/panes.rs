@@ -5,7 +5,7 @@ use rssh_native::{
     panes::{PaneCommand, PaneLifecycleIntent},
     reduce,
 };
-use rssh_runtime::{PaneToken, PaneTokenAllocator};
+use rterm_runtime::{PaneToken, PaneTokenAllocator};
 
 fn token(pane: u64) -> PaneToken {
     PaneTokenAllocator::new()

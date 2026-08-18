@@ -7,7 +7,7 @@ use rssh_native::{
     PresentationInput, RenderMode, ScaleFactor, ScrollbarPresentation, SelectionPresentation,
     SurfacePresentation, TabPresentation, build_pane_layout, build_presentation,
 };
-use rssh_runtime::{PaneToken, PaneTokenAllocator, RuntimeRevision};
+use rterm_runtime::{PaneToken, PaneTokenAllocator, RuntimeRevision};
 use rterm_types::{DamageRegion, TerminalSize};
 
 fn token(pane: u64) -> PaneToken {

@@ -27,12 +27,12 @@ use rssh_core::{
     session::{SessionLifecycle, SessionState},
 };
 use rssh_pty::{PtyBackend, PtyExitStatus, PtyMasterClose, PtyMasterCloseStatus, PtySize};
-use rssh_runtime::{
-    LocalPtyControl, LocalPtyTransport, RuntimeBuffers, RuntimeDelta, RuntimeEffectRef,
-    SessionTransport, TerminalRuntime as SharedTerminalRuntime,
-};
 #[cfg(test)]
 use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle, VerticalAlign};
+use rterm_runtime::{
+    RuntimeBuffers, RuntimeDelta, RuntimeEffectRef, SessionTransport,
+    TerminalRuntime as SharedTerminalRuntime,
+};
 use serde::Serialize;
 
 use crate::{
@@ -518,7 +518,7 @@ fn join_local_worker_before_with_reaper(
 
 #[allow(clippy::too_many_arguments)]
 fn shutdown_local_pty(
-    mut session: LocalPtyControl,
+    mut session: rssh_pty::LocalPtyControl,
     reader_thread: thread::JoinHandle<()>,
     writer_thread: thread::JoinHandle<()>,
     input_thread: Option<thread::JoinHandle<()>>,
@@ -690,7 +690,8 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let size = resolve_local_size(options.size);
     let mut lifecycle = SessionLifecycle::new(LOCAL_CONSOLE_SESSION_ID);
     lifecycle.start_connecting()?;
-    let transport = LocalPtyTransport::spawn(&options.command, terminal_size_from_pty(size))?;
+    let transport =
+        rssh_pty::LocalPtyTransport::spawn(&options.command, terminal_size_from_pty(size))?;
     let parts = transport.split();
     let mut session = parts.control;
     trace.event(format_args!("spawned child pid={:?}", session.process_id()));
@@ -1520,7 +1521,7 @@ struct LocalInputLoopContext<'a> {
 }
 
 fn run_input_loop(
-    session: &mut LocalPtyControl,
+    session: &mut rssh_pty::LocalPtyControl,
     reader_done_receiver: &mpsc::Receiver<io::Result<()>>,
     writer_done_receiver: &mpsc::Receiver<io::Result<()>>,
     control_receiver: &mpsc::Receiver<LocalControlEvent>,
@@ -1598,7 +1599,7 @@ fn run_input_loop(
 
 fn apply_local_control_event(
     control_event: LocalControlEvent,
-    session: &mut LocalPtyControl,
+    session: &mut rssh_pty::LocalPtyControl,
     raw_mode: &mut RawMode,
     runtime_state: &LocalRuntimeState,
     metrics: &LocalMetricsCounters,

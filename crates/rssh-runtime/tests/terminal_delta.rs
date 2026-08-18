@@ -1,10 +1,10 @@
-use rssh_runtime::{
+use rterm_runtime::{
     MetadataChangeRef, RuntimeBuffers, RuntimeEffectRef, RuntimeProgress, TerminalModeChange,
     TerminalRuntime,
 };
 use rterm_types::TerminalSize;
 
-fn captured_console(delta: rssh_runtime::RuntimeDelta<'_>) -> Vec<u8> {
+fn captured_console(delta: rterm_runtime::RuntimeDelta<'_>) -> Vec<u8> {
     delta
         .console_writes()
         .flat_map(|bytes| bytes.iter().copied())

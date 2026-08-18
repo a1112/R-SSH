@@ -13,13 +13,13 @@ use rssh_native::{
     SpawnEffect, TurnBudget, UriEffect, WindowIntent, WindowPortEffect, WindowState, WinitHost,
     input::{PendingPaneCommand, PendingPaneCommandQueue},
 };
-use rssh_pty::PtySession;
-use rssh_runtime::{
-    LocalPtyTransport, PaneHandle, PaneMetadataDelta, PaneNotice, PaneToken, PaneWorkerConfig,
-    RuntimeBatch, RuntimeBatchMetrics, RuntimeEffect, RuntimeHub, RuntimeRevision, SessionExit,
-    SessionTransport, SubmitResult, SystemClock,
-};
+use rssh_pty::{LocalPtyTransport, PtySession};
 use rssh_terminal::Terminal;
+use rterm_runtime::{
+    PaneHandle, PaneMetadataDelta, PaneNotice, PaneToken, PaneWorkerConfig, RuntimeBatch,
+    RuntimeBatchMetrics, RuntimeEffect, RuntimeHub, RuntimeRevision, SessionExit, SessionTransport,
+    SubmitResult, SystemClock,
+};
 
 use crate::terminal_runtime::TerminalRuntime;
 
@@ -27,7 +27,7 @@ type AdoptLocalSession = fn(
     PaneRuntimeRoute,
     PtySession,
     TerminalSize,
-    rssh_runtime::TerminalRuntime,
+    rterm_runtime::TerminalRuntime,
     PaneCapturePolicy,
     Arc<dyn Fn() + Send + Sync>,
 ) -> Result<SpawnedLocalPane, Box<dyn Error>>;
@@ -61,7 +61,7 @@ impl RuntimeComposition {
         route: PaneRuntimeRoute,
         session: PtySession,
         size: TerminalSize,
-        terminal: rssh_runtime::TerminalRuntime,
+        terminal: rterm_runtime::TerminalRuntime,
         capture: PaneCapturePolicy,
         notice_waker: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<SpawnedLocalPane, Box<dyn Error>> {
@@ -111,7 +111,7 @@ pub(crate) enum RuntimeHostEvent {
     },
     ModeChange {
         pane: PaneToken,
-        change: rssh_runtime::TerminalModeChange,
+        change: rterm_runtime::TerminalModeChange,
     },
     InputWriteCompleted {
         byte_count: usize,
@@ -197,7 +197,7 @@ impl WindowPaneRuntime {
         route: PaneRuntimeRoute,
         session: PtySession,
         size: TerminalSize,
-        terminal: rssh_runtime::TerminalRuntime,
+        terminal: rterm_runtime::TerminalRuntime,
         capture: PaneCapturePolicy,
         notice_waker: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<SpawnedLocalPane, Box<dyn Error>> {
@@ -213,7 +213,7 @@ impl WindowPaneRuntime {
         route: PaneRuntimeRoute,
         transport: T,
         size: TerminalSize,
-        terminal: rssh_runtime::TerminalRuntime,
+        terminal: rterm_runtime::TerminalRuntime,
         capture: PaneCapturePolicy,
         notice_waker: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<Self, Box<dyn Error>> {
@@ -257,7 +257,7 @@ impl WindowPaneRuntime {
         pane: PaneId,
         transport: T,
         config: PaneWorkerConfig,
-        runtime: rssh_runtime::TerminalRuntime,
+        runtime: rterm_runtime::TerminalRuntime,
     ) -> Result<PaneToken, Box<dyn Error>> {
         let replacing = self.host.state().panes.contains_key(&pane);
         let handle = if replacing {
@@ -289,7 +289,7 @@ impl WindowPaneRuntime {
         pane: PaneId,
         session: PtySession,
         size: TerminalSize,
-        terminal: rssh_runtime::TerminalRuntime,
+        terminal: rterm_runtime::TerminalRuntime,
         capture: PaneCapturePolicy,
     ) -> Result<AdoptedLocalPane, Box<dyn Error>> {
         let process_id = session.process_id();
@@ -549,7 +549,7 @@ struct PendingFrame {
 }
 
 struct DrainBatch {
-    frame: Option<rssh_runtime::PresentationFrame>,
+    frame: Option<rterm_runtime::PresentationFrame>,
     effects: Vec<RuntimeEffect>,
 }
 
@@ -898,7 +898,7 @@ mod tests {
     };
 
     use rssh_core::{PaneId, WindowId};
-    use rssh_runtime::{
+    use rterm_runtime::{
         PaneWorkerConfig, TerminalRuntime,
         testing::{ReadAction, ScriptedTransport, WriteAction},
     };
@@ -910,7 +910,7 @@ mod tests {
         notice_waker: Arc<dyn Fn() + Send + Sync>,
     ) -> (
         WindowPaneRuntime,
-        rssh_runtime::testing::ScriptedSessionDriver,
+        rterm_runtime::testing::ScriptedSessionDriver,
         PaneId,
     ) {
         let size = TerminalSize::new(80, 24);

@@ -158,6 +158,14 @@ are migrated incrementally. The `rterm-terminal` Cargo package intentionally
 retains the `crates/rssh-terminal` directory during this stage because the
 immutable Task 10 provenance evidence records that physical source path.
 
+Stage 2 makes `rterm-runtime` the transport-neutral owner of pane workers,
+bounded mailboxes, terminal progression, and the `SessionTransport` ownership
+contract. Concrete `runtime-adapter` implementations now belong to `rssh-pty`
+and `rssh-ssh`, which depend inward on the runtime abstraction; the runtime no
+longer links PTY or Russh implementations. Its Cargo package intentionally keeps
+the `crates/rssh-runtime` directory because Task 10 provenance also freezes
+those physical source paths.
+
 ## Local Commands
 
 ### Web terminal

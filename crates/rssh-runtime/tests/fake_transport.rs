@@ -2,11 +2,11 @@ use std::io::{self, Read, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rssh_runtime::testing::{
+use rterm_runtime::testing::{
     ControlCall, ExitAction, ReadAction, ScriptedTransport, VirtualClock, VirtualClockAdvanceError,
     WriteAction,
 };
-use rssh_runtime::{
+use rterm_runtime::{
     Clock, SessionControl, SessionExit, SessionInterrupt, SessionTransport, SystemClock,
 };
 use rterm_types::TerminalSize;

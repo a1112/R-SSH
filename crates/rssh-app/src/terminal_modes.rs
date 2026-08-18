@@ -1,6 +1,6 @@
 use crossterm::event::MouseEventKind;
 
-pub(crate) use rssh_runtime::modes::*;
+pub(crate) use rterm_runtime::modes::*;
 
 pub(crate) const fn mouse_input_mode_allows(
     mode: MouseInputMode,

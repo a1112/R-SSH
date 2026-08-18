@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rssh_runtime::{MetadataChange, RuntimeBatch, RuntimeEffectKind, TerminalStateSummary};
+use rterm_runtime::{MetadataChange, RuntimeBatch, RuntimeEffectKind, TerminalStateSummary};
 
 use crate::{
     ClipboardEffect, ConfigDiff, HostEffectContext, NotificationEffect, PaneState, PlatformIntent,
@@ -84,7 +84,7 @@ fn reduce_runtime_batch(
         effects.push(route_runtime_effect(context, runtime_effect.kind().clone()));
     }
 
-    let metadata_changed = batch.metadata != rssh_runtime::PaneMetadataDelta::default();
+    let metadata_changed = batch.metadata != rterm_runtime::PaneMetadataDelta::default();
     let pane = state
         .panes
         .get_mut(&pane_id)
@@ -149,14 +149,14 @@ fn route_runtime_effect(context: HostEffectContext, effect: RuntimeEffectKind) -
     }
 }
 
-fn apply_metadata(pane: &mut PaneState, metadata: rssh_runtime::PaneMetadataDelta) {
+fn apply_metadata(pane: &mut PaneState, metadata: rterm_runtime::PaneMetadataDelta) {
     apply_value(&mut pane.title, metadata.title);
     apply_value(&mut pane.working_directory, metadata.working_directory);
     apply_value(&mut pane.badge_format, metadata.badge_format);
     if let Some(progress) = metadata.progress {
         pane.progress = match progress {
             MetadataChange::Set(progress) => progress,
-            MetadataChange::Clear => rssh_runtime::RuntimeProgress::None,
+            MetadataChange::Clear => rterm_runtime::RuntimeProgress::None,
         };
     }
     for change in metadata.user_vars {
