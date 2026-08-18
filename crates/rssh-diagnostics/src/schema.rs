@@ -266,6 +266,12 @@ impl DiagnosticsResult {
         }
     }
 
+    /// Validates the cross-field invariants required by schema v2.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a sampling parameter is zero, a successful run does not
+    /// contain the configured number of samples, or the memory unit is not bytes.
     pub fn validate(&self) -> Result<(), SchemaValidationError> {
         if self.configuration.stabilization_ms == 0 {
             return Err(SchemaValidationError::ZeroConfiguration("stabilization_ms"));
