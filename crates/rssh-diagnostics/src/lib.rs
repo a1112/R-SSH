@@ -1,5 +1,7 @@
 mod launcher;
 mod marker;
+#[cfg(feature = "launcher")]
+mod production;
 mod sampler;
 mod schema;
 mod statistics;
@@ -12,6 +14,8 @@ pub use marker::{
     CollectedMarkers, MARKER_PREFIX, MarkerCollector, MarkerDisposition, MarkerError,
     MarkerIdentity, MarkerKind, MarkerRecord,
 };
+#[cfg(feature = "launcher")]
+pub use production::{LauncherExecution, execute_launcher};
 pub use sampler::{
     LinuxPssSampler, MacosPhysFootprintSampler, MacosProcessQuery, MacosProcessSnapshot,
     MemorySampler, SamplerError, WindowsPrivateWorkingSetSampler, WindowsProcessQuery,

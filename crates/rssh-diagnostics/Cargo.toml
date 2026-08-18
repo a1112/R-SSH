@@ -6,9 +6,19 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+default = ["launcher"]
+launcher = ["dep:rssh-test-support"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rssh-test-support = { path = "../rssh-test-support", optional = true }
+
+[[bin]]
+name = "rssh-bench-launcher"
+path = "src/bin/rssh-bench-launcher.rs"
+required-features = ["launcher"]
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [

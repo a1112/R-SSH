@@ -4938,6 +4938,7 @@ name = "rssh-diagnostics"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "rssh-test-support",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",

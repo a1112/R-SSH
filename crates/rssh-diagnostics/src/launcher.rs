@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use crate::{MarkerKind, RunConfiguration, Scenario};
 
-pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--json]";
+pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--json]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LauncherOptions {
@@ -14,6 +14,7 @@ pub struct LauncherOptions {
     pub stabilization: Duration,
     pub sample_interval: Duration,
     pub sample_count: u32,
+    pub shutdown_timeout: Duration,
     pub json: bool,
 }
 
@@ -33,6 +34,7 @@ impl LauncherOptions {
         let mut stabilization_ms = 5_000_u64;
         let mut sample_interval_ms = 100_u64;
         let mut sample_count = 10_u32;
+        let mut shutdown_timeout_ms = 2_000_u64;
         let mut json = false;
 
         while let Some(argument) = arguments.next() {
@@ -72,6 +74,12 @@ impl LauncherOptions {
                         "--sample-count",
                     )?;
                 }
+                "--shutdown-timeout-ms" => {
+                    shutdown_timeout_ms = parse_positive(
+                        &next_value(&mut arguments, "--shutdown-timeout-ms")?,
+                        "--shutdown-timeout-ms",
+                    )?;
+                }
                 "--json" => json = true,
                 _ => return Err(LauncherCliError::UnknownArgument(argument)),
             }
@@ -87,6 +95,7 @@ impl LauncherOptions {
             stabilization: Duration::from_millis(stabilization_ms),
             sample_interval: Duration::from_millis(sample_interval_ms),
             sample_count,
+            shutdown_timeout: Duration::from_millis(shutdown_timeout_ms),
             json,
         })
     }
