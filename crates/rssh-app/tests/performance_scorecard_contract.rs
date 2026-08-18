@@ -224,7 +224,7 @@ fn ssh_gui_release_startup_gate_uses_a_benchmark_only_100_percent_dpi_override()
 fn first_present_marker_precedes_private_bytes_sampling() {
     let metrics = read_repo_file("crates/rssh-app/src/startup_metrics.rs");
     let window_metrics = read_repo_file("crates/rssh-app/src/window_parts/part07.rs");
-    let presentation = read_repo_file("crates/rssh-app/src/window_parts/part08.rs");
+    let presentation = read_repo_file("crates/rssh-app/src/window_parts/diagnostics.rs");
 
     assert!(metrics.contains("first_frame_memory first_frame_private_bytes="));
     assert!(window_metrics.contains("fn record_first_present(&mut self, renderer: RendererKind)"));

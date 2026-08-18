@@ -7876,6 +7876,7 @@ include!("window_parts/part05.rs");
 include!("window_parts/part06.rs");
 include!("window_parts/part06b.rs");
 include!("window_parts/part07.rs");
+include!("window_parts/diagnostics.rs");
 include!("window_parts/part08.rs");
 include!("window_parts/part09.rs");
 include!("window_parts/part10.rs");

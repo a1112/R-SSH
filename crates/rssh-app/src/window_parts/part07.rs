@@ -1416,6 +1416,12 @@ struct NativeDiagnosticGuiState {
     secret_prompt_presented: bool,
 }
 
+enum NativeStartupMode {
+    Normal,
+    Benchmark,
+    Diagnostic(NativeDiagnosticGuiState),
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct NativeWindowApp {
     app_window_id: rssh_core::WindowId,
@@ -1447,9 +1453,7 @@ struct NativeWindowApp {
     renderer_mode: RendererMode,
     presentation_owner: PresentationOwner,
     deferred_gpu_generation: u64,
-    benchmark_startup: bool,
-    diagnostic_gui: Option<NativeDiagnosticGuiState>,
-    suppress_transport_start: bool,
+    startup_mode: NativeStartupMode,
     transport_start_requested: bool,
     // Prompts are keyed by pane so a slow host-key or secret decision in one
     // SSH pane cannot overwrite another pane's independent connection.
@@ -1874,8 +1878,8 @@ impl NativeWindowManager {
         app.create_window(event_loop)?;
         if should_spawn_transport_during_materialization(
             app.renderer_mode,
-            app.benchmark_startup,
-            app.suppress_transport_start,
+            app.is_benchmark_startup(),
+            app.suppresses_transport_start(),
         ) {
             app.spawn_pty()?;
         }
@@ -2206,7 +2210,7 @@ impl NativeWindowManager {
         else {
             return;
         };
-        if app.benchmark_startup {
+        if app.is_benchmark_startup() {
             self.deferred_config_pending = false;
             return;
         }
@@ -2326,8 +2330,8 @@ impl NativeWindowManager {
             .values_mut()
             .filter(|app| {
                 app.rendered_frames > 0
-                    && !app.benchmark_startup
-                    && !app.suppress_transport_start
+                    && !app.is_benchmark_startup()
+                    && !app.suppresses_transport_start()
             })
         {
             if app.transport_start_requested {
@@ -2344,11 +2348,11 @@ impl NativeWindowManager {
         if self
             .windows
             .values()
-            .any(|app| app.diagnostic_gui.is_some())
+            .any(|app| app.has_diagnostic_gui())
             || self
                 .startup_app
                 .as_ref()
-                .is_some_and(|app| app.diagnostic_gui.is_some())
+                .is_some_and(|app| app.has_diagnostic_gui())
         {
             return;
         }

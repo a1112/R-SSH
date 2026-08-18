@@ -3318,8 +3318,8 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         }
 
         if self.renderer_mode == RendererMode::Gpu
-            && !self.benchmark_startup
-            && !self.suppress_transport_start
+            && !self.is_benchmark_startup()
+            && !self.suppresses_transport_start()
             && let Err(error) = self.spawn_pty()
         {
             eprintln!("PTY error: {error}");
