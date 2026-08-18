@@ -77,9 +77,9 @@ jobs:
             cargo test --locked -p rssh-test-support "$test_name" -- --exact --nocapture 2>&1 | tee -a functional-tests.libtest
           done
           cargo test --locked -p rssh-web --lib -- --nocapture 2>&1 | tee -a functional-tests.libtest
-          cargo test --locked -p rssh-renderer --lib tests::pixel_renderer_draws_kitty_rgb_direct_inline_image -- --exact --nocapture 2>&1 | tee -a functional-tests.libtest
-          cargo test --locked -p rssh-renderer --test gpu_layers headless_gpu_readback_matches_cpu_layering_invariants_with_tolerance -- --exact --nocapture 2>&1 | tee -a functional-tests.libtest
-          cargo test --locked -p rssh-renderer --test gpu surface_fault_policy_reconfigures_lost_and_outdated_surfaces -- --exact --nocapture 2>&1 | tee -a functional-tests.libtest
+          cargo test --locked -p rterm-render-cpu --lib tests::pixel_renderer_draws_kitty_rgb_direct_inline_image -- --exact --nocapture 2>&1 | tee -a functional-tests.libtest
+          cargo test --locked -p rterm-render-wgpu --test gpu_layers headless_gpu_readback_matches_cpu_layering_invariants_with_tolerance -- --exact --nocapture 2>&1 | tee -a functional-tests.libtest
+          cargo test --locked -p rterm-render-wgpu --test gpu surface_fault_policy_reconfigures_lost_and_outdated_surfaces -- --exact --nocapture 2>&1 | tee -a functional-tests.libtest
           cargo run --locked -p rssh-functional-tests --bin rssh-functional -- validate --suite "$RSSH_FUNCTIONAL_SUITE"
       - if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

@@ -5,8 +5,9 @@ use std::{
 };
 
 use rssh_core::TerminalSize;
-use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use rssh_terminal::Terminal;
+use rterm_render_core::TerminalRenderSnapshot;
+use rterm_render_cpu::PixelRenderer;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 

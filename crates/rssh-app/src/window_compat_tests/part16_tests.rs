@@ -3953,7 +3953,7 @@
             left.row,
             left.column.saturating_add(1),
             super::inactive_pane_color(
-                rssh_renderer::RenderCellColorRole::Background,
+                rterm_render_core::RenderCellColorRole::Background,
                 PANE_OVERLAY_QUICK_LABEL_BG,
                 inactive_hsb,
                 DEFAULT_FOREGROUND_COLOR,
@@ -3973,7 +3973,7 @@
             left.row,
             left.column.saturating_add(3),
             super::inactive_pane_color(
-                rssh_renderer::RenderCellColorRole::Background,
+                rterm_render_core::RenderCellColorRole::Background,
                 PANE_OVERLAY_QUICK_MATCH_BG,
                 inactive_hsb,
                 DEFAULT_FOREGROUND_COLOR,

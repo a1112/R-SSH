@@ -64,7 +64,14 @@ class RustArchitectureCheckerTests(unittest.TestCase):
     def test_stage1_foundational_crates_import_owned_types_without_the_core_facade(self):
         expectations = {
             "rssh-terminal": ("rterm-types",),
-            "rssh-renderer": ("rterm-types",),
+            "rterm-render-core": ("rterm-types",),
+            "rterm-render-cpu": ("rterm-render-core",),
+            "rterm-render-wgpu": ("rterm-render-core",),
+            "rssh-renderer": (
+                "rterm-render-core",
+                "rterm-render-cpu",
+                "rterm-render-wgpu",
+            ),
             "rssh-ssh": ("rterm-types",),
             "rssh-runtime": ("rterm-types", "rssh-domain"),
             "rssh-native": ("rterm-types", "rssh-domain"),
@@ -188,6 +195,20 @@ class RustArchitectureCheckerTests(unittest.TestCase):
         for forbidden in ("wgpu", "glyphon", "raw-window-handle"):
             self.assertNotIn(forbidden, cpu)
 
+    def test_stage3_architecture_policy_scans_each_renderer_owner(self):
+        policy = json.loads(
+            (REPOSITORY_ROOT / "scripts" / "ci" / "architecture-policy.json").read_text(
+                encoding="utf-8"
+            )
+        )
+
+        for root in (
+            "crates/rterm-render-core/src",
+            "crates/rterm-render-cpu/src",
+            "crates/rterm-render-wgpu/src",
+        ):
+            self.assertIn(root, policy["roots"])
+
     def test_stage3_app_composes_owned_renderers_without_the_compatibility_facade(self):
         app = (REPOSITORY_ROOT / "crates" / "rssh-app" / "Cargo.toml").read_text(
             encoding="utf-8"
@@ -207,8 +228,8 @@ class RustArchitectureCheckerTests(unittest.TestCase):
             self.assertIn(package, app)
             self.assertIn(package, facade)
         self.assertNotIn("rssh-renderer =", app)
-        self.assertNotIn("wgpu =", facade)
-        self.assertNotIn("image =", facade)
+        self.assertNotIn("\nwgpu =", facade)
+        self.assertNotIn("\nimage =", facade)
         self.assertIn("pub use rterm_render_core", facade_library)
         self.assertIn("pub use rterm_render_cpu", facade_library)
         self.assertIn("pub use rterm_render_wgpu", facade_library)

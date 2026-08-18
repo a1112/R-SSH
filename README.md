@@ -138,7 +138,10 @@ crates/rterm-types    Dependency-free terminal/session value types
 crates/rssh-domain    Window/workspace/tab/pane and launch domain state
 crates/rssh-core      rssh-core compatibility facade for legacy public paths
 crates/rssh-terminal  rterm-terminal package: terminal grid and VT parser
-crates/rssh-renderer  Renderer boundary and damage tracking
+crates/rterm-render-core  Renderer-neutral snapshots, geometry, damage, and layer values
+crates/rterm-render-cpu   PixelRenderer, text rasterization, image decode, and software frames
+crates/rterm-render-wgpu  WGPU surfaces, render graph, glyphon text, textures, and recovery
+crates/rssh-renderer      One-stage rssh-renderer compatibility facade
 crates/rssh-ssh       SSH session boundary
 crates/rssh-pty       Local PTY boundary
 crates/rterm-fonts    Font discovery, shaping, fallback, and deterministic fonts
@@ -165,6 +168,15 @@ and `rssh-ssh`, which depend inward on the runtime abstraction; the runtime no
 longer links PTY or Russh implementations. Its Cargo package intentionally keeps
 the `crates/rssh-runtime` directory because Task 10 provenance also freezes
 those physical source paths.
+
+Stage 3 makes renderer ownership explicit without changing pixels or presentation:
+`rterm-render-core` owns the shared terminal snapshot, geometry, damage, paint/layer
+value, and digest contracts; `rterm-render-cpu` owns deterministic software
+composition and decoding; and `rterm-render-wgpu` owns GPU planning, surfaces,
+glyphon text, textures, recovery, and presentation. The application directly
+composes the CPU bootstrap/fallback path with the WGPU path. The
+`rssh-renderer compatibility facade` remains implementation-free for one migration
+stage and re-exports the legacy public surface.
 
 ## Local Commands
 

@@ -148,7 +148,7 @@ fn assert_session_log_matches_pty_linkage(metrics: &serde_json::Value, log: &[u8
 }
 
 fn digest_bytes(bytes: &[u8]) -> String {
-    rssh_renderer::terminal_bytes_content_digest(bytes)
+    rterm_render_core::terminal_bytes_content_digest(bytes)
         .into_iter()
         .fold(String::new(), |mut encoded, byte| {
             use std::fmt::Write as _;

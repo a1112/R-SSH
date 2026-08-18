@@ -12,7 +12,7 @@ fn snapshot_contains_text(snapshot: &TerminalRenderSnapshot, text: &str) -> bool
 #[test]
 fn app_consumers_use_borrowed_feed_contract() {
     let bench = include_str!("bench.rs");
-    let local = include_str!("local.rs");
+    let local = include_str!("local.rs").replace("\r\n", "\n");
     let local_runtime_source = include_str!("local_terminal_runtime.rs");
     let window = include_str!("window_parts/part09.rs");
     let shim = include_str!("terminal_runtime.rs");

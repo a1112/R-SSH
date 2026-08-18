@@ -17,10 +17,11 @@ use rssh_fonts::{
     RasterRequest, ShapedRow, TerminalShaper,
 };
 
-use crate::{
-    DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig, effective_cell_colors,
-    text::RowShapePlan, text::expand_damage_rows, text::row_shape_plan,
-    text::vertical_align_baseline, text_foreground_alpha,
+use rterm_render_cpu::{
+    DamageRegion, RenderGeometry, TerminalContentDigest, TerminalRenderSnapshot, TextPaintConfig,
+    effective_cell_colors, terminal_snapshot_content_digest, text::RowShapePlan,
+    text::expand_damage_rows, text::row_shape_plan, text::vertical_align_baseline,
+    text::visual_cell_starts, text_foreground_alpha,
 };
 
 use super::{GpuContextGeneration, GpuLayerError, PixelRect};
@@ -91,7 +92,7 @@ pub struct GpuTextPrepareReport {
     pub cursor_foreground_glyphs: usize,
     pub subpixel_masks_converted: usize,
     pub second_shape_calls: usize,
-    pub content_digest: crate::TerminalContentDigest,
+    pub content_digest: TerminalContentDigest,
     pub glyph_bounds: Vec<PixelRect>,
     pub cursor_foreground_bounds: Vec<PixelRect>,
     pub damage_bounds: Vec<PixelRect>,
@@ -120,6 +121,13 @@ struct GlyphPayload {
     content_type: ContentType,
     width: u16,
     height: u16,
+}
+
+struct PreparedRasterPayload {
+    bytes: Arc<[u8]>,
+    content_type: ContentType,
+    color: Option<Color>,
+    canonical_cursor_bytes: Option<Arc<[u8]>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -454,11 +462,6 @@ impl GpuText {
         Ok(())
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        clippy::cast_precision_loss,
-        reason = "authoritative shape, raster placement, clipping, and atlas identity remain together for auditability"
-    )]
     fn prepare_once(
         &mut self,
         snapshot: &TerminalRenderSnapshot,
@@ -522,7 +525,7 @@ impl GpuText {
 
         let mut report = GpuTextPrepareReport {
             prepared_rows: row_numbers.iter().copied().collect(),
-            content_digest: crate::terminal_snapshot_content_digest(snapshot),
+            content_digest: terminal_snapshot_content_digest(snapshot),
             damage_bounds: damaged_rows
                 .iter()
                 .map(|row| {
@@ -539,6 +542,27 @@ impl GpuText {
             ..GpuTextPrepareReport::default()
         };
 
+        self.prepare_rows(snapshot, geometry, columns, row_numbers, paint, &mut report)?;
+
+        self.prepare_atlas(geometry)?;
+        self.report = report.clone();
+        Ok(report)
+    }
+
+    #[expect(
+        clippy::cast_precision_loss,
+        clippy::too_many_lines,
+        reason = "one row preparation pass keeps shaping, raster identity, clipping, and cursor redraw ordering explicit"
+    )]
+    fn prepare_rows(
+        &mut self,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        columns: u16,
+        row_numbers: BTreeSet<u16>,
+        paint: &TextPaintConfig,
+        report: &mut GpuTextPrepareReport,
+    ) -> Result<(), GpuLayerError> {
         for row in row_numbers {
             let plan = row_shape_plan(snapshot, row, columns);
             if plan.clusters.is_empty() {
@@ -558,7 +582,7 @@ impl GpuText {
                 }
             }
             let scale_x = geometry.cell_width as f32 / shaped.metrics.cell_width;
-            let visual_starts = crate::text::visual_cell_starts(&shaped);
+            let visual_starts = visual_cell_starts(&shaped);
             let baseline = geometry.content_y as f32
                 + f32::from(row) * geometry.cell_height as f32
                 + shaped.metrics.baseline / shaped.metrics.line_height
@@ -672,59 +696,19 @@ impl GpuText {
                 let height = u16::try_from(raster.height).map_err(|_| {
                     GpuLayerError::message("GPU glyph height exceeds the u16 atlas limit")
                 })?;
-                let (bytes, content_type, color, canonical_cursor_bytes) = match &raster.content {
-                    RasterContent::Mask(bytes) => {
-                        report.mask_glyphs = report.mask_glyphs.saturating_add(1);
-                        (
-                            Arc::<[u8]>::from(bytes.clone()),
-                            ContentType::Mask,
-                            Some(Color::rgba(
-                                foreground[0],
-                                foreground[1],
-                                foreground[2],
-                                alpha,
-                            )),
-                            None,
-                        )
-                    }
-                    RasterContent::SubpixelMask(bytes) => {
-                        report.mask_glyphs = report.mask_glyphs.saturating_add(1);
-                        report.subpixel_masks_converted =
-                            report.subpixel_masks_converted.saturating_add(1);
-                        let grayscale = subpixel_to_grayscale(bytes);
-                        (
-                            Arc::<[u8]>::from(grayscale),
-                            ContentType::Mask,
-                            Some(Color::rgba(
-                                foreground[0],
-                                foreground[1],
-                                foreground[2],
-                                alpha,
-                            )),
-                            None,
-                        )
-                    }
-                    RasterContent::Rgba(bytes) => {
-                        report.color_glyphs = report.color_glyphs.saturating_add(1);
-                        let mut pixels = bytes.clone();
-                        if style.faint || blink_alpha != u8::MAX {
-                            for pixel in pixels.chunks_exact_mut(4) {
-                                if style.faint {
-                                    pixel[0] /= 2;
-                                    pixel[1] /= 2;
-                                    pixel[2] /= 2;
-                                }
-                                pixel[3] = modulate_alpha(pixel[3], blink_alpha);
-                            }
-                        }
-                        (
-                            Arc::<[u8]>::from(pixels),
-                            ContentType::Color,
-                            None,
-                            Some(Arc::<[u8]>::from(bytes.clone())),
-                        )
-                    }
-                };
+                let PreparedRasterPayload {
+                    bytes,
+                    content_type,
+                    color,
+                    canonical_cursor_bytes,
+                } = prepare_raster_payload(
+                    &raster.content,
+                    foreground,
+                    alpha,
+                    style.faint,
+                    blink_alpha,
+                    report,
+                );
                 let identity = BitmapIdentity {
                     catalog_incarnation: self.catalog.incarnation(),
                     catalog_generation: self.catalog.generation(),
@@ -867,6 +851,14 @@ impl GpuText {
             self.row_cache.insert(row, prepared_row);
         }
 
+        Ok(())
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the main and cursor atlas preparations intentionally share one atomic budget and metrics commit"
+    )]
+    fn prepare_atlas(&mut self, geometry: RenderGeometry) -> Result<(), GpuLayerError> {
         self.glyphon.viewport.update(
             &self.queue,
             Resolution {
@@ -974,8 +966,7 @@ impl GpuText {
             .values()
             .flat_map(|row| row.blocks.iter().copied())
             .collect();
-        self.report = report.clone();
-        Ok(report)
+        Ok(())
     }
 
     pub(crate) fn render<'pass>(
@@ -1012,6 +1003,67 @@ fn initial_atlas_bytes(device: &wgpu::Device) -> usize {
 
 fn modulate_alpha(left: u8, right: u8) -> u8 {
     u8::try_from((u16::from(left) * u16::from(right)) / 255).unwrap_or(u8::MAX)
+}
+
+fn prepare_raster_payload(
+    content: &RasterContent,
+    foreground: [u8; 4],
+    alpha: u8,
+    faint: bool,
+    blink_alpha: u8,
+    report: &mut GpuTextPrepareReport,
+) -> PreparedRasterPayload {
+    match content {
+        RasterContent::Mask(bytes) => {
+            report.mask_glyphs = report.mask_glyphs.saturating_add(1);
+            PreparedRasterPayload {
+                bytes: Arc::<[u8]>::from(bytes.clone()),
+                content_type: ContentType::Mask,
+                color: Some(Color::rgba(
+                    foreground[0],
+                    foreground[1],
+                    foreground[2],
+                    alpha,
+                )),
+                canonical_cursor_bytes: None,
+            }
+        }
+        RasterContent::SubpixelMask(bytes) => {
+            report.mask_glyphs = report.mask_glyphs.saturating_add(1);
+            report.subpixel_masks_converted = report.subpixel_masks_converted.saturating_add(1);
+            PreparedRasterPayload {
+                bytes: Arc::<[u8]>::from(subpixel_to_grayscale(bytes)),
+                content_type: ContentType::Mask,
+                color: Some(Color::rgba(
+                    foreground[0],
+                    foreground[1],
+                    foreground[2],
+                    alpha,
+                )),
+                canonical_cursor_bytes: None,
+            }
+        }
+        RasterContent::Rgba(bytes) => {
+            report.color_glyphs = report.color_glyphs.saturating_add(1);
+            let mut pixels = bytes.clone();
+            if faint || blink_alpha != u8::MAX {
+                for pixel in pixels.chunks_exact_mut(4) {
+                    if faint {
+                        pixel[0] /= 2;
+                        pixel[1] /= 2;
+                        pixel[2] /= 2;
+                    }
+                    pixel[3] = modulate_alpha(pixel[3], blink_alpha);
+                }
+            }
+            PreparedRasterPayload {
+                bytes: Arc::<[u8]>::from(pixels),
+                content_type: ContentType::Color,
+                color: None,
+                canonical_cursor_bytes: Some(Arc::<[u8]>::from(bytes.clone())),
+            }
+        }
+    }
 }
 
 fn subpixel_to_grayscale(bytes: &[u8]) -> Vec<u8> {
@@ -1121,10 +1173,8 @@ mod tests {
     use rssh_terminal::Terminal;
     use rterm_types::TerminalSize;
 
-    use crate::{
-        DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig,
-        gpu::{GpuContext, GpuContextOptions, GpuLayerRenderer},
-    };
+    use crate::gpu::{GpuContext, GpuContextOptions, GpuLayerRenderer};
+    use rterm_render_cpu::{DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig};
 
     use super::{GpuTextConfig, subpixel_to_grayscale};
 

@@ -2800,7 +2800,7 @@ impl NativeWindowApp {
         if let Some(thumb_color) = self.scrollbar_thumb_color {
             scrollbar = scrollbar.with_thumb_color(color_to_rgba(
                 thumb_color,
-                rssh_renderer::SCROLLBAR_THUMB_COLOR,
+                rterm_render_core::SCROLLBAR_THUMB_COLOR,
             ));
         }
         Some(match self.min_scroll_bar_height {

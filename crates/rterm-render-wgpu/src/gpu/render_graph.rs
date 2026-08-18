@@ -20,11 +20,11 @@ use super::{
     quads::{INSTANCE_SIZE, encode_instance},
     text::{GpuText, GpuTextAtlasMetrics, GpuTextConfig, GpuTextPrepareReport},
 };
-use crate::{
+use rssh_fonts::{FontCatalog, FontConfig};
+use rterm_render_cpu::{
     DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, RenderGeometry,
     TerminalRenderSnapshot, TextPaintConfig, gpu_image_draw_plan, image_draw_pixel,
 };
-use rssh_fonts::{FontCatalog, FontConfig};
 
 const INSTANCE_STRIDE: wgpu::BufferAddress = INSTANCE_SIZE as wgpu::BufferAddress;
 const MIN_INSTANCE_CAPACITY: usize = 64;
@@ -1653,10 +1653,8 @@ impl GpuLayerRenderer {
 mod tests {
     use std::{collections::HashSet, sync::Arc, time::Duration};
 
-    use crate::{
-        DecodedImage, ImageDrawPlan, ImageTiePolicy,
-        gpu::{GpuContextOptions, ImageProtocol},
-    };
+    use crate::gpu::{GpuContextOptions, ImageProtocol};
+    use rterm_render_cpu::{DecodedImage, ImageDrawPlan, ImageTiePolicy};
 
     use super::{
         GpuContext, GpuImage, GpuLayer, GpuLayerRenderer, GraphNode, PixelRect, RenderGraph,

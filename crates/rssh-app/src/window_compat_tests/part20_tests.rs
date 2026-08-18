@@ -198,7 +198,7 @@
     }
 
     fn snapshot_char(
-        snapshot: &rssh_renderer::TerminalRenderSnapshot,
+        snapshot: &rterm_render_core::TerminalRenderSnapshot,
         row: u16,
         column: u16,
     ) -> Option<char> {
@@ -210,7 +210,7 @@
     }
 
     fn snapshot_row_text(
-        snapshot: &rssh_renderer::TerminalRenderSnapshot,
+        snapshot: &rterm_render_core::TerminalRenderSnapshot,
         row: u16,
         columns: u16,
     ) -> String {
@@ -220,10 +220,10 @@
     }
 
     fn snapshot_cell(
-        snapshot: &rssh_renderer::TerminalRenderSnapshot,
+        snapshot: &rterm_render_core::TerminalRenderSnapshot,
         row: u16,
         column: u16,
-    ) -> Option<&rssh_renderer::RenderCell> {
+    ) -> Option<&rterm_render_core::RenderCell> {
         snapshot
             .cells()
             .iter()
@@ -234,7 +234,7 @@
         app: &NativeWindowApp,
         pane_row: u16,
         pane_column: u16,
-    ) -> Option<rssh_renderer::RenderCell> {
+    ) -> Option<rterm_render_core::RenderCell> {
         let active_pane = app.active_pane_id();
         let rect = app
             .pane_render_layout()

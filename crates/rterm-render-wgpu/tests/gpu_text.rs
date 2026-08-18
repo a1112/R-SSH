@@ -6,16 +6,15 @@ use std::{
 };
 
 use rssh_fonts::{FontCatalog, FontConfig, FontSource, RasterCacheConfig};
-use rssh_renderer::{
-    CpuTextRenderer, DamageRegion, PixelRenderer, RenderBoldBrightensAnsiColors, RenderGeometry,
-    TerminalRenderSnapshot, TextPaintConfig,
-    gpu::{
-        GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad,
-        GpuTextConfig, ImageProtocol, PixelRect, RenderGraph,
-    },
-    terminal_snapshot_content_digest,
-};
 use rssh_terminal::{CursorShape, Terminal};
+use rterm_render_cpu::{
+    CpuTextRenderer, DamageRegion, PixelRenderer, RenderBoldBrightensAnsiColors, RenderGeometry,
+    TerminalRenderSnapshot, TextPaintConfig, terminal_snapshot_content_digest,
+};
+use rterm_render_wgpu::gpu::{
+    GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad, GpuTextConfig,
+    ImageProtocol, PixelRect, RenderGraph,
+};
 use rterm_types::TerminalSize;
 
 static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
