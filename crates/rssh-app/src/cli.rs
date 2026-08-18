@@ -18,6 +18,7 @@ const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
 pub enum AppCommand {
     Bench(BenchOptions),
     Doctor(DoctorOptions),
+    DiagnosticGui(DiagnosticGuiOptions),
     Local(LocalOptions),
     Profile(ProfileOptions),
     ProfileCheck(ProfileCheckOptions),
@@ -31,6 +32,20 @@ pub enum AppCommand {
     Version(VersionOptions),
     Window(WindowOptions),
     Help,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticGuiOptions {
+    pub run_id: String,
+    pub scenario: rssh_diagnostics::Scenario,
+    pub hold_ms: u64,
+    pub renderer: RendererMode,
+    pub columns: u16,
+    pub rows: u16,
+    pub ssh_host: Option<IpAddr>,
+    pub ssh_port: Option<u16>,
+    pub ssh_user: Option<String>,
+    pub log: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -439,6 +454,7 @@ where
             }
             parse_doctor(&doctor_args)
         }
+        "diagnostic-gui" => parse_diagnostic_gui(&args.collect::<Vec<_>>()),
         "version" => {
             let version_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&version_args) {
@@ -491,6 +507,96 @@ where
         "-h" | "--help" | "help" => Ok(AppCommand::Help),
         unknown => Err(format!("unknown command: {unknown}")),
     }
+}
+
+fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
+    let mut run_id = None;
+    let mut scenario = None;
+    let mut hold_ms = None;
+    let mut renderer = RendererMode::Auto;
+    let mut columns = DEFAULT_SSH_COLUMNS;
+    let mut rows = DEFAULT_SSH_ROWS;
+    let mut ssh_host = None;
+    let mut ssh_port = None;
+    let mut ssh_user = None;
+    let mut log = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        let option = args[index].as_str();
+        index += 1;
+        let value = required_option_value(args.get(index), option)?;
+        match option {
+            "--run-id" => run_id = Some(value.to_owned()),
+            "--scenario" => {
+                scenario = Some(match value {
+                    "empty-window" => rssh_diagnostics::Scenario::EmptyWindow,
+                    "ssh1" => rssh_diagnostics::Scenario::Ssh1,
+                    _ => {
+                        return Err(format!(
+                            "invalid diagnostic scenario: {value}; expected empty-window or ssh1"
+                        ));
+                    }
+                });
+            }
+            "--hold-ms" => {
+                hold_ms = Some(parse_positive_u64(value, "--hold-ms")?);
+            }
+            "--renderer" => renderer = RendererMode::parse(value)?,
+            "--cols" => columns = parse_dimension(Some(&args[index]), "--cols")?,
+            "--rows" => rows = parse_dimension(Some(&args[index]), "--rows")?,
+            "--ssh-host" => {
+                let host = value
+                    .parse::<IpAddr>()
+                    .map_err(|_| "--ssh-host must be an IP address".to_owned())?;
+                if !host.is_loopback() {
+                    return Err("--ssh-host must be a loopback address".to_owned());
+                }
+                ssh_host = Some(host);
+            }
+            "--ssh-port" => ssh_port = Some(parse_dimension(Some(&args[index]), "--ssh-port")?),
+            "--ssh-user" => ssh_user = Some(value.to_owned()),
+            "--log" => log = Some(PathBuf::from(value)),
+            value => return Err(format!("unexpected diagnostic GUI option: {value}")),
+        }
+        index += 1;
+    }
+
+    let run_id = run_id.ok_or_else(|| "diagnostic-gui requires --run-id".to_owned())?;
+    if run_id.trim().is_empty() {
+        return Err("--run-id must not be empty".to_owned());
+    }
+    let scenario = scenario.ok_or_else(|| "diagnostic-gui requires --scenario".to_owned())?;
+    if scenario == rssh_diagnostics::Scenario::Ssh1 {
+        if ssh_host.is_none() || ssh_port.is_none() || ssh_user.as_deref().is_none_or(str::is_empty)
+        {
+            return Err(
+                "ssh1 diagnostic requires --ssh-host, --ssh-port, and --ssh-user".to_owned(),
+            );
+        }
+    } else if ssh_host.is_some() || ssh_port.is_some() || ssh_user.is_some() || log.is_some() {
+        return Err("SSH diagnostic options are only valid for the ssh1 scenario".to_owned());
+    }
+    Ok(AppCommand::DiagnosticGui(DiagnosticGuiOptions {
+        run_id,
+        scenario,
+        hold_ms: hold_ms.ok_or_else(|| "diagnostic-gui requires --hold-ms".to_owned())?,
+        renderer,
+        columns,
+        rows,
+        ssh_host,
+        ssh_port,
+        ssh_user,
+        log,
+    }))
+}
+
+fn parse_positive_u64(value: &str, option: &str) -> Result<u64, String> {
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| format!("{option} must be a positive integer"))
 }
 
 fn parse_global_window_config_prefix(
@@ -4916,5 +5022,76 @@ mod tests {
             parse_args(["rssh-app", "ssh", "--target", "prod", "--renderer", "auto"]).unwrap_err();
 
         assert!(error.contains("--renderer requires --gui"));
+    }
+
+    #[test]
+    fn parses_hermetic_ssh1_diagnostic_fixture_options() {
+        let AppCommand::DiagnosticGui(options) = parse_args([
+            "rssh-app",
+            "diagnostic-gui",
+            "--run-id",
+            "fixture-run",
+            "--scenario",
+            "ssh1",
+            "--hold-ms",
+            "250",
+            "--renderer",
+            "cpu",
+            "--ssh-host",
+            "127.0.0.1",
+            "--ssh-port",
+            "2222",
+            "--ssh-user",
+            "fixture-user",
+            "--log",
+            "fixture.log",
+        ])
+        .unwrap() else {
+            panic!("expected diagnostic GUI command");
+        };
+
+        assert_eq!(options.scenario, rssh_diagnostics::Scenario::Ssh1);
+        assert_eq!(options.ssh_host, Some("127.0.0.1".parse().unwrap()));
+        assert_eq!(options.ssh_port, Some(2222));
+        assert_eq!(options.ssh_user.as_deref(), Some("fixture-user"));
+        assert_eq!(
+            options.log.as_deref(),
+            Some(std::path::Path::new("fixture.log"))
+        );
+    }
+
+    #[test]
+    fn rejects_non_loopback_or_incomplete_ssh1_diagnostic_fixture() {
+        let non_loopback = parse_args([
+            "rssh-app",
+            "diagnostic-gui",
+            "--run-id",
+            "fixture-run",
+            "--scenario",
+            "ssh1",
+            "--hold-ms",
+            "250",
+            "--ssh-host",
+            "203.0.113.1",
+            "--ssh-port",
+            "22",
+            "--ssh-user",
+            "fixture-user",
+        ])
+        .unwrap_err();
+        assert!(non_loopback.contains("loopback"));
+
+        let incomplete = parse_args([
+            "rssh-app",
+            "diagnostic-gui",
+            "--run-id",
+            "fixture-run",
+            "--scenario",
+            "ssh1",
+            "--hold-ms",
+            "250",
+        ])
+        .unwrap_err();
+        assert!(incomplete.contains("requires --ssh-host"));
     }
 }

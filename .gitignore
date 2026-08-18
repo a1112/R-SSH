@@ -27,6 +27,7 @@ Thumbs.db
 *.profraw
 coverage.lcov
 /evidence/
+/artifacts/stage0-diagnostics/
 /scripts/perf/results/
 __pycache__/
 *.pyc

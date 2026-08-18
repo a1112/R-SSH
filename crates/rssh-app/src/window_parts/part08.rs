@@ -569,7 +569,7 @@ impl NativeWindowApp {
                 renderer_mode: RendererMode::Gpu,
                 presentation_owner: PresentationOwner::Bootstrap,
                 deferred_gpu_generation: 0,
-                benchmark_startup: false,
+                startup_mode: NativeStartupMode::Normal,
                 transport_start_requested: false,
                 ssh_host_key_prompts: HashMap::new(),
                 ssh_secret_prompts: HashMap::new(),
@@ -759,7 +759,11 @@ impl NativeWindowApp {
     }
 
     fn set_benchmark_startup(&mut self, enabled: bool) {
-        self.benchmark_startup = enabled;
+        self.startup_mode = if enabled {
+            NativeStartupMode::Benchmark
+        } else {
+            NativeStartupMode::Normal
+        };
     }
 
     fn set_initial_pane_launch(&mut self, launch: PaneLaunch) {
@@ -1860,7 +1864,7 @@ impl NativeWindowApp {
     )]
     fn inherit_effective_config_from(&mut self, source: &Self) {
         self.set_renderer_mode(source.renderer_mode);
-        self.set_benchmark_startup(source.benchmark_startup);
+        self.set_benchmark_startup(source.is_benchmark_startup());
         self.applied_config = Arc::clone(&source.applied_config);
         self.base_config_overrides
             .clone_from(&source.base_config_overrides);
@@ -7269,6 +7273,10 @@ impl NativeWindowApp {
         app
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "native window creation keeps platform setup and presentation ownership atomic"
+    )]
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
         let initial_size = self.initial_frame_size();
         #[cfg(target_os = "windows")]
@@ -7342,7 +7350,8 @@ impl NativeWindowApp {
             window.set_corner_preference(CornerPreference::Round);
         }
         self.apply_window_scale_factor(startup_window_scale_factor(
-            self.benchmark_startup, window.scale_factor(),
+            self.diagnostic_scale_override_enabled(),
+            window.scale_factor(),
         ));
         let size = window
             .request_inner_size(self.initial_frame_size())
@@ -7375,6 +7384,7 @@ impl NativeWindowApp {
         }
         self.refresh_window_frame_from_window();
         self.update_ime_cursor_area();
+        self.mark_diagnostic_window_created();
 
         Ok(())
     }
@@ -7660,9 +7670,10 @@ impl NativeWindowApp {
         };
 
         if presented && self.rendered_frames == 0 {
-            self.metrics.record_first_present(RendererKind::Gpu);
-            self.metrics
-                .record_first_frame_private_bytes(current_process_private_bytes());
+            self.record_first_present(RendererKind::Gpu, &snapshot);
+        }
+        if presented {
+            self.advance_ssh1_diagnostic_after_present(DiagnosticRendererKind::Gpu, &snapshot);
         }
 
         if presented {
@@ -7688,6 +7699,7 @@ impl NativeWindowApp {
             && self.presentation_owner == PresentationOwner::GpuActive
         {
             self.metrics.mark_renderer(RendererKind::Gpu);
+            self.mark_diagnostic_gpu_ready();
         }
         if self.presentation_owner == PresentationOwner::GpuActive {
             // Keep the softbuffer surface (but release the RGBA staging
@@ -7696,7 +7708,7 @@ impl NativeWindowApp {
             // white frame or an event-loop restart.
             release_bootstrap_staging_after_gpu_activation(&mut self.bootstrap_frame);
         }
-        if self.rendered_frames == 1 && self.benchmark_startup {
+        if self.rendered_frames == 1 && self.is_benchmark_startup() {
             event_loop.exit();
             return;
         }
@@ -7784,15 +7796,14 @@ impl NativeWindowApp {
             return;
         }
         if self.rendered_frames == 0 {
-            self.metrics.record_first_present(RendererKind::Cpu);
-            self.metrics
-                .record_first_frame_private_bytes(current_process_private_bytes());
+            self.record_first_present(RendererKind::Cpu, snapshot);
         }
+        self.advance_ssh1_diagnostic_after_present(DiagnosticRendererKind::Cpu, snapshot);
         self.metrics.record_render_frame(started.elapsed());
         self.metrics.record_frame_render_mode(mode);
         self.rendered_frames = self.rendered_frames.saturating_add(1);
         if self.rendered_frames == 1 {
-            if self.benchmark_startup {
+            if self.is_benchmark_startup() {
                 event_loop.exit();
                 return;
             }
@@ -7807,7 +7818,8 @@ impl NativeWindowApp {
         // network setup can overlap deferred configuration/GPU work.  Local
         // PTYs are started by the manager after that configuration attempt;
         // keeping them out of this branch avoids spawning against defaults.
-        if !self.transport_start_requested
+        if !self.suppresses_transport_start()
+            && !self.transport_start_requested
             && matches!(
                 self.app_shell.active_pane().launch().domain(),
                 PaneLaunchDomain::Ssh(_)
@@ -7974,59 +7986,6 @@ impl NativeWindowApp {
 
         self.last_redraw_request_at = Some(now);
         true
-    }
-
-    fn frame_limit_redraw_pending(&self) -> bool {
-        if test_ssh_gui_frame_limit().is_some()
-            && self.presentation_owner == PresentationOwner::GpuInitializing
-            && self.gpu.is_none()
-        {
-            return false;
-        }
-        self.frame_limit.is_some_and(|limit| {
-            let target = if self.metrics.pty_linkage_enabled
-                && !self.metrics.terminal_linkage_nonce_found
-            {
-                limit.saturating_sub(1)
-            } else {
-                limit
-            };
-            self.rendered_frames < target
-        })
-    }
-
-    fn frame_limit_refresh_pending(&self) -> bool {
-        self.frame_limit_redraw_pending() || self.final_linkage_frame_is_reserved()
-    }
-
-    fn final_linkage_frame_is_reserved(&self) -> bool {
-        self.metrics.pty_linkage_enabled
-            && !self.metrics.terminal_linkage_nonce_found
-            && self
-                .frame_limit
-                .is_some_and(|limit| self.rendered_frames.saturating_add(1) >= limit)
-    }
-
-    fn frame_limit_reached(&self) -> bool {
-        self.frame_limit
-            .is_some_and(|limit| self.rendered_frames >= limit)
-    }
-
-    fn frame_limit_probe_ready(&self) -> bool {
-        self.frame_limit_reached()
-            && (!self.metrics.pty_linkage_enabled
-                || self.metrics.terminal_linkage_nonce_found)
-    }
-
-    fn frame_limit_probe_pending(&self) -> bool {
-        self.frame_limit.is_some() && !self.frame_limit_probe_ready()
-    }
-
-    fn frame_limit_redraw_deadline(&self, now: Instant) -> Option<Instant> {
-        self.frame_limit_refresh_pending().then(|| {
-            self.last_redraw_request_at
-                .map_or(now, |last| last + self.redraw_request_interval())
-        })
     }
 
     fn should_request_animation_redraw_at(&mut self, now: Instant) -> bool {

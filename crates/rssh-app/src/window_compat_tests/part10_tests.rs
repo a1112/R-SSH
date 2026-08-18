@@ -1165,7 +1165,7 @@
                 detached.presentation_owner,
                 PresentationOwner::Bootstrap
             );
-            assert_eq!(detached.benchmark_startup, benchmark_startup);
+            assert_eq!(detached.is_benchmark_startup(), benchmark_startup);
             assert!(detached.gpu.is_none());
             assert!(detached.bootstrap_surface.is_none());
             assert!(detached.bootstrap_frame.is_empty());
@@ -1208,10 +1208,11 @@
             detached.presentation_owner,
             PresentationOwner::GpuInitializing
         );
-        assert!(detached.benchmark_startup);
+        assert!(detached.is_benchmark_startup());
         assert!(!super::should_spawn_transport_during_materialization(
             detached.renderer_mode,
-            detached.benchmark_startup,
+            detached.is_benchmark_startup(),
+            detached.suppresses_transport_start(),
         ));
     }
 

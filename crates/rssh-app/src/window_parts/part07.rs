@@ -1406,6 +1406,22 @@ impl DerefMut for NativeAppliedConfig {
     }
 }
 
+struct NativeDiagnosticGuiState {
+    markers: DiagnosticMarkerHandle,
+    scenario: DiagnosticScenario,
+    hold_duration: Duration,
+    hold_deadline: Option<Instant>,
+    absolute_deadline: Instant,
+    pending_secret: Option<String>,
+    secret_prompt_presented: bool,
+}
+
+enum NativeStartupMode {
+    Normal,
+    Benchmark,
+    Diagnostic(NativeDiagnosticGuiState),
+}
+
 #[allow(clippy::struct_excessive_bools)]
 struct NativeWindowApp {
     app_window_id: rssh_core::WindowId,
@@ -1437,7 +1453,7 @@ struct NativeWindowApp {
     renderer_mode: RendererMode,
     presentation_owner: PresentationOwner,
     deferred_gpu_generation: u64,
-    benchmark_startup: bool,
+    startup_mode: NativeStartupMode,
     transport_start_requested: bool,
     // Prompts are keyed by pane so a slow host-key or secret decision in one
     // SSH pane cannot overwrite another pane's independent connection.
@@ -1706,8 +1722,11 @@ enum ManagedWindowAppLocation {
 const fn should_spawn_transport_during_materialization(
     renderer_mode: RendererMode,
     benchmark_startup: bool,
+    suppress_transport_start: bool,
 ) -> bool {
-    matches!(renderer_mode, RendererMode::Gpu) && !benchmark_startup
+    matches!(renderer_mode, RendererMode::Gpu)
+        && !benchmark_startup
+        && !suppress_transport_start
 }
 
 impl NativeWindowManager {
@@ -1859,7 +1878,8 @@ impl NativeWindowManager {
         app.create_window(event_loop)?;
         if should_spawn_transport_during_materialization(
             app.renderer_mode,
-            app.benchmark_startup,
+            app.is_benchmark_startup(),
+            app.suppresses_transport_start(),
         ) {
             app.spawn_pty()?;
         }
@@ -2190,7 +2210,7 @@ impl NativeWindowManager {
         else {
             return;
         };
-        if app.benchmark_startup {
+        if app.is_benchmark_startup() {
             self.deferred_config_pending = false;
             return;
         }
@@ -2284,6 +2304,14 @@ impl NativeWindowManager {
                 }
             }
         }
+        for app in self
+            .startup_app
+            .iter_mut()
+            .chain(self.pending_apps.iter_mut())
+            .chain(self.windows.values_mut())
+        {
+            app.mark_diagnostic_config_ready();
+        }
         self.finish_deferred_startup_after_config();
         true
     }
@@ -2300,7 +2328,11 @@ impl NativeWindowManager {
         for app in self
             .windows
             .values_mut()
-            .filter(|app| app.rendered_frames > 0 && !app.benchmark_startup)
+            .filter(|app| {
+                app.rendered_frames > 0
+                    && !app.is_benchmark_startup()
+                    && !app.suppresses_transport_start()
+            })
         {
             if app.transport_start_requested {
                 continue;
@@ -2308,6 +2340,21 @@ impl NativeWindowManager {
             if let Err(error) = app.spawn_pty() {
                 eprintln!("deferred transport start error: {error}");
             }
+        }
+
+        // Diagnostics own a hermetic, one-shot configuration lifecycle.  A
+        // filesystem watcher would make the measured process depend on ambient
+        // user state and would outlive the bounded scenario contract.
+        if self
+            .windows
+            .values()
+            .any(|app| app.has_diagnostic_gui())
+            || self
+                .startup_app
+                .as_ref()
+                .is_some_and(|app| app.has_diagnostic_gui())
+        {
+            return;
         }
 
         let event_proxy = self
@@ -2556,6 +2603,7 @@ impl NativeWindowManager {
             WindowUserEvent::ReloadConfigurationRequested
             | WindowUserEvent::ConfigFileChanged
             | WindowUserEvent::DeferredConfigReady
+            | WindowUserEvent::DiagnosticShutdownRequested
             | WindowUserEvent::MoveTabToWindow { .. } => false,
             WindowUserEvent::RuntimeWakeWindow { .. } => match app.poll_active_v2_runtime() {
                 Ok(Some(close_window)) => close_window,
@@ -3075,6 +3123,7 @@ pub(crate) enum WindowUserEvent {
     ReloadConfigurationRequested,
     ConfigFileChanged,
     DeferredConfigReady,
+    DiagnosticShutdownRequested,
     MoveTabToWindow {
         source_window_id: rssh_core::WindowId,
         target_window_id: rssh_core::WindowId,
@@ -3147,6 +3196,7 @@ impl WindowUserEvent {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
             | Self::DeferredConfigReady
+            | Self::DiagnosticShutdownRequested
             | Self::MoveTabToWindow { .. }
             | Self::RuntimeWakeWindow { .. }
             | Self::DeferredGpuInitialized { .. } => None,
@@ -3182,6 +3232,7 @@ impl WindowUserEvent {
             Self::ReloadConfigurationRequested
             | Self::ConfigFileChanged
             | Self::DeferredConfigReady
+            | Self::DiagnosticShutdownRequested
             | Self::MoveTabToWindow { .. }
             | Self::RuntimeWakeWindow { .. }
             | Self::DeferredGpuInitialized { .. } => None,
@@ -4151,6 +4202,27 @@ const fn presentation_owner_after_gpu_frame(
 
 fn release_bootstrap_staging_after_gpu_activation(bootstrap_frame: &mut Vec<u8>) {
     *bootstrap_frame = Vec::new();
+}
+
+fn visible_snapshot_cell_count(snapshot: &TerminalRenderSnapshot) -> usize {
+    snapshot
+        .cells()
+        .iter()
+        .filter(|cell| !cell.text.trim().is_empty())
+        .count()
+}
+
+const fn diagnostic_connection_state(state: ConnectionState) -> DiagnosticConnectionState {
+    match state {
+        ConnectionState::NotStarted => DiagnosticConnectionState::NotStarted,
+        ConnectionState::Pending => DiagnosticConnectionState::Pending,
+        ConnectionState::Connecting => DiagnosticConnectionState::Connecting,
+        ConnectionState::AwaitingSecret => DiagnosticConnectionState::AwaitingSecret,
+        ConnectionState::AwaitingHostKey => DiagnosticConnectionState::AwaitingHostKey,
+        ConnectionState::Connected => DiagnosticConnectionState::Connected,
+        ConnectionState::Disconnected => DiagnosticConnectionState::Disconnected,
+        ConnectionState::Failed => DiagnosticConnectionState::Failed,
+    }
 }
 
 fn finalize_native_gpu_frame<E>(

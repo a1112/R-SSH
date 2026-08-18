@@ -87,8 +87,8 @@ use winit::{
 
 use crate::{
     cli::{
-        NativeHostKeyPolicy, Osc52Policy, RendererMode, SshOptions, SshTarget, WindowOptions,
-        WindowPosition, WindowPositionOrigin,
+        DiagnosticGuiOptions, NativeHostKeyPolicy, Osc52Policy, RendererMode, SshOptions,
+        SshTarget, WindowOptions, WindowPosition, WindowPositionOrigin,
     },
     config_lifecycle::{
         ConfigDiscoveryInputs, NativeConfigLoadError, bind_native_config_projection,
@@ -108,6 +108,11 @@ use crate::{
     terminal_runtime::{TerminalNotification, TerminalProgress, TerminalRuntime},
     window_bootstrap::WindowBootstrapSurface,
     window_gpu::WindowGpu,
+};
+use crate::diagnostic_markers::DiagnosticMarkerHandle;
+use rssh_diagnostics::{
+    ConnectionState as DiagnosticConnectionState, MarkerKind as DiagnosticMarkerKind,
+    RendererKind as DiagnosticRendererKind, Scenario as DiagnosticScenario,
 };
 #[path = "window_config.rs"]
 mod window_config;
@@ -789,6 +794,109 @@ pub fn run_ssh_gui(
         print!("{}", manager.metrics_report());
     }
     Ok(())
+}
+
+/// Runs a private GUI scenario for the cross-platform diagnostics launcher.
+/// The empty-window scenario deliberately never starts a PTY or SSH transport.
+pub fn run_diagnostic_gui(
+    options: &DiagnosticGuiOptions,
+    process_started_at: Instant,
+) -> Result<(), Box<dyn Error>> {
+    let markers = DiagnosticMarkerHandle::new(
+        options.run_id.clone(),
+        options.scenario,
+        process_started_at,
+    );
+    markers.emit(DiagnosticMarkerKind::ProcessStarted, None, None)?;
+
+    let mut app = NativeWindowApp::new_with_workspace_class_position_and_osc52_policy(
+        None,
+        Osc52Policy::Off,
+        PtyCommand::default_shell(),
+        None,
+        None,
+        None,
+    );
+    let pending_secret = if options.scenario == DiagnosticScenario::Ssh1 {
+        let host = options.ssh_host.ok_or("ssh1 diagnostic is missing --ssh-host")?;
+        let port = options.ssh_port.ok_or("ssh1 diagnostic is missing --ssh-port")?;
+        let user = options
+            .ssh_user
+            .as_deref()
+            .ok_or("ssh1 diagnostic is missing --ssh-user")?;
+        let authority = match host {
+            std::net::IpAddr::V4(address) => address.to_string(),
+            std::net::IpAddr::V6(address) => format!("[{address}]"),
+        };
+        app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            format!("{user}@{authority}:{port}"),
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::AcceptUnknown,
+        )));
+        Some(std::env::var("RSSH_DIAGNOSTIC_SSH_SECRET").map_err(|_| {
+            "ssh1 diagnostic requires RSSH_DIAGNOSTIC_SSH_SECRET on its isolated environment channel"
+        })?)
+    } else {
+        None
+    };
+    configure_diagnostic_gui_initial_size(&mut app, options.columns, options.rows);
+    app.metrics.startup_trace = StartupTrace::from_process_started_at(process_started_at);
+    app.set_renderer_mode(options.renderer);
+    app.set_diagnostic_gui(
+        markers.clone(),
+        options.scenario,
+        Duration::from_millis(options.hold_ms),
+        pending_secret,
+    );
+    if let Some(path) = &options.log {
+        app.session_log = Some(Box::new(File::create(path)?) as Box<dyn Write + Send>);
+    }
+
+    let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
+    let event_proxy = event_loop.create_proxy();
+    app.event_proxy = Some(event_proxy.clone());
+    spawn_diagnostic_stdin_shutdown_listener(event_proxy)?;
+    let cli = validate_cli_config_overrides(&[])?;
+    let lifecycle = Box::new(NativeConfigLifecycle::new(
+        ConfigDiscoveryInputs::capture_current_process(),
+        false,
+        None,
+        cli,
+    ));
+    let mut manager = NativeWindowManager::new(app)
+        .with_config_lifecycle(lifecycle)
+        .with_deferred_config();
+    event_loop.run_app(&mut manager)?;
+    manager.shutdown_runtime_owners();
+    manager.reap_retired_apps();
+    markers.emit(DiagnosticMarkerKind::ProcessExited, None, None)?;
+    Ok(())
+}
+
+fn configure_diagnostic_gui_initial_size(app: &mut NativeWindowApp, columns: u16, rows: u16) {
+    let size = TerminalSize::new(columns, rows);
+    app.initial_cols = columns;
+    app.initial_rows = rows;
+    *app.runtime = TerminalRuntime::new(size);
+    app.snapshot = terminal_runtime_snapshot(&app.runtime, PaneStableViewport::default());
+    let frame_size = app.initial_frame_size();
+    app.frame_width = frame_size.width;
+    app.frame_height = frame_size.height;
+    app.window_frame.set_size(frame_size);
+}
+
+fn spawn_diagnostic_stdin_shutdown_listener(
+    event_proxy: EventLoopProxy<WindowUserEvent>,
+) -> io::Result<()> {
+    thread::Builder::new()
+        .name("rssh-diagnostic-stdin".to_owned())
+        .spawn(move || {
+            let mut line = String::new();
+            if io::stdin().read_line(&mut line).is_ok() && !line.is_empty() {
+                let _ = event_proxy.send_event(WindowUserEvent::DiagnosticShutdownRequested);
+            }
+        })
+        .map(drop)
 }
 
 fn configure_ssh_gui_initial_size(app: &mut NativeWindowApp, options: &SshOptions) {
@@ -7768,6 +7876,7 @@ include!("window_parts/part05.rs");
 include!("window_parts/part06.rs");
 include!("window_parts/part06b.rs");
 include!("window_parts/part07.rs");
+include!("window_parts/diagnostics.rs");
 include!("window_parts/part08.rs");
 include!("window_parts/part09.rs");
 include!("window_parts/part10.rs");

@@ -9,6 +9,7 @@
 mod bench;
 mod cli;
 mod config_lifecycle;
+mod diagnostic_markers;
 mod diagnostics;
 #[cfg(feature = "functional-test-observer")]
 mod functional_observer;
@@ -85,6 +86,10 @@ where
         }
         AppCommand::Doctor(options) => {
             diagnostics::print_doctor(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        AppCommand::DiagnosticGui(options) => {
+            window::run_diagnostic_gui(&options, process_started_at)?;
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
