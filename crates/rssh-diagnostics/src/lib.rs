@@ -12,7 +12,10 @@ pub use marker::{
     CollectedMarkers, MARKER_PREFIX, MarkerCollector, MarkerDisposition, MarkerError,
     MarkerIdentity, MarkerKind, MarkerRecord,
 };
-pub use sampler::{LinuxPssSampler, MemorySampler, SamplerError, parse_linux_smaps_rollup};
+pub use sampler::{
+    LinuxPssSampler, MemorySampler, SamplerError, WindowsPrivateWorkingSetSampler,
+    WindowsProcessQuery, WindowsProcessSnapshot, parse_linux_smaps_rollup,
+};
 pub use schema::{
     ConnectionState, ConnectionSummary, DiagnosticFailure, DiagnosticsResult, MemoryMetric,
     MemorySample, MemoryStatistics, MemorySummary, Platform, ProcessExitKind, ProcessSummary,

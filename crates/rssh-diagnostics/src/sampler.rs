@@ -1,9 +1,12 @@
 mod linux;
+#[cfg_attr(target_os = "windows", allow(unsafe_code))]
+mod windows;
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 pub use linux::{LinuxPssSampler, parse_linux_smaps_rollup};
+pub use windows::{WindowsPrivateWorkingSetSampler, WindowsProcessQuery, WindowsProcessSnapshot};
 
 use crate::MemoryMetric;
 

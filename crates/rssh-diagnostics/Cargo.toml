@@ -10,5 +10,17 @@ version.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-[lints]
-workspace = true
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
+[lints.rust]
+# Platform FFI is confined to sampler modules with a local, documented allow.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
