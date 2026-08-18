@@ -50,6 +50,17 @@ class RustArchitectureCheckerTests(unittest.TestCase):
         self.assertIn('name = "rterm-terminal"', terminal)
         self.assertIn('name = "rterm-fonts"', fonts)
 
+    def test_deterministic_performance_uses_the_stage1_terminal_package_name(self):
+        workflow = (
+            REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "cargo test --locked -p rterm-terminal "
+            "batched_scroll_prune_matches_incremental_prune",
+            workflow,
+        )
+
     def test_stage1_foundational_crates_import_owned_types_without_the_core_facade(self):
         expectations = {
             "rssh-terminal": ("rterm-types",),
