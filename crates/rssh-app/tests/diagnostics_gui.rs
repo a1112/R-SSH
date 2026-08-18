@@ -4,6 +4,7 @@ use std::{
     collections::HashSet,
     io::{Read, Write},
     process::{Command, Stdio},
+    sync::{Mutex, MutexGuard},
     thread,
     time::{Duration, Instant},
 };
@@ -12,9 +13,17 @@ use rssh_test_support::ChildGuard;
 
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
 const MARKER_PREFIX: &str = "rssh_diagnostic ";
+static DIAGNOSTIC_GUI_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn diagnostic_gui_test_lock() -> MutexGuard<'static, ()> {
+    DIAGNOSTIC_GUI_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 #[test]
 fn diagnostics_marker_empty_window_emits_readiness_without_starting_a_transport() {
+    let _test_lock = diagnostic_gui_test_lock();
     let run_id = format!("empty-window-{}", std::process::id());
     let hold_ms = 100_u64;
     let started = Instant::now();
@@ -120,6 +129,7 @@ fn diagnostics_marker_empty_window_emits_readiness_without_starting_a_transport(
 
 #[test]
 fn diagnostics_marker_gpu_fallback_reports_cpu_as_the_final_renderer() {
+    let _test_lock = diagnostic_gui_test_lock();
     let run_id = format!("gpu-fallback-{}", std::process::id());
     let mut command = Command::new(RSSH_APP_EXECUTABLE);
     command
@@ -165,6 +175,7 @@ fn diagnostics_marker_gpu_fallback_reports_cpu_as_the_final_renderer() {
 
 #[test]
 fn diagnostics_marker_gpu_mode_reports_ready_after_a_real_present() {
+    let _test_lock = diagnostic_gui_test_lock();
     let run_id = format!("gpu-ready-{}", std::process::id());
     let mut command = Command::new(RSSH_APP_EXECUTABLE);
     command.args([
@@ -227,7 +238,8 @@ fn ordinary_commands_emit_no_v2_diagnostic_markers() {
 }
 
 #[test]
-fn diagnostic_ssh1_is_rejected_until_its_fixture_contract_is_available() {
+fn diagnostic_ssh1_without_fixture_coordinates_is_rejected_before_opening_a_window() {
+    let _test_lock = diagnostic_gui_test_lock();
     let mut command = Command::new(RSSH_APP_EXECUTABLE);
     command.args([
         "diagnostic-gui",
@@ -241,13 +253,12 @@ fn diagnostic_ssh1_is_rejected_until_its_fixture_contract_is_available() {
         "cpu",
     ]);
     let output = ChildGuard::spawn(command, Duration::from_secs(2))
-        .expect("spawn unsupported ssh1 diagnostic")
+        .expect("spawn incomplete ssh1 diagnostic")
         .wait()
-        .expect("unsupported ssh1 must fail without opening a window");
+        .expect("incomplete ssh1 must fail without opening a window");
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr)
-            .contains("ssh1 diagnostic scenario is not available"),
+        String::from_utf8_lossy(&output.stderr).contains("ssh1 diagnostic requires --ssh-host"),
         "unexpected error: {}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -255,6 +266,7 @@ fn diagnostic_ssh1_is_rejected_until_its_fixture_contract_is_available() {
 
 #[test]
 fn diagnostics_marker_launcher_shutdown_ends_the_hold_early() {
+    let _test_lock = diagnostic_gui_test_lock();
     let run_id = format!("shutdown-{}", std::process::id());
     let mut child = Command::new(RSSH_APP_EXECUTABLE)
         .args([

@@ -2853,6 +2853,7 @@ impl NativeWindowApp {
         }
 
         self.transport_start_requested = true;
+        self.mark_diagnostic_transport_started();
 
         let runtime = self.spawn_pane_runtime_for_active_pane()?;
         self.install_active_runtime(runtime);

@@ -1406,12 +1406,14 @@ impl DerefMut for NativeAppliedConfig {
     }
 }
 
-#[derive(Clone)]
 struct NativeDiagnosticGuiState {
     markers: DiagnosticMarkerHandle,
     scenario: DiagnosticScenario,
     hold_duration: Duration,
     hold_deadline: Option<Instant>,
+    absolute_deadline: Instant,
+    pending_secret: Option<String>,
+    secret_prompt_presented: bool,
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -2334,6 +2336,21 @@ impl NativeWindowManager {
             if let Err(error) = app.spawn_pty() {
                 eprintln!("deferred transport start error: {error}");
             }
+        }
+
+        // Diagnostics own a hermetic, one-shot configuration lifecycle.  A
+        // filesystem watcher would make the measured process depend on ambient
+        // user state and would outlive the bounded scenario contract.
+        if self
+            .windows
+            .values()
+            .any(|app| app.diagnostic_gui.is_some())
+            || self
+                .startup_app
+                .as_ref()
+                .is_some_and(|app| app.diagnostic_gui.is_some())
+        {
+            return;
         }
 
         let event_proxy = self
@@ -4189,6 +4206,19 @@ fn visible_snapshot_cell_count(snapshot: &TerminalRenderSnapshot) -> usize {
         .iter()
         .filter(|cell| !cell.text.trim().is_empty())
         .count()
+}
+
+const fn diagnostic_connection_state(state: ConnectionState) -> DiagnosticConnectionState {
+    match state {
+        ConnectionState::NotStarted => DiagnosticConnectionState::NotStarted,
+        ConnectionState::Pending => DiagnosticConnectionState::Pending,
+        ConnectionState::Connecting => DiagnosticConnectionState::Connecting,
+        ConnectionState::AwaitingSecret => DiagnosticConnectionState::AwaitingSecret,
+        ConnectionState::AwaitingHostKey => DiagnosticConnectionState::AwaitingHostKey,
+        ConnectionState::Connected => DiagnosticConnectionState::Connected,
+        ConnectionState::Disconnected => DiagnosticConnectionState::Disconnected,
+        ConnectionState::Failed => DiagnosticConnectionState::Failed,
+    }
 }
 
 fn finalize_native_gpu_frame<E>(

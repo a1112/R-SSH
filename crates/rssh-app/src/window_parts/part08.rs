@@ -769,6 +769,7 @@ impl NativeWindowApp {
         markers: DiagnosticMarkerHandle,
         scenario: DiagnosticScenario,
         hold_duration: Duration,
+        pending_secret: Option<String>,
     ) {
         self.suppress_transport_start = scenario == DiagnosticScenario::EmptyWindow;
         self.diagnostic_gui = Some(NativeDiagnosticGuiState {
@@ -776,6 +777,10 @@ impl NativeWindowApp {
             scenario,
             hold_duration,
             hold_deadline: None,
+            absolute_deadline: Instant::now()
+                + Duration::from_secs(10).saturating_add(hold_duration),
+            pending_secret,
+            secret_prompt_presented: false,
         });
     }
 
@@ -786,7 +791,12 @@ impl NativeWindowApp {
     fn diagnostic_hold_deadline(&self) -> Option<Instant> {
         self.diagnostic_gui
             .as_ref()
-            .and_then(|diagnostic| diagnostic.hold_deadline)
+            .map(|diagnostic| {
+                diagnostic
+                    .hold_deadline
+                    .unwrap_or(diagnostic.absolute_deadline)
+                    .min(diagnostic.absolute_deadline)
+            })
     }
 
     fn emit_diagnostic_marker(
@@ -810,6 +820,85 @@ impl NativeWindowApp {
         self.emit_diagnostic_marker(DiagnosticMarkerKind::ConfigReady, None, None);
     }
 
+    fn mark_diagnostic_transport_started(&self) {
+        if self
+            .diagnostic_gui
+            .as_ref()
+            .is_some_and(|diagnostic| diagnostic.scenario == DiagnosticScenario::Ssh1)
+        {
+            self.emit_diagnostic_marker(
+                DiagnosticMarkerKind::TransportStarted,
+                None,
+                Some(DiagnosticConnectionState::Pending),
+            );
+        }
+    }
+
+    fn advance_ssh1_diagnostic_after_present(
+        &mut self,
+        renderer: DiagnosticRendererKind,
+        snapshot: &TerminalRenderSnapshot,
+    ) {
+        if !self
+            .diagnostic_gui
+            .as_ref()
+            .is_some_and(|diagnostic| diagnostic.scenario == DiagnosticScenario::Ssh1)
+        {
+            return;
+        }
+        let pane_id = self.app_shell.active_pane_id();
+        let state = self.ssh_connection_state_for_pane(pane_id);
+        if state == ConnectionState::AwaitingSecret {
+            let secret = self.diagnostic_gui.as_mut().and_then(|diagnostic| {
+                diagnostic.secret_prompt_presented = true;
+                diagnostic.pending_secret.take()
+            });
+            if secret.is_some() {
+                self.resolve_secret_prompt_for_pane(pane_id, secret);
+            }
+            return;
+        }
+        if state != ConnectionState::Connected {
+            return;
+        }
+
+        let visible_cell_count = visible_snapshot_cell_count(snapshot);
+        let mut extra = HashMap::new();
+        extra.insert(
+            "visible_connection_state".to_owned(),
+            serde_json::json!("connected"),
+        );
+        extra.insert(
+            "visible_cell_count".to_owned(),
+            serde_json::json!(visible_cell_count),
+        );
+        let Some(diagnostic) = self.diagnostic_gui.as_mut() else {
+            return;
+        };
+        extra.insert(
+            "secret_prompt_presented".to_owned(),
+            serde_json::json!(diagnostic.secret_prompt_presented),
+        );
+        if let Err(error) = diagnostic.markers.emit(
+            DiagnosticMarkerKind::TransportReady,
+            Some(renderer),
+            Some(DiagnosticConnectionState::Connected),
+        ) {
+            eprintln!("failed to emit diagnostic transport readiness: {error}");
+        }
+        if diagnostic.hold_deadline.is_none() {
+            if let Err(error) = diagnostic.markers.emit_with_extra(
+                DiagnosticMarkerKind::ScenarioReady,
+                Some(renderer),
+                Some(DiagnosticConnectionState::Connected),
+                extra,
+            ) {
+                eprintln!("failed to emit diagnostic scenario readiness: {error}");
+            }
+            diagnostic.hold_deadline = Some(Instant::now() + diagnostic.hold_duration);
+        }
+    }
+
     fn mark_diagnostic_first_present(
         &mut self,
         renderer: DiagnosticRendererKind,
@@ -824,7 +913,9 @@ impl NativeWindowApp {
             if let Err(error) = diagnostic.markers.emit_with_extra(
                 DiagnosticMarkerKind::FirstPresent,
                 Some(renderer),
-                Some(DiagnosticConnectionState::NotStarted),
+                Some(diagnostic_connection_state(
+                    self.ssh_connection_state_for_pane(self.app_shell.active_pane_id()),
+                )),
                 extra,
             ) {
                 eprintln!("failed to emit diagnostic first present: {error}");
@@ -7789,6 +7880,9 @@ impl NativeWindowApp {
         if presented && self.rendered_frames == 0 {
             self.record_first_present(RendererKind::Gpu, &snapshot);
         }
+        if presented {
+            self.advance_ssh1_diagnostic_after_present(DiagnosticRendererKind::Gpu, &snapshot);
+        }
 
         if presented {
             let missing_glyphs = self
@@ -7912,6 +8006,7 @@ impl NativeWindowApp {
         if self.rendered_frames == 0 {
             self.record_first_present(RendererKind::Cpu, snapshot);
         }
+        self.advance_ssh1_diagnostic_after_present(DiagnosticRendererKind::Cpu, snapshot);
         self.metrics.record_render_frame(started.elapsed());
         self.metrics.record_frame_render_mode(mode);
         self.rendered_frames = self.rendered_frames.saturating_add(1);

@@ -817,6 +817,28 @@ pub fn run_diagnostic_gui(
         None,
         None,
     );
+    let pending_secret = if options.scenario == DiagnosticScenario::Ssh1 {
+        let host = options.ssh_host.ok_or("ssh1 diagnostic is missing --ssh-host")?;
+        let port = options.ssh_port.ok_or("ssh1 diagnostic is missing --ssh-port")?;
+        let user = options
+            .ssh_user
+            .as_deref()
+            .ok_or("ssh1 diagnostic is missing --ssh-user")?;
+        let authority = match host {
+            std::net::IpAddr::V4(address) => address.to_string(),
+            std::net::IpAddr::V6(address) => format!("[{address}]"),
+        };
+        app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
+            format!("{user}@{authority}:{port}"),
+            SshAuthDescription::PasswordPrompt,
+            SshKnownHostsPolicy::AcceptUnknown,
+        )));
+        Some(std::env::var("RSSH_DIAGNOSTIC_SSH_SECRET").map_err(|_| {
+            "ssh1 diagnostic requires RSSH_DIAGNOSTIC_SSH_SECRET on its isolated environment channel"
+        })?)
+    } else {
+        None
+    };
     configure_diagnostic_gui_initial_size(&mut app, options.columns, options.rows);
     app.metrics.startup_trace = StartupTrace::from_process_started_at(process_started_at);
     app.set_renderer_mode(options.renderer);
@@ -824,7 +846,11 @@ pub fn run_diagnostic_gui(
         markers.clone(),
         options.scenario,
         Duration::from_millis(options.hold_ms),
+        pending_secret,
     );
+    if let Some(path) = &options.log {
+        app.session_log = Some(Box::new(File::create(path)?) as Box<dyn Write + Send>);
+    }
 
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
