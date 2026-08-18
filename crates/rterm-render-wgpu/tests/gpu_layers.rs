@@ -3,11 +3,8 @@ use std::{
     time::Duration,
 };
 
-use rssh_renderer::gpu::{
-    GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad, ImageProtocol,
-    PixelRect, RenderGraph, SignedPixelRect,
-};
-use rssh_renderer::{
+use rssh_terminal::Terminal;
+use rterm_render_cpu::{
     DamageRegion, PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
     RenderBackgroundGradientHsb, RenderBackgroundGradientInterpolation,
     RenderBackgroundGradientOrientation, RenderBackgroundImage, RenderBackgroundImageAttachment,
@@ -15,7 +12,11 @@ use rssh_renderer::{
     RenderBackgroundImageLength, RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
     RenderBackgroundLayer, RenderGeometry, ScrollbackScrollbar, TerminalRenderSnapshot,
 };
-use rssh_terminal::Terminal;
+use rterm_render_wgpu::GpuFramePlanner;
+use rterm_render_wgpu::gpu::{
+    GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad, ImageProtocol,
+    PixelRect, RenderGraph, SignedPixelRect,
+};
 use rterm_types::TerminalSize;
 
 static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -380,7 +381,7 @@ fn renderer_owned_gpu_planner_composites_configured_background_layers() {
     let terminal = Terminal::new(TerminalSize::new(1, 1));
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(4, 4, 1, 1);
-    let mut planner = PixelRenderer::new();
+    let mut planner = GpuFramePlanner::default();
     planner.set_default_background(rgba(10, 20, 30, 255));
     planner
         .set_default_background_layers(vec![RenderBackgroundLayer::Color(rgba(90, 80, 70, 255))]);
@@ -408,7 +409,7 @@ fn renderer_owned_gpu_planner_rounds_frame_border_corners() {
     terminal.feed(b"\x1b[?25l");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(8, 8, 1, 1).with_frame_border(rgba(200, 210, 220, 255));
-    let mut planner = PixelRenderer::new();
+    let mut planner = GpuFramePlanner::default();
     let background = rgba(10, 20, 30, 255);
     planner.set_default_background(background);
     let graph = planner.prepare_gpu_frame(&snapshot, geometry, None, 0);
@@ -437,7 +438,7 @@ fn renderer_owned_gpu_planner_preserves_gradient_stops_and_reuses_the_texture() 
     terminal.feed(b"\x1b[?25l");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(5, 3, 1, 1);
-    let mut planner = PixelRenderer::new();
+    let mut planner = GpuFramePlanner::default();
     planner.set_default_background(rgba(5, 7, 9, 255));
     planner.set_default_background_gradient(Some(RenderBackgroundGradient {
         orientation: RenderBackgroundGradientOrientation::Horizontal,
@@ -494,7 +495,7 @@ fn renderer_owned_gpu_background_cache_tracks_selected_animation_frame_not_elaps
     terminal.feed(b"\x1b[?25l");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(2, 2, 2, 2);
-    let mut planner = PixelRenderer::new();
+    let mut planner = GpuFramePlanner::default();
     planner.set_default_background_image(Some(RenderBackgroundImage {
         data: red_green_gif_bytes().to_vec(),
         opacity_alpha: u8::MAX,
@@ -544,7 +545,7 @@ fn renderer_owned_gpu_background_cache_tracks_selected_animation_frame_not_elaps
 #[test]
 fn renderer_owned_gpu_background_rejects_oversized_raster_before_allocation() {
     let snapshot = TerminalRenderSnapshot::from_terminal(&Terminal::new(TerminalSize::new(1, 1)));
-    let mut planner = PixelRenderer::new();
+    let mut planner = GpuFramePlanner::default();
     planner.set_default_background_gradient(Some(RenderBackgroundGradient {
         orientation: RenderBackgroundGradientOrientation::Horizontal,
         interpolation: RenderBackgroundGradientInterpolation::Linear,
@@ -574,7 +575,7 @@ fn renderer_owned_gpu_planner_preserves_background_image_layout_opacity_and_clip
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(8, 6, 1, 1).with_content_rect(1, 1, 6, 4);
     let background = rgba(10, 20, 30, 255);
-    let mut planner = PixelRenderer::new();
+    let mut planner = GpuFramePlanner::default();
     planner.set_default_background(background);
     planner.set_default_background_image(Some(RenderBackgroundImage {
         data: red_green_blue_vertical_png_bytes().to_vec(),
@@ -632,8 +633,12 @@ fn renderer_owned_gpu_planner_emits_effective_cell_backgrounds() {
     let mut terminal = Terminal::new(TerminalSize::new(2, 1));
     terminal.feed(b"\x1b[48;2;3;4;5mX");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
-    let graph =
-        PixelRenderer::new().prepare_gpu_frame(&snapshot, RenderGeometry::new(4, 2, 2, 2), None, 0);
+    let graph = GpuFramePlanner::default().prepare_gpu_frame(
+        &snapshot,
+        RenderGeometry::new(4, 2, 2, 2),
+        None,
+        0,
+    );
 
     assert!(
         graph
@@ -648,8 +653,12 @@ fn renderer_owned_gpu_planner_reuses_snapshot_image_z_order() {
     let mut terminal = Terminal::new(TerminalSize::new(2, 2));
     terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=91,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
-    let graph =
-        PixelRenderer::new().prepare_gpu_frame(&snapshot, RenderGeometry::new(4, 4, 2, 2), None, 0);
+    let graph = GpuFramePlanner::default().prepare_gpu_frame(
+        &snapshot,
+        RenderGeometry::new(4, 4, 2, 2),
+        None,
+        0,
+    );
 
     assert_eq!(
         graph.planned_image_draw_count(),
@@ -672,8 +681,12 @@ fn renderer_owned_gpu_planner_emits_decorations_and_cursor() {
     let mut terminal = Terminal::new(TerminalSize::new(2, 1));
     terminal.feed(b"\x1b[4mX");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
-    let graph =
-        PixelRenderer::new().prepare_gpu_frame(&snapshot, RenderGeometry::new(8, 4, 4, 4), None, 0);
+    let graph = GpuFramePlanner::default().prepare_gpu_frame(
+        &snapshot,
+        RenderGeometry::new(8, 4, 4, 4),
+        None,
+        0,
+    );
     let layers = graph.ordered_content_layers();
 
     assert!(
@@ -692,7 +705,7 @@ fn renderer_owned_gpu_planner_clips_scrollbar_below_protected_ui_rows() {
     let terminal = Terminal::new(TerminalSize::new(1, 1));
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(8, 8, 2, 2);
-    let mut planner = PixelRenderer::new();
+    let mut planner = GpuFramePlanner::default();
     let pane = rgba(12, 34, 56, 255);
     planner.set_default_background(pane);
     let graph =
@@ -725,7 +738,7 @@ fn renderer_owned_gpu_planner_moves_and_clips_every_layer_to_content_placement()
     terminal.feed(b"\x1b[48;2;90;80;70mX");
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
     let geometry = RenderGeometry::new(8, 8, 2, 2).with_content_rect(2, 2, 4, 4);
-    let graph = PixelRenderer::new().prepare_gpu_frame(&snapshot, geometry, None, 0);
+    let graph = GpuFramePlanner::default().prepare_gpu_frame(&snapshot, geometry, None, 0);
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
         .expect("headless adapter");
     let mut renderer =

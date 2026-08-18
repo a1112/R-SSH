@@ -190,7 +190,7 @@ pub fn assert_ten_frame_native_metrics(probe: &NativeWindowProbe) {
     } else {
         assert_eq!(
             metrics["pty_linkage_digest"],
-            digest_hex(rssh_renderer::terminal_bytes_content_digest(
+            digest_hex(rterm_render_core::terminal_bytes_content_digest(
                 DETERMINISTIC_PAYLOAD.as_bytes(),
             )),
             "{diagnostics}"
@@ -230,7 +230,7 @@ pub fn assert_gpu_text_glyph_activity(metrics: &serde_json::Value, diagnostics: 
     );
 }
 
-fn digest_hex(digest: rssh_renderer::TerminalContentDigest) -> String {
+fn digest_hex(digest: rterm_render_core::TerminalContentDigest) -> String {
     let mut encoded = String::with_capacity(digest.len() * 2);
     for byte in digest {
         write!(&mut encoded, "{byte:02x}").expect("writing to a String cannot fail");

@@ -8,8 +8,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rssh_renderer::gpu::should_abandon_recovered_window_surface;
 use rssh_test_support::{ChildGuard, ChildOutput};
+use rterm_render_wgpu::gpu::should_abandon_recovered_window_surface;
 
 const PROCESS_DEADLINE: Duration = Duration::from_secs(30);
 const RSSH_APP_EXECUTABLE: &str = env!("CARGO_BIN_EXE_rssh-app");
@@ -198,7 +198,7 @@ fn native_window_reports_real_gpu_presentation_for_one_and_ten_frames() {
         "[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); \
          [Console]::Write('{PTY_LINK_BEGIN}{linkage_payload}{PTY_LINK_END}')"
     );
-    let expected_raw_digest = digest_hex(rssh_renderer::terminal_bytes_content_digest(
+    let expected_raw_digest = digest_hex(rterm_render_core::terminal_bytes_content_digest(
         linkage_payload.as_bytes(),
     ));
 
@@ -309,7 +309,7 @@ fn assert_native_unicode_linkage(
     );
 }
 
-fn digest_hex(digest: rssh_renderer::TerminalContentDigest) -> String {
+fn digest_hex(digest: rterm_render_core::TerminalContentDigest) -> String {
     use std::fmt::Write as _;
 
     let mut encoded = String::with_capacity(digest.len() * 2);

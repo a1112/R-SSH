@@ -844,7 +844,7 @@ mod tests {
         ))
     }
 
-    fn snapshot_text(snapshot: &rssh_renderer::TerminalRenderSnapshot) -> String {
+    fn snapshot_text(snapshot: &rterm_render_core::TerminalRenderSnapshot) -> String {
         let max_row = snapshot
             .cells()
             .iter()

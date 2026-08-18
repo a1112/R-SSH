@@ -4900,10 +4900,12 @@ dependencies = [
  "rssh-functional-tests",
  "rssh-native",
  "rssh-pty",
- "rssh-renderer",
  "rssh-ssh",
  "rssh-test-support",
  "rterm-fonts",
+ "rterm-render-core",
+ "rterm-render-cpu",
+ "rterm-render-wgpu",
  "rterm-runtime",
  "rterm-terminal",
  "serde",
@@ -4995,18 +4997,9 @@ dependencies = [
 name = "rssh-renderer"
 version = "0.1.0"
 dependencies = [
- "colorgrad",
- "font8x8",
- "glyphon",
- "image",
- "pollster",
- "raw-window-handle",
- "rterm-fonts",
- "rterm-terminal",
- "rterm-types",
- "serde_json",
- "sha2 0.11.0",
- "wgpu",
+ "rterm-render-core",
+ "rterm-render-cpu",
+ "rterm-render-wgpu",
 ]
 
 [[package]]
@@ -5071,6 +5064,48 @@ dependencies = [
  "ttf-parser",
  "unicode-segmentation",
  "unicode-width",
+]
+
+[[package]]
+name = "rterm-render-core"
+version = "0.1.0"
+dependencies = [
+ "font8x8",
+ "rterm-fonts",
+ "rterm-terminal",
+ "rterm-types",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "rterm-render-cpu"
+version = "0.1.0"
+dependencies = [
+ "colorgrad",
+ "font8x8",
+ "image",
+ "rterm-fonts",
+ "rterm-render-core",
+ "rterm-terminal",
+ "rterm-types",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "rterm-render-wgpu"
+version = "0.1.0"
+dependencies = [
+ "glyphon",
+ "pollster",
+ "raw-window-handle",
+ "rterm-fonts",
+ "rterm-render-core",
+ "rterm-render-cpu",
+ "rterm-terminal",
+ "rterm-types",
+ "serde_json",
+ "wgpu",
 ]
 
 [[package]]

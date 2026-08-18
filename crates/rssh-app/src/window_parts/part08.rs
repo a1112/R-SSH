@@ -576,7 +576,7 @@ impl NativeWindowApp {
                 ssh_connection_states: HashMap::new(),
                 gpu: None,
                 renderer: {
-                    let mut renderer = PixelRenderer::new();
+                    let mut renderer = GpuFramePlanner::new(PixelRenderer::new());
                     renderer.set_reverse_video_cursor_min_contrast(Some(
                         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST.as_f64(),
                     ));

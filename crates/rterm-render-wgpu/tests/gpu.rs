@@ -1,4 +1,4 @@
-use rssh_renderer::gpu::{
+use rterm_render_wgpu::gpu::{
     GpuContext, GpuContextOptions, SurfaceFault, SurfaceRecovery, SurfaceRecoveryState,
 };
 use std::{
@@ -108,7 +108,7 @@ fn uncaptured_validation_is_reported_without_panicking_or_counting_a_frame() {
         .expect_err("pending uncaptured validation must stop later GPU work");
     assert_eq!(
         error.kind(),
-        rssh_renderer::gpu::GpuContextErrorKind::Validation
+        rterm_render_wgpu::gpu::GpuContextErrorKind::Validation
     );
     assert_eq!(context.metrics().rendered_frames, 0);
     assert_eq!(context.metrics().presented_frames, 0);

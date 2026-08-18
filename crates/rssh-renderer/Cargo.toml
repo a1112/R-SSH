@@ -7,29 +7,9 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-colorgrad = "0.6"
-font8x8 = "0.3"
-glyphon = "=0.12.0"
-image = { version = "0.25", default-features = false, features = ["dds", "ff", "gif", "ico", "jpeg", "png", "pnm", "tga", "tiff"] }
-raw-window-handle = { version = "0.6", features = ["std"] }
-rterm-types = { path = "../rterm-types", version = "0.1.0" }
-rssh-fonts = { package = "rterm-fonts", path = "../rterm-fonts", version = "0.1.0" }
-rssh-terminal = { package = "rterm-terminal", path = "../rssh-terminal", version = "0.1.0" }
-sha2 = "0.11"
-wgpu = { version = "=30.0.0", default-features = false, features = ["std", "wgsl"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-wgpu = { version = "=30.0.0", default-features = false, features = ["dx12", "gles", "vulkan"] }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-wgpu = { version = "=30.0.0", default-features = false, features = ["metal"] }
-
-[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-wgpu = { version = "=30.0.0", default-features = false, features = ["gles", "vulkan"] }
-
-[dev-dependencies]
-pollster = "0.4"
-serde_json = "1"
+rterm-render-core = { path = "../rterm-render-core", version = "0.1.0" }
+rterm-render-cpu = { path = "../rterm-render-cpu", version = "0.1.0" }
+rterm-render-wgpu = { path = "../rterm-render-wgpu", version = "0.1.0" }
 
 [lints]
 workspace = true

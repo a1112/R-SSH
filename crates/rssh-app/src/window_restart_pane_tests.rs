@@ -869,7 +869,7 @@ fn pane_spawn_pty_and_terminal_runtime_use_same_target_dimensions() {
 }
 
 fn snapshot_char(
-    snapshot: &rssh_renderer::TerminalRenderSnapshot,
+    snapshot: &rterm_render_core::TerminalRenderSnapshot,
     row: u16,
     column: u16,
 ) -> Option<char> {
@@ -881,7 +881,7 @@ fn snapshot_char(
 }
 
 fn snapshot_row_text(
-    snapshot: &rssh_renderer::TerminalRenderSnapshot,
+    snapshot: &rterm_render_core::TerminalRenderSnapshot,
     row: u16,
     columns: u16,
 ) -> String {

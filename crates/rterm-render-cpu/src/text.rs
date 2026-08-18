@@ -111,10 +111,10 @@ impl CpuTextRenderer {
     }
 }
 
-pub(crate) struct RowShapePlan {
-    pub(crate) clusters: Vec<TerminalCluster>,
-    pub(crate) styles: Vec<RenderCell>,
-    pub(crate) run_count: usize,
+pub struct RowShapePlan {
+    pub clusters: Vec<TerminalCluster>,
+    pub styles: Vec<RenderCell>,
+    pub run_count: usize,
 }
 
 pub(super) fn render_full(
@@ -829,11 +829,8 @@ fn blend_rgba_pixel(surface: &mut Surface<'_>, x: u32, y: u32, foreground: [u8; 
     pixel.copy_from_slice(&source_over_rgba(background, foreground));
 }
 
-pub(crate) fn row_shape_plan(
-    snapshot: &TerminalRenderSnapshot,
-    row: u16,
-    columns: u16,
-) -> RowShapePlan {
+#[must_use]
+pub fn row_shape_plan(snapshot: &TerminalRenderSnapshot, row: u16, columns: u16) -> RowShapePlan {
     let mut clusters = snapshot.terminal_clusters_for_row(row, columns);
     let cells = snapshot
         .cells()
@@ -889,7 +886,8 @@ pub(crate) fn row_shape_plan(
     clippy::cast_precision_loss,
     reason = "cell height is bounded by physical viewport dimensions"
 )]
-pub(crate) fn vertical_align_baseline(baseline: f32, cell_height: u32, style: &RenderCell) -> f32 {
+#[must_use]
+pub fn vertical_align_baseline(baseline: f32, cell_height: u32, style: &RenderCell) -> f32 {
     let offset = (cell_height / 4).max(1) as f32;
     match style.vertical_align {
         VerticalAlign::Baseline => baseline,
@@ -945,7 +943,8 @@ fn same_shape_run_style(left: &RenderCell, right: &RenderCell) -> bool {
         && left.inverse == right.inverse
 }
 
-pub(crate) fn visual_cell_starts(shaped: &ShapedRow) -> Vec<usize> {
+#[must_use]
+pub fn visual_cell_starts(shaped: &ShapedRow) -> Vec<usize> {
     let mut starts = vec![0; shaped.clusters.len()];
     let mut next = 0_usize;
     for logical in &shaped.visual_clusters {
@@ -961,11 +960,8 @@ pub(crate) fn visual_cell_starts(shaped: &ShapedRow) -> Vec<usize> {
     starts
 }
 
-pub(crate) fn expand_damage_rows(
-    damage: &[DamageRegion],
-    columns: u32,
-    rows: u32,
-) -> Vec<DamageRegion> {
+#[must_use]
+pub fn expand_damage_rows(damage: &[DamageRegion], columns: u32, rows: u32) -> Vec<DamageRegion> {
     let columns = u16::try_from(columns).unwrap_or(u16::MAX);
     let rows = u16::try_from(rows).unwrap_or(u16::MAX);
     let mut expanded = Vec::new();

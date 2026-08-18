@@ -1,11 +1,12 @@
 use std::{cell::RefCell, error::Error, io, sync::Arc};
 
-use rssh_renderer::gpu::{
+use rterm_render_core::{DamageRegion, RenderGeometry, TerminalRenderSnapshot};
+use rterm_render_cpu::TextPaintConfig;
+use rterm_render_wgpu::gpu::{
     GpuContext, GpuContextError, GpuContextErrorKind, GpuContextOptions, GpuFrameStatus,
     GpuLayerRenderer, GpuPresentationMetrics, GpuTextConfig, GpuTextPrepareReport, RenderGraph,
     WindowedGpuContextBootstrap, should_abandon_recovered_window_surface,
 };
-use rssh_renderer::{DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig};
 use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
 /// App-owned direct terminal renderer for the native wgpu surface.
@@ -754,8 +755,8 @@ mod tests {
     use rssh_core::TerminalSize;
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     use rssh_fonts::TerminalShaper;
-    use rssh_renderer::terminal_snapshot_content_digest;
     use rssh_terminal::Terminal;
+    use rterm_render_core::terminal_snapshot_content_digest;
     use winit::event_loop::OwnedDisplayHandle;
 
     fn construct_window_gpu_from_owned_display(

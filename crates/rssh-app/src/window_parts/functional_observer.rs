@@ -83,7 +83,7 @@ impl NativeWindowApp {
                 render_digest: Some(format!(
                     "sha256:{}",
                     functional_observer_hex(
-                        &rssh_renderer::terminal_first_row_pixel_digest(&self.snapshot)
+                        &rterm_render_cpu::terminal_first_row_pixel_digest(&self.snapshot)
                     )
                 )),
                 worker_count: u32::try_from(worker_count).unwrap_or(u32::MAX),

@@ -29,10 +29,11 @@
         },
     };
     use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
-    use rssh_renderer::{
-        RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
-        SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot, color_to_rgba, gpu::GpuFrameStatus,
+    use rterm_render_core::{RenderGeometry, SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot};
+    use rterm_render_cpu::{
+        RenderBackgroundImageAttachment, RenderScrollbarThumbSize, color_to_rgba,
     };
+    use rterm_render_wgpu::gpu::GpuFrameStatus;
     use rssh_terminal::{
         Color, CursorShape, StableRowIndex, StableSelectionCoordinate, StableSelectionRange,
         Terminal, TerminalScreenDomain,

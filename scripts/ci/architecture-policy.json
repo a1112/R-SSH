@@ -4,7 +4,10 @@
     "crates/rssh-app/src",
     "crates/rssh-native/src",
     "crates/rssh-runtime/src",
-    "crates/rssh-config/src"
+    "crates/rssh-config/src",
+    "crates/rterm-render-core/src",
+    "crates/rterm-render-cpu/src",
+    "crates/rterm-render-wgpu/src"
   ],
   "generated_globs": [
     "**/generated/**",

@@ -1464,7 +1464,7 @@ struct NativeWindowApp {
     ssh_secret_prompts: HashMap<rssh_core::PaneId, SshSecretPromptState>,
     ssh_connection_states: HashMap<rssh_core::PaneId, ConnectionState>,
     gpu: Option<Box<WindowGpu>>,
-    renderer: PixelRenderer,
+    renderer: GpuFramePlanner,
     configured_dpi: Option<u32>,
     dpi_by_screen: BTreeMap<String, u32>,
     detected_window_dpi: u32,
@@ -4461,7 +4461,7 @@ struct WindowMetrics {
     pty_content_probe: Vec<u8>,
     pty_linkage_payload: Option<Vec<u8>>,
     terminal_linkage_nonce_found: bool,
-    terminal_snapshot_content_digest: Option<rssh_renderer::TerminalContentDigest>,
+    terminal_snapshot_content_digest: Option<rterm_render_core::TerminalContentDigest>,
     pty_chunk_process_times: Vec<Duration>,
     damage_regions: u64,
     damaged_cells: u64,
@@ -4623,7 +4623,7 @@ impl WindowMetrics {
             return;
         }
         self.terminal_snapshot_content_digest =
-            Some(rssh_renderer::terminal_snapshot_content_digest(snapshot));
+            Some(rterm_render_core::terminal_snapshot_content_digest(snapshot));
         let Some(payload) = self.pty_linkage_payload.as_deref() else {
             self.terminal_linkage_nonce_found = false;
             return;
@@ -4713,7 +4713,7 @@ impl WindowMetrics {
         &self,
         gpu: &GpuPresentationMetrics,
         text_backend: &str,
-        direct_text: Option<(&rssh_renderer::gpu::GpuTextPrepareReport, u64)>,
+        direct_text: Option<(&rterm_render_wgpu::gpu::GpuTextPrepareReport, u64)>,
     ) -> WindowMetricsSnapshot {
         let (direct_report, direct_rendered_frames) =
             direct_text.map_or((None, 0), |(report, frames)| (Some(report), frames));
@@ -4739,7 +4739,7 @@ impl WindowMetrics {
             pty_linkage_digest: self
                 .pty_linkage_payload
                 .as_deref()
-                .map(rssh_renderer::terminal_bytes_content_digest)
+                .map(rterm_render_core::terminal_bytes_content_digest)
                 .map(content_digest_hex),
             terminal_linkage_nonce_found: self.terminal_linkage_nonce_found,
             terminal_snapshot_content_digest: self
@@ -4815,7 +4815,7 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-fn content_digest_hex(digest: rssh_renderer::TerminalContentDigest) -> String {
+fn content_digest_hex(digest: rterm_render_core::TerminalContentDigest) -> String {
     use std::fmt::Write as _;
 
     let mut encoded = String::with_capacity(digest.len() * 2);

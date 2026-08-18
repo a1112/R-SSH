@@ -47,19 +47,21 @@ use rssh_ssh::{
     SshConnectRequest, SshSessionConfig,
     SshSessionStartup, SshShellConnector, SshShellWriter,
 };
-use rssh_renderer::gpu::{GpuFrameStatus, GpuPresentationMetrics};
-use rssh_renderer::{
+use rterm_render_wgpu::{GpuFramePlanner, gpu::{GpuFrameStatus, GpuPresentationMetrics}};
+use rterm_render_core::{
+    RenderCell, RenderCellColorRole, RenderGeometry, SCROLLBAR_WIDTH, TerminalRenderSnapshot,
+};
+use rterm_render_cpu::{
     PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
     RenderBackgroundGradientHsb, RenderBackgroundGradientInterpolation,
     RenderBackgroundGradientOrientation, RenderBackgroundGradientPreset,
     RenderBackgroundGradientSegment, RenderBackgroundImage, RenderBackgroundImageAttachment,
     RenderBackgroundImageDimension, RenderBackgroundImageHorizontalAlign,
     RenderBackgroundImageLength, RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
-    RenderBackgroundLayer, RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole,
-    RenderCursorThickness, RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize,
+    RenderBackgroundLayer, RenderBoldBrightensAnsiColors, RenderCursorThickness,
+    RenderInlineImage, RenderScrollbarThumbSize,
     RenderStrikethroughPosition, RenderUnderlinePosition, RenderUnderlineThickness,
-    SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot,
-    background_gradient_color_strings, color_to_rgba,
+    ScrollbackScrollbar, background_gradient_color_strings, color_to_rgba,
 };
 use rssh_terminal::{
     CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,

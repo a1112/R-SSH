@@ -1,0 +1,22 @@
+[package]
+name = "rterm-render-cpu"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+colorgrad = "0.6"
+font8x8 = "0.3"
+image = { version = "0.25", default-features = false, features = ["dds", "ff", "gif", "ico", "jpeg", "png", "pnm", "tga", "tiff"] }
+rterm-render-core = { path = "../rterm-render-core", version = "0.1.0" }
+rterm-types = { path = "../rterm-types", version = "0.1.0" }
+rssh-fonts = { package = "rterm-fonts", path = "../rterm-fonts", version = "0.1.0" }
+rssh-terminal = { package = "rterm-terminal", path = "../rssh-terminal", version = "0.1.0" }
+sha2 = "0.11"
+[dev-dependencies]
+serde_json = "1"
+
+[lints]
+workspace = true

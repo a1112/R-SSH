@@ -1,7 +1,7 @@
 use super::*;
 
 fn snapshot_row_text(
-    snapshot: &rssh_renderer::TerminalRenderSnapshot,
+    snapshot: &rterm_render_core::TerminalRenderSnapshot,
     row: u16,
     columns: u16,
 ) -> String {
