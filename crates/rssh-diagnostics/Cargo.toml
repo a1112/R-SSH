@@ -17,6 +17,9 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Threading",
 ] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [lints.rust]
 # Platform FFI is confined to sampler modules with a local, documented allow.
 unsafe_code = "deny"

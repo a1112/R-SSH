@@ -13,8 +13,9 @@ pub use marker::{
     MarkerIdentity, MarkerKind, MarkerRecord,
 };
 pub use sampler::{
-    LinuxPssSampler, MemorySampler, SamplerError, WindowsPrivateWorkingSetSampler,
-    WindowsProcessQuery, WindowsProcessSnapshot, parse_linux_smaps_rollup,
+    LinuxPssSampler, MacosPhysFootprintSampler, MacosProcessQuery, MacosProcessSnapshot,
+    MemorySampler, SamplerError, WindowsPrivateWorkingSetSampler, WindowsProcessQuery,
+    WindowsProcessSnapshot, parse_linux_smaps_rollup,
 };
 pub use schema::{
     ConnectionState, ConnectionSummary, DiagnosticFailure, DiagnosticsResult, MemoryMetric,
