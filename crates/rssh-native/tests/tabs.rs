@@ -1,4 +1,4 @@
-use rssh_core::TabId;
+use rssh_domain::TabId;
 use rssh_native::tabs::TabPresentation;
 
 #[test]

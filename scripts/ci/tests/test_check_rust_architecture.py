@@ -11,6 +11,86 @@ CHECKER = REPOSITORY_ROOT / "scripts" / "ci" / "check-rust-architecture.py"
 
 
 class RustArchitectureCheckerTests(unittest.TestCase):
+    def test_stage1_workspace_declares_types_domain_and_compatibility_facade(self):
+        workspace = (REPOSITORY_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        core = (REPOSITORY_ROOT / "crates" / "rssh-core" / "Cargo.toml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('"crates/rterm-types"', workspace)
+        self.assertIn('"crates/rssh-domain"', workspace)
+        self.assertIn("rterm-types", core)
+        self.assertIn("rssh-domain", core)
+
+    def test_stage1_foundation_manifests_obey_one_way_dependency_direction(self):
+        types = (
+            REPOSITORY_ROOT / "crates" / "rterm-types" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+        domain = (
+            REPOSITORY_ROOT / "crates" / "rssh-domain" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("rssh-", types)
+        self.assertIn("rterm-types", domain)
+        for forbidden in ("rssh-app", "rssh-runtime", "rssh-renderer", "rssh-ssh"):
+            self.assertNotIn(forbidden, domain)
+
+    def test_stage1_renames_terminal_and_font_packages_without_losing_compatibility_aliases(self):
+        workspace = (REPOSITORY_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        terminal = (
+            REPOSITORY_ROOT / "crates" / "rssh-terminal" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+        fonts = (
+            REPOSITORY_ROOT / "crates" / "rterm-fonts" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('"crates/rssh-terminal"', workspace)
+        self.assertIn('"crates/rterm-fonts"', workspace)
+        self.assertNotIn('"crates/rssh-fonts"', workspace)
+        self.assertIn('name = "rterm-terminal"', terminal)
+        self.assertIn('name = "rterm-fonts"', fonts)
+
+    def test_deterministic_performance_uses_the_stage1_terminal_package_name(self):
+        workflow = (
+            REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "cargo test --locked -p rterm-terminal "
+            "batched_scroll_prune_matches_incremental_prune",
+            workflow,
+        )
+
+    def test_stage1_foundational_crates_import_owned_types_without_the_core_facade(self):
+        expectations = {
+            "rssh-terminal": ("rterm-types",),
+            "rssh-renderer": ("rterm-types",),
+            "rssh-ssh": ("rterm-types",),
+            "rssh-runtime": ("rterm-types", "rssh-domain"),
+            "rssh-native": ("rterm-types", "rssh-domain"),
+        }
+
+        for crate, required in expectations.items():
+            manifest = (REPOSITORY_ROOT / "crates" / crate / "Cargo.toml").read_text(
+                encoding="utf-8"
+            )
+            production = manifest.split("[dev-dependencies]", maxsplit=1)[0]
+            self.assertNotIn("rssh-core", production, crate)
+            for package in required:
+                self.assertIn(package, manifest, crate)
+
+    def test_readme_documents_stage1_package_ownership_and_facade_policy(self):
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        for required in (
+            "rterm-types",
+            "rssh-domain",
+            "rterm-terminal",
+            "rterm-fonts",
+            "rssh-core compatibility facade",
+        ):
+            self.assertIn(required, readme)
+
     def test_quality_workflow_runs_the_checked_in_architecture_policy(self):
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"

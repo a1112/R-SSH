@@ -1,169 +1,24 @@
-pub mod app_shell;
-pub mod session;
+//! Compatibility facade for the Stage 1 package split.
+//!
+//! New foundational code should import terminal primitives from
+//! `rterm-types` and application-domain state from `rssh-domain` directly.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SessionId(u64);
-
-impl SessionId {
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WindowId(u64);
-
-impl WindowId {
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct WorkspaceId(u64);
-
-impl WorkspaceId {
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TabId(u64);
-
-impl TabId {
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PaneId(u64);
-
-impl PaneId {
-    #[must_use]
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TerminalSize {
-    pub columns: u16,
-    pub rows: u16,
-}
-
-impl TerminalSize {
-    #[must_use]
-    pub const fn new(columns: u16, rows: u16) -> Self {
-        Self { columns, rows }
-    }
-
-    #[must_use]
-    pub const fn cells(self) -> usize {
-        self.columns as usize * self.rows as usize
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DamageRegion {
-    pub x: u16,
-    pub y: u16,
-    pub width: u16,
-    pub height: u16,
-}
-
-impl DamageRegion {
-    #[must_use]
-    pub const fn new(x: u16, y: u16, width: u16, height: u16) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
-    #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.width == 0 || self.height == 0
-    }
-
-    #[must_use]
-    pub const fn right(self) -> u16 {
-        self.x.saturating_add(self.width)
-    }
-}
+pub use rssh_domain::{PaneId, TabId, WindowId, WorkspaceId, app_shell, session};
+pub use rterm_types::{DamageRegion, SessionId, TerminalSize};
 
 #[cfg(test)]
 mod tests {
     use super::{DamageRegion, PaneId, SessionId, TabId, TerminalSize, WindowId, WorkspaceId};
 
     #[test]
-    fn exposes_session_id_value() {
+    fn preserves_stage_zero_public_paths() {
         assert_eq!(SessionId::new(42).get(), 42);
-    }
-
-    #[test]
-    fn app_shell_ids_expose_values() {
         assert_eq!(WindowId::new(1).get(), 1);
         assert_eq!(WorkspaceId::new(2).get(), 2);
         assert_eq!(TabId::new(3).get(), 3);
         assert_eq!(PaneId::new(4).get(), 4);
-    }
-
-    #[test]
-    fn app_shell_ids_are_hashable_and_comparable() {
-        use std::collections::HashSet;
-
-        let mut ids = HashSet::new();
-        ids.insert(PaneId::new(7));
-
-        assert!(ids.contains(&PaneId::new(7)));
-        assert!(!ids.contains(&PaneId::new(8)));
-    }
-
-    #[test]
-    fn computes_terminal_cell_count() {
         assert_eq!(TerminalSize::new(120, 30).cells(), 3600);
-    }
-
-    #[test]
-    fn zero_width_damage_region_is_empty() {
         assert!(DamageRegion::new(0, 0, 0, 1).is_empty());
-    }
-
-    #[test]
-    fn damage_region_reports_right_edge() {
         assert_eq!(DamageRegion::new(2, 0, 3, 1).right(), 5);
     }
 }

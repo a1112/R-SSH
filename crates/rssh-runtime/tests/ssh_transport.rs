@@ -6,7 +6,7 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rssh_core::{PaneId, TerminalSize};
+use rssh_domain::PaneId;
 use rssh_runtime::{
     PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub, SessionControl, SessionInterrupt,
     SessionTransport, SshTransport,
@@ -15,6 +15,7 @@ use rssh_ssh::{
     SshConnectRequest, SshExitSignal, SshSessionConfig, SshSessionError, SshSessionResult,
     SshShellConnector, SshShellReader, SshShellSession, SshShellWriter,
 };
+use rterm_types::TerminalSize;
 
 #[derive(Debug, Default)]
 struct State {

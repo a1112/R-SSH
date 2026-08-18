@@ -1,6 +1,6 @@
 use std::io::{self, Read, Write};
 
-use rssh_core::TerminalSize;
+use rterm_types::TerminalSize;
 
 #[cfg(feature = "local-transport")]
 mod local;

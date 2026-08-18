@@ -8,7 +8,7 @@ use std::sync::{
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use rssh_core::PaneId;
+use rssh_domain::PaneId;
 
 use crate::{
     Clock, MailboxLimits, MailboxReceiver, MailboxSender, PaneDrain, PaneNotice,

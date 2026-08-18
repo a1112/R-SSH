@@ -1,6 +1,6 @@
 use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
-use rssh_core::TerminalSize;
+use rterm_types::TerminalSize;
 
 mod russh_client;
 
@@ -1415,7 +1415,7 @@ mod tests {
         time::Duration,
     };
 
-    use rssh_core::TerminalSize;
+    use rterm_types::TerminalSize;
 
     use super::{
         SshAuthError, SshAuthMethod, SshChannel, SshChannelConnector, SshChannelOpenPlan,

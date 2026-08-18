@@ -5,11 +5,11 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use rssh_core::TerminalSize;
 use rssh_ssh::{
     SshConnectRequest, SshSessionError, SshSessionResult, SshShellConnector, SshShellReader,
     SshShellSession, SshShellWriter,
 };
+use rterm_types::TerminalSize;
 
 use super::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,

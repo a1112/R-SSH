@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 
-use rssh_core::TerminalSize;
+use rterm_types::TerminalSize;
 
 use crate::{SessionControl, SessionExit, SessionInterrupt, SessionParts, SessionTransport};
 

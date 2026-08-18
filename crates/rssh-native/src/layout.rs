@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use rssh_core::{PaneId, TerminalSize};
+use rssh_domain::PaneId;
+use rterm_types::TerminalSize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneSplitDirection {

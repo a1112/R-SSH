@@ -4897,15 +4897,15 @@ dependencies = [
  "rssh-config",
  "rssh-core",
  "rssh-diagnostics",
- "rssh-fonts",
  "rssh-functional-tests",
  "rssh-native",
  "rssh-pty",
  "rssh-renderer",
  "rssh-runtime",
  "rssh-ssh",
- "rssh-terminal",
  "rssh-test-support",
+ "rterm-fonts",
+ "rterm-terminal",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4932,6 +4932,10 @@ dependencies = [
 [[package]]
 name = "rssh-core"
 version = "0.1.0"
+dependencies = [
+ "rssh-domain",
+ "rterm-types",
+]
 
 [[package]]
 name = "rssh-diagnostics"
@@ -4945,14 +4949,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rssh-fonts"
+name = "rssh-domain"
 version = "0.1.0"
 dependencies = [
- "cosmic-text",
- "sha2 0.11.0",
- "ttf-parser",
- "unicode-segmentation",
- "unicode-width",
+ "rterm-types",
 ]
 
 [[package]]
@@ -4976,8 +4976,9 @@ name = "rssh-native"
 version = "0.1.0"
 dependencies = [
  "rssh-config",
- "rssh-core",
+ "rssh-domain",
  "rssh-runtime",
+ "rterm-types",
 ]
 
 [[package]]
@@ -4997,9 +4998,9 @@ dependencies = [
  "image",
  "pollster",
  "raw-window-handle",
- "rssh-core",
- "rssh-fonts",
- "rssh-terminal",
+ "rterm-fonts",
+ "rterm-terminal",
+ "rterm-types",
  "serde_json",
  "sha2 0.11.0",
  "wgpu",
@@ -5013,9 +5014,11 @@ dependencies = [
  "flate2",
  "proc-macro2",
  "rssh-core",
+ "rssh-domain",
  "rssh-pty",
  "rssh-ssh",
- "rssh-terminal",
+ "rterm-terminal",
+ "rterm-types",
  "sha2 0.11.0",
  "syn 2.0.117",
 ]
@@ -5024,8 +5027,8 @@ dependencies = [
 name = "rssh-ssh"
 version = "0.1.0"
 dependencies = [
- "rssh-core",
  "rssh-test-support",
+ "rterm-types",
  "russh",
  "tokio",
 ]
@@ -5040,22 +5043,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tokio",
-]
-
-[[package]]
-name = "rssh-terminal"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "flate2",
- "proc-macro2",
- "rssh-core",
- "sha2 0.11.0",
- "smol_str 0.2.2",
- "syn 2.0.117",
- "unicode-normalization",
- "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]
@@ -5086,6 +5073,37 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
 ]
+
+[[package]]
+name = "rterm-fonts"
+version = "0.1.0"
+dependencies = [
+ "cosmic-text",
+ "sha2 0.11.0",
+ "ttf-parser",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "rterm-terminal"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "proc-macro2",
+ "rterm-types",
+ "sha2 0.11.0",
+ "smol_str 0.2.2",
+ "syn 2.0.117",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "rterm-types"
+version = "0.1.0"
 
 [[package]]
 name = "rtoolbox"

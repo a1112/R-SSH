@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::io;
 
-use rssh_core::TerminalSize;
 use rssh_runtime::SubmitResult;
+use rterm_types::TerminalSize;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum CanonicalizePastedNewlines {

@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use rssh_config::EffectiveConfig;
-use rssh_core::{DamageRegion, PaneId, TerminalSize};
+use rssh_domain::PaneId;
 use rssh_native::{
     ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, NotificationEffect, PaneCommand,
     PaneLifecycleIntent, PlatformIntent, RendererEffect, RuntimePortEffect, TimerId, TimerIntent,
@@ -13,6 +13,7 @@ use rssh_runtime::{
     RuntimeBatchMetrics, RuntimeEffect, RuntimeEffectKind, RuntimeProgress, RuntimeRevision,
     TerminalStateSummary,
 };
+use rterm_types::{DamageRegion, TerminalSize};
 
 fn token(pane: u64) -> PaneToken {
     PaneTokenAllocator::new()

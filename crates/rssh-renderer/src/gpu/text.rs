@@ -1117,9 +1117,9 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use rssh_core::TerminalSize;
     use rssh_fonts::{FontCatalog, FontConfig, FontSource, RasterCacheConfig};
     use rssh_terminal::Terminal;
+    use rterm_types::TerminalSize;
 
     use crate::{
         DamageRegion, RenderGeometry, TerminalRenderSnapshot, TextPaintConfig,

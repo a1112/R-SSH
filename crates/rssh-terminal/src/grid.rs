@@ -1,4 +1,4 @@
-use rssh_core::TerminalSize;
+use rterm_types::TerminalSize;
 
 use crate::{Cell, SequenceNo};
 

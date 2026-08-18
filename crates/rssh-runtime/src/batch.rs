@@ -3,8 +3,8 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::Terminal;
+use rterm_types::{DamageRegion, TerminalSize};
 
 use crate::{
     DrainCompletion, LatestSlot, MailboxItem, MailboxLimits, MailboxMetrics, MailboxReceiver,

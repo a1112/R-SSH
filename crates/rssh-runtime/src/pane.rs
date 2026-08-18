@@ -8,8 +8,8 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use rssh_core::TerminalSize;
 use rssh_terminal::Terminal;
+use rterm_types::TerminalSize;
 
 use crate::{
     BatchAdmission, BatchPolicy, BatchWindow, Clock, EffectSequence, MailboxItem, MailboxLimits,

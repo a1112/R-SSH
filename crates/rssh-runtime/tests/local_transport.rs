@@ -1,13 +1,14 @@
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
-use rssh_core::{PaneId, TerminalSize};
+use rssh_domain::PaneId;
 use rssh_pty::PtyCommand;
 use rssh_runtime::{
     LocalPtyTransport, PaneNotice, PaneWorkerConfig, RuntimeBuffers, RuntimeEffectKind,
     RuntimeEffectRef, RuntimeHub, SessionControl, SessionInterrupt, SessionTransport, SystemClock,
     TerminalRuntime,
 };
+use rterm_types::TerminalSize;
 
 #[test]
 fn local_adapter_spawns_reads_resizes_and_preserves_exit_status() {

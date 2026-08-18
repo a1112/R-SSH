@@ -1,6 +1,6 @@
 use rssh_config::EffectiveConfig;
-use rssh_core::TerminalSize;
 use rssh_runtime::{RuntimeBatch, TerminalStateSummary};
+use rterm_types::TerminalSize;
 use std::sync::Arc;
 
 use crate::{CommandIntent, panes::PaneLifecycleIntent};

@@ -1,10 +1,10 @@
 use std::io::{self, Write as _};
 
-use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::{
     Cell, CellWidthOverride, Color, CursorShape, CursorStyle, Terminal, TerminalResizeOutcome,
     UnderlineStyle, VerticalAlign,
 };
+use rterm_types::{DamageRegion, TerminalSize};
 
 use crate::{
     RuntimeProgress,

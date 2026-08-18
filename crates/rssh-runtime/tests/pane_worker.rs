@@ -3,12 +3,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rssh_core::{PaneId, TerminalSize};
+use rssh_domain::PaneId;
 use rssh_runtime::testing::{ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction};
 use rssh_runtime::{
     BatchPolicy, MailboxLimits, PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub,
     SessionExit, SubmitResult, TerminalRuntime,
 };
+use rterm_types::TerminalSize;
 
 fn scripted_session(
     reads: impl IntoIterator<Item = ReadAction>,

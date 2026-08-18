@@ -1,8 +1,8 @@
-use rssh_core::TerminalSize;
 use rssh_native::input::{
     CanonicalizePastedNewlines, PendingPaneCommand, PendingPaneCommandQueue, encode_paste,
 };
 use rssh_runtime::SubmitResult;
+use rterm_types::TerminalSize;
 
 #[test]
 fn paste_encoding_preserves_bracketed_input_and_canonicalizes_plain_input() {

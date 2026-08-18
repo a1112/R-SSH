@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use rssh_core::{DamageRegion, PaneId, TerminalSize};
+use rssh_domain::PaneId;
 use rssh_runtime::{
     EffectSequence, EffectSequenceCursor, EffectSequenceError, MetadataChange, PaneGeneration,
     PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
@@ -16,6 +16,7 @@ use rssh_runtime::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,
     SessionTransport, SubmitResult, UserVarDelta,
 };
+use rterm_types::{DamageRegion, TerminalSize};
 
 #[derive(Debug, PartialEq, Eq)]
 struct NeutralSnapshot {

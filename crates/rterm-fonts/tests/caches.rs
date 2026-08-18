@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rssh_fonts::{
+use rterm_fonts::{
     FontCatalog, FontConfig, FontSource, RasterCache, RasterCacheConfig, RasterContent,
     RasterFallback, RasterFlags, RasterRequest, ShapedGlyph, ShapedRow, TerminalShaper,
 };

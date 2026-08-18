@@ -1,5 +1,5 @@
-use rssh_core::DamageRegion;
 use rssh_terminal::Terminal;
+use rterm_types::DamageRegion;
 
 use crate::{RuntimeProgress, modes::TerminalModeChange};
 

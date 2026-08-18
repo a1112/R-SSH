@@ -7,7 +7,6 @@ use std::{
 #[cfg(target_os = "linux")]
 use std::io;
 
-use rssh_core::TerminalSize;
 use rssh_ssh::{
     RusshChannelOpener, RusshConnectionCancellation, RusshDirectTcpIpOpenPlan,
     RusshForwardCancellation, RusshForwardDeadlines, RusshHostKeyPolicy,
@@ -18,6 +17,7 @@ use rssh_ssh::{
 use rssh_test_support::ssh::{
     CommandResponse, HermeticSshServer, IdentityFixture, LoopbackEchoServer, SshEvent,
 };
+use rterm_types::TerminalSize;
 
 const DEADLINE: Duration = Duration::from_secs(5);
 

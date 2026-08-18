@@ -1,4 +1,4 @@
-use rssh_core::PaneId;
+use rssh_domain::PaneId;
 use rssh_native::{
     ClipboardEffect, PaneCommand, PaneLifecycleIntent, SpawnEffect, UriEffect, WindowEffect,
     WindowIntent, WindowState, commands::CommandIntent, reduce,

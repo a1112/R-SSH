@@ -21,8 +21,8 @@ use std::ops::{Index, RangeBounds};
 ///   collect with `history.iter().cloned().collect::<Vec<_>>()`.
 ///
 /// ```
-/// use rssh_core::TerminalSize;
-/// use rssh_terminal::{ScrollbackLine, Terminal};
+/// use rterm_types::TerminalSize;
+/// use rterm_terminal::{ScrollbackLine, Terminal};
 ///
 /// let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 /// terminal.feed(b"aa\r\nbb\r\ncc");
@@ -40,8 +40,8 @@ use std::ops::{Index, RangeBounds};
 /// These examples must not compile:
 ///
 /// ```compile_fail,E0308
-/// use rssh_core::TerminalSize;
-/// use rssh_terminal::{ScrollbackLine, Terminal};
+/// use rterm_types::TerminalSize;
+/// use rterm_terminal::{ScrollbackLine, Terminal};
 ///
 /// let terminal = Terminal::new(TerminalSize::new(4, 2));
 /// let history = terminal.scrollback();
@@ -50,8 +50,8 @@ use std::ops::{Index, RangeBounds};
 /// ```
 ///
 /// ```compile_fail,E0599
-/// use rssh_core::TerminalSize;
-/// use rssh_terminal::Terminal;
+/// use rterm_types::TerminalSize;
+/// use rterm_terminal::Terminal;
 ///
 /// let terminal = Terminal::new(TerminalSize::new(4, 2));
 /// let history = terminal.scrollback();

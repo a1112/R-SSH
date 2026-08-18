@@ -120,7 +120,7 @@ The default startup maps to workspace `1`, tab `1`, and pane `1`, with
 - Window and event loop: `winit`.
 - GPU renderer: direct `wgpu` presentation with `glyphon` text batches, plus a
   CPU/offscreen renderer for deterministic tests and benchmark proxies.
-- Text shaping and font fallback: the `rssh-fonts` crate backed by
+- Text shaping and font fallback: the `rterm-fonts` package backed by
   `cosmic-text`, including the configured fallback stack.
 - SSH: an in-process `russh` backend for native sessions and forwarding, plus a
   system OpenSSH backend for SSH/SFTP/SCP and compatibility-oriented options.
@@ -134,12 +134,14 @@ The default startup maps to workspace `1`, tab `1`, and pane `1`, with
 
 ```text
 crates/rssh-app       Desktop application entry point
-crates/rssh-core      Shared domain types
-crates/rssh-terminal  Terminal grid and VT parser boundary
+crates/rterm-types    Dependency-free terminal/session value types
+crates/rssh-domain    Window/workspace/tab/pane and launch domain state
+crates/rssh-core      rssh-core compatibility facade for legacy public paths
+crates/rssh-terminal  rterm-terminal package: terminal grid and VT parser
 crates/rssh-renderer  Renderer boundary and damage tracking
 crates/rssh-ssh       SSH session boundary
 crates/rssh-pty       Local PTY boundary
-crates/rssh-fonts     Font discovery, shaping, fallback, and deterministic fonts
+crates/rterm-fonts    Font discovery, shaping, fallback, and deterministic fonts
 crates/rssh-test-support  Hermetic SSH fixtures and bounded process-test support
 crates/rssh-web       Loopback WebSocket PTY bridge for the browser client
 web/                  TypeScript/xterm.js browser terminal client
@@ -147,6 +149,14 @@ tauri/                Tauri desktop shell for the Web terminal client
 docs/                 Architecture and planning documents
 refs/                 Local reference source cache, ignored by Git
 ```
+
+Stage 1 establishes one-way package ownership: terminal primitives come from
+`rterm-types`, application identifiers and app-shell state come from
+`rssh-domain`, and foundational crates import those owners directly. The
+`rssh-core compatibility facade` preserves existing source paths while callers
+are migrated incrementally. The `rterm-terminal` Cargo package intentionally
+retains the `crates/rssh-terminal` directory during this stage because the
+immutable Task 10 provenance evidence records that physical source path.
 
 ## Local Commands
 
