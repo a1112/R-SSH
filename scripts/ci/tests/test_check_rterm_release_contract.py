@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 CHECKER = REPOSITORY_ROOT / "scripts" / "ci" / "check-rterm-release-contract.py"
 CONTRACT = REPOSITORY_ROOT / "scripts" / "ci" / "rterm-release-contract.json"
 HISTORY_MAP = REPOSITORY_ROOT / "docs" / "release" / "rterm-history-paths.txt"
+CONSUMER = REPOSITORY_ROOT / "contracts" / "rterm-consumer"
 
 EXPECTED_PACKAGES = {
     "rterm-types": "crates/rterm-types",
@@ -145,6 +147,39 @@ class RTermReleaseContractTests(unittest.TestCase):
             ),
             rows,
         )
+
+    def test_standalone_consumer_declares_only_rterm_packages(self):
+        manifest = (CONSUMER / "Cargo.toml").read_text(encoding="utf-8")
+        workspace = (REPOSITORY_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+
+        self.assertIn('exclude = ["contracts/rterm-consumer"]', workspace)
+        dependency_block = manifest.split("[dependencies]", maxsplit=1)[1].split(
+            "[patch.crates-io]", maxsplit=1
+        )[0]
+        dependency_names = set(
+            re.findall(r"^([A-Za-z0-9_-]+)\s*=", dependency_block, re.MULTILINE)
+        )
+        self.assertEqual(dependency_names, set(EXPECTED_PACKAGES))
+        self.assertNotIn('package = "rssh-', dependency_block)
+        for name, path in EXPECTED_PACKAGES.items():
+            self.assertIn(
+                f'{name} = {{ path = "../../{path}", version = "0.1.0" }}',
+                manifest,
+            )
+        self.assertTrue((CONSUMER / "Cargo.lock").is_file())
+
+        source = (CONSUMER / "src" / "main.rs").read_text(encoding="utf-8")
+        for public_surface in (
+            "TerminalSize",
+            "DamageRegion",
+            "Terminal::new",
+            "TerminalRuntime::new",
+            "FontConfig::new",
+            "TerminalRenderSnapshot::from_terminal",
+            "PixelRenderer::new",
+            "GpuContextOptions::default",
+        ):
+            self.assertIn(public_surface, source)
 
 
 if __name__ == "__main__":
