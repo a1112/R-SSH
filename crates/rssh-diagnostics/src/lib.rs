@@ -1,7 +1,12 @@
+mod launcher;
 mod marker;
 mod schema;
 mod statistics;
 
+pub use launcher::{
+    LAUNCHER_USAGE, LauncherCliError, LauncherFailure, LauncherFailureCode, LauncherOptions,
+    LauncherPhase, LauncherStateMachine,
+};
 pub use marker::{
     CollectedMarkers, MARKER_PREFIX, MarkerCollector, MarkerDisposition, MarkerError,
     MarkerIdentity, MarkerKind, MarkerRecord,
