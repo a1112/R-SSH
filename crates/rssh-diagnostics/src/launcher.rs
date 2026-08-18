@@ -387,7 +387,8 @@ impl LauncherStateMachine {
             self.phase = LauncherPhase::RequestShutdown;
             self.next_deadline_ms = None;
         } else {
-            self.next_deadline_ms = Some(due.saturating_add(self.configuration.sample_interval_ms));
+            self.next_deadline_ms =
+                Some(elapsed_ms.saturating_add(self.configuration.sample_interval_ms));
         }
         Ok(())
     }

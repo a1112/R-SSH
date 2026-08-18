@@ -132,6 +132,24 @@ fn readiness_stabilization_and_sampling_follow_exact_deadlines() {
 }
 
 #[test]
+fn late_sample_schedules_the_next_interval_from_the_actual_sample_time() {
+    let configuration = RunConfiguration {
+        stabilization_ms: 1,
+        sample_interval_ms: 10,
+        sample_count: 2,
+        ..RunConfiguration::default()
+    };
+    let mut state = LauncherStateMachine::new(configuration);
+
+    state.child_started(42).unwrap();
+    state.observe_marker(MarkerKind::ScenarioReady, 1).unwrap();
+    state.advance_to(2).unwrap();
+    state.record_sample(20, 10).unwrap();
+
+    assert_eq!(state.next_deadline_ms(), Some(30));
+}
+
+#[test]
 fn early_child_exit_is_a_structured_terminal_failure() {
     let mut state = LauncherStateMachine::new(RunConfiguration::default());
     state.child_started(42).unwrap();

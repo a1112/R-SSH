@@ -159,6 +159,8 @@ T23-RUNTIME-845ca750a17d|crates/rssh-app/src/cli.rs|parses_gui_ssh_renderer_over
 T23-RUNTIME-61a14b302193|crates/rssh-app/src/cli.rs|rejects_gui_ssh_forwarding_no_shell_and_openssh_passthrough|1|rssh-app|cli::tests|runtime
 T23-PRESENTATION-545eaf08dcb1|crates/rssh-app/src/cli.rs|renderer_parser_rejects_unknown_values|1|rssh-app|cli::tests|presentation
 T23-OVERLAYS-f50033385f47|crates/rssh-app/src/cli.rs|rejects_renderer_without_gui_even_when_auto_is_selected|1|rssh-app|cli::tests|overlays
+T23-RUNTIME-a8fb1fac4b27|crates/rssh-app/src/cli.rs|parses_hermetic_ssh1_diagnostic_fixture_options|1|rssh-app|cli::tests|runtime
+T23-RUNTIME-f8d8e5642fe4|crates/rssh-app/src/cli.rs|rejects_non_loopback_or_incomplete_ssh1_diagnostic_fixture|1|rssh-app|cli::tests|runtime
 T23-COMPATIBILITY-e10d6d287104|crates/rssh-app/src/config_lifecycle.rs|watcher_coalesces_modify_burst_into_one_reload_event|1|rssh-app|config_lifecycle::tests|compatibility
 T23-COMMANDS-fc4cfdd24800|crates/rssh-app/src/config_lifecycle.rs|watcher_ready_deadline_is_not_starved_by_queued_notifications|1|rssh-app|config_lifecycle::tests|commands
 T23-COMPATIBILITY-b97135d3c5ed|crates/rssh-app/src/config_lifecycle.rs|watcher_accepts_create_modify_remove_and_ignores_other_kinds|1|rssh-app|config_lifecycle::tests|compatibility
