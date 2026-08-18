@@ -141,6 +141,89 @@ class RustArchitectureCheckerTests(unittest.TestCase):
         ):
             self.assertIn(required, readme)
 
+    def test_stage3_workspace_declares_core_cpu_wgpu_and_compatibility_packages(self):
+        workspace = (REPOSITORY_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+
+        for member in (
+            '"crates/rterm-render-core"',
+            '"crates/rterm-render-cpu"',
+            '"crates/rterm-render-wgpu"',
+            '"crates/rssh-renderer"',
+        ):
+            self.assertIn(member, workspace)
+
+        packages = {
+            "rterm-render-core": "rterm-render-core",
+            "rterm-render-cpu": "rterm-render-cpu",
+            "rterm-render-wgpu": "rterm-render-wgpu",
+            "rssh-renderer": "rssh-renderer",
+        }
+        for directory, package in packages.items():
+            manifest = (
+                REPOSITORY_ROOT / "crates" / directory / "Cargo.toml"
+            ).read_text(encoding="utf-8")
+            self.assertIn(f'name = "{package}"', manifest)
+
+    def test_stage3_renderer_core_and_cpu_manifests_are_backend_neutral(self):
+        core = (
+            REPOSITORY_ROOT / "crates" / "rterm-render-core" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+        cpu = (
+            REPOSITORY_ROOT / "crates" / "rterm-render-cpu" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+
+        for forbidden in (
+            "wgpu",
+            "glyphon",
+            "raw-window-handle",
+            "image =",
+            "rssh-app",
+            "rssh-pty",
+            "rssh-ssh",
+            "winit",
+            "tauri",
+        ):
+            self.assertNotIn(forbidden, core)
+        self.assertIn("rterm-render-core", cpu)
+        for forbidden in ("wgpu", "glyphon", "raw-window-handle"):
+            self.assertNotIn(forbidden, cpu)
+
+    def test_stage3_app_composes_owned_renderers_without_the_compatibility_facade(self):
+        app = (REPOSITORY_ROOT / "crates" / "rssh-app" / "Cargo.toml").read_text(
+            encoding="utf-8"
+        )
+        facade = (
+            REPOSITORY_ROOT / "crates" / "rssh-renderer" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+        facade_library = (
+            REPOSITORY_ROOT / "crates" / "rssh-renderer" / "src" / "lib.rs"
+        ).read_text(encoding="utf-8")
+
+        for package in (
+            "rterm-render-core",
+            "rterm-render-cpu",
+            "rterm-render-wgpu",
+        ):
+            self.assertIn(package, app)
+            self.assertIn(package, facade)
+        self.assertNotIn("rssh-renderer =", app)
+        self.assertNotIn("wgpu =", facade)
+        self.assertNotIn("image =", facade)
+        self.assertIn("pub use rterm_render_core", facade_library)
+        self.assertIn("pub use rterm_render_cpu", facade_library)
+        self.assertIn("pub use rterm_render_wgpu", facade_library)
+
+    def test_readme_documents_stage3_renderer_ownership(self):
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        for required in (
+            "rterm-render-core",
+            "rterm-render-cpu",
+            "rterm-render-wgpu",
+            "rssh-renderer compatibility facade",
+        ):
+            self.assertIn(required, readme)
+
     def test_quality_workflow_runs_the_checked_in_architecture_policy(self):
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
