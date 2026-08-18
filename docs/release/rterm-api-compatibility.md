@@ -19,6 +19,11 @@ and vendored dependency trees are defined in
 `scripts/ci/rterm-release-contract.json`. The contract forbids every dependency
 from an `rterm-*` package to an `rssh-*` package.
 
+The initial LKG is the verified Task 0 boundary commit
+`0e8ebd5de22758275cbb6a849c19c032268d7fac`. The earlier Stage 5 merge is not a
+valid rollback source for this contract because its runtime package still had
+reverse dependencies on product crates.
+
 ## Consumer and vendor policy
 
 The standalone consumer compiles against the seven public `rterm-*` packages at

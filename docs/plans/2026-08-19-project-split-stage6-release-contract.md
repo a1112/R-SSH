@@ -88,10 +88,15 @@ The contract must pin:
 {
   "schema_version": 1,
   "api_compatibility_line": "0.1",
-  "last_known_good_rterm_ref": "31e40c191fcaaed118f5a8822854a66882de4564",
+  "last_known_good_rterm_ref": "0e8ebd5de22758275cbb6a849c19c032268d7fac",
   "vendor_patch_strategy": "consumer-root-path-patch"
 }
 ```
+
+The Stage 6 LKG is the verified Task 0 boundary commit, not the Stage 5 merge.
+Stage 5 still allowed `rterm-runtime` to depend on product crates, so it cannot
+serve as a rollback input after the zero-reverse-dependency public identity
+boundary is established.
 
 Document that patch releases are compatible additions/fixes, breaking changes require the next minor version, releases use immutable commits, and Stage 7 remains unauthorized.
 

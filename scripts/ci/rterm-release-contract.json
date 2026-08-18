@@ -1,9 +1,48 @@
 {
   "schema_version": 1,
   "api_compatibility_line": "0.1",
-  "last_known_good_rterm_ref": "31e40c191fcaaed118f5a8822854a66882de4564",
+  "last_known_good_rterm_ref": "0e8ebd5de22758275cbb6a849c19c032268d7fac",
   "vendor_patch_strategy": "consumer-root-path-patch",
   "history_map_file": "docs/release/rterm-history-paths.txt",
+  "standalone_probe": {
+    "path": "contracts/rterm-consumer",
+    "command": ["cargo", "check", "--locked"],
+    "rollback_prepare_command": ["cargo", "generate-lockfile"]
+  },
+  "consumer_prepare_command": ["cargo", "generate-lockfile"],
+  "consumer_commands": [
+    [
+      "cargo",
+      "check",
+      "--locked",
+      "-p",
+      "rssh-app",
+      "--no-default-features",
+      "--features",
+      "production-gui"
+    ],
+    ["cargo", "test", "--locked", "-p", "rssh-ssh", "--all-targets"],
+    ["cargo", "test", "--locked", "-p", "rssh-pty", "--all-targets"],
+    ["cargo", "test", "--locked", "-p", "rssh-native", "--all-targets"],
+    [
+      "cargo",
+      "build",
+      "--locked",
+      "-p",
+      "rssh-app",
+      "--no-default-features",
+      "--features",
+      "production-gui,transfer-tools"
+    ],
+    [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "rssh-functional-tests",
+      "--all-targets"
+    ]
+  ],
   "packages": [
     {
       "name": "rterm-types",

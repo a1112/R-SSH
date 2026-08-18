@@ -57,7 +57,10 @@ class RTermReleaseContractTests(unittest.TestCase):
 
         self.assertEqual(contract["schema_version"], 1)
         self.assertEqual(contract["api_compatibility_line"], "0.1")
-        self.assertRegex(contract["last_known_good_rterm_ref"], r"^[0-9a-f]{40}$")
+        self.assertEqual(
+            contract["last_known_good_rterm_ref"],
+            "0e8ebd5de22758275cbb6a849c19c032268d7fac",
+        )
         self.assertEqual(
             contract["vendor_patch_strategy"], "consumer-root-path-patch"
         )
@@ -107,6 +110,46 @@ class RTermReleaseContractTests(unittest.TestCase):
         self.assertIn("missing package path", joined)
         self.assertIn("vendor tree drift", joined)
 
+    def test_rehearsal_commands_cover_probe_product_and_transport_gates(self):
+        contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            contract["standalone_probe"]["command"],
+            ["cargo", "check", "--locked"],
+        )
+        commands = contract["consumer_commands"]
+        self.assertIn(
+            [
+                "cargo",
+                "check",
+                "--locked",
+                "-p",
+                "rssh-app",
+                "--no-default-features",
+                "--features",
+                "production-gui",
+            ],
+            commands,
+        )
+        for package in ("rssh-ssh", "rssh-pty", "rssh-native", "rssh-functional-tests"):
+            self.assertIn(
+                ["cargo", "test", "--locked", "-p", package, "--all-targets"],
+                commands,
+            )
+        self.assertIn(
+            [
+                "cargo",
+                "build",
+                "--locked",
+                "-p",
+                "rssh-app",
+                "--no-default-features",
+                "--features",
+                "production-gui,transfer-tools",
+            ],
+            commands,
+        )
+
     def test_history_map_preserves_terminal_runtime_fonts_and_renderer_paths(self):
         rows = {
             tuple(line.split("|"))
@@ -153,6 +196,7 @@ class RTermReleaseContractTests(unittest.TestCase):
         workspace = (REPOSITORY_ROOT / "Cargo.toml").read_text(encoding="utf-8")
 
         self.assertIn('exclude = ["contracts/rterm-consumer"]', workspace)
+        self.assertIn("[workspace]", manifest)
         dependency_block = manifest.split("[dependencies]", maxsplit=1)[1].split(
             "[patch.crates-io]", maxsplit=1
         )[0]
