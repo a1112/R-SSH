@@ -1,5 +1,5 @@
 [package]
-name = "rssh-core"
+name = "rssh-domain"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -7,7 +7,6 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-rssh-domain = { path = "../rssh-domain", version = "0.1.0" }
 rterm-types = { path = "../rterm-types", version = "0.1.0" }
 
 [lints]

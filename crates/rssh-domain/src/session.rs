@@ -1,4 +1,4 @@
-use crate::SessionId;
+use rterm_types::SessionId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionState {

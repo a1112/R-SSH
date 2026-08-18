@@ -4932,6 +4932,10 @@ dependencies = [
 [[package]]
 name = "rssh-core"
 version = "0.1.0"
+dependencies = [
+ "rssh-domain",
+ "rterm-types",
+]
 
 [[package]]
 name = "rssh-diagnostics"
@@ -4942,6 +4946,13 @@ dependencies = [
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rssh-domain"
+version = "0.1.0"
+dependencies = [
+ "rterm-types",
 ]
 
 [[package]]
@@ -5086,6 +5097,10 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
 ]
+
+[[package]]
+name = "rterm-types"
+version = "0.1.0"
 
 [[package]]
 name = "rtoolbox"

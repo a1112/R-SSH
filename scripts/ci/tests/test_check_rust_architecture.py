@@ -11,6 +11,30 @@ CHECKER = REPOSITORY_ROOT / "scripts" / "ci" / "check-rust-architecture.py"
 
 
 class RustArchitectureCheckerTests(unittest.TestCase):
+    def test_stage1_workspace_declares_types_domain_and_compatibility_facade(self):
+        workspace = (REPOSITORY_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        core = (REPOSITORY_ROOT / "crates" / "rssh-core" / "Cargo.toml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('"crates/rterm-types"', workspace)
+        self.assertIn('"crates/rssh-domain"', workspace)
+        self.assertIn("rterm-types", core)
+        self.assertIn("rssh-domain", core)
+
+    def test_stage1_foundation_manifests_obey_one_way_dependency_direction(self):
+        types = (
+            REPOSITORY_ROOT / "crates" / "rterm-types" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+        domain = (
+            REPOSITORY_ROOT / "crates" / "rssh-domain" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+
+        self.assertNotIn("rssh-", types)
+        self.assertIn("rterm-types", domain)
+        for forbidden in ("rssh-app", "rssh-runtime", "rssh-renderer", "rssh-ssh"):
+            self.assertNotIn(forbidden, domain)
+
     def test_quality_workflow_runs_the_checked_in_architecture_policy(self):
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
