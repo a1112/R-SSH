@@ -8,7 +8,6 @@ use std::{
     time::Duration,
 };
 
-use rssh_domain::PaneId;
 use rterm_runtime::{
     EffectSequence, EffectSequenceCursor, EffectSequenceError, MetadataChange, PaneGeneration,
     PaneMetadataDelta, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
@@ -16,7 +15,7 @@ use rterm_runtime::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,
     SessionTransport, SubmitResult, UserVarDelta,
 };
-use rterm_types::{DamageRegion, TerminalSize};
+use rterm_types::{DamageRegion, PaneId, TerminalSize};
 
 #[derive(Debug, PartialEq, Eq)]
 struct NeutralSnapshot {
@@ -674,6 +673,8 @@ fn core_manifest_and_public_source_stay_transport_neutral() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let manifest = fs::read_to_string(root.join("Cargo.toml")).expect("read runtime manifest");
     for forbidden in [
+        "rssh-core",
+        "rssh-domain",
         "rssh-app",
         "rssh-native",
         "rssh-renderer",
@@ -707,6 +708,8 @@ fn core_manifest_and_public_source_stay_transport_neutral() {
             .expect("read bounded mailbox API fixture");
     let source = format!("{source}\n{bounded_mailbox_fixture}");
     for forbidden in [
+        "rssh_core::",
+        "rssh_domain::",
         "winit::",
         "wgpu::",
         "raw_window_handle",

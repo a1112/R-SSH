@@ -5115,8 +5115,6 @@ dependencies = [
  "base64 0.22.1",
  "flate2",
  "proc-macro2",
- "rssh-core",
- "rssh-domain",
  "rterm-terminal",
  "rterm-types",
  "sha2 0.11.0",

@@ -3,7 +3,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rssh_domain::PaneId;
 use rterm_runtime::testing::{
     ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction,
 };
@@ -11,6 +10,7 @@ use rterm_runtime::{
     BatchPolicy, MailboxLimits, PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub,
     SessionExit, SubmitResult, TerminalRuntime,
 };
+use rterm_types::PaneId;
 use rterm_types::TerminalSize;
 
 fn scripted_session(

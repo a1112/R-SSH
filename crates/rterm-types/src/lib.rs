@@ -1,5 +1,21 @@
 //! Dependency-free terminal and session value types shared by R-Term crates.
 
+/// Stable pane identity shared across the terminal runtime boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PaneId(u64);
+
+impl PaneId {
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId(u64);
 

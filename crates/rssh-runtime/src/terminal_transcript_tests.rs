@@ -282,6 +282,11 @@ fn assert_current_test_body(record: &FrozenFixtureRecord, current: &str) {
             record.current_test_name,
             "terminal_queries_fail_closed_on_oversized_reserved_queries_and_recovers"
         ),
+        "approved:neutral-type-boundary" => assert!(matches!(
+            record.current_test_name,
+            "reports_damage_regions_from_terminal_feed"
+                | "delays_synchronized_output_damage_until_mode_resets"
+        )),
         "approved:hyperlink-string-to-arc" => assert!(matches!(
             record.current_test_name,
             "row_rotation_preserves_wrapped_overflow_and_seqno"
@@ -2394,7 +2399,7 @@ fn every_current_test_body_is_bound_to_its_frozen_record() {
             .iter()
             .filter(|record| record.migration.starts_with("approved:"))
             .count(),
-        4,
+        6,
         "reviewed source-body migrations"
     );
 }

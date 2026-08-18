@@ -73,7 +73,7 @@ class RustArchitectureCheckerTests(unittest.TestCase):
                 "rterm-render-wgpu",
             ),
             "rssh-ssh": ("rterm-types",),
-            "rssh-runtime": ("rterm-types", "rssh-domain"),
+            "rssh-runtime": ("rterm-types",),
             "rssh-native": ("rterm-types", "rssh-domain"),
         }
 
