@@ -4206,8 +4206,7 @@ fn release_bootstrap_staging_after_gpu_activation(bootstrap_frame: &mut Vec<u8>)
 
 fn visible_snapshot_cell_count(snapshot: &TerminalRenderSnapshot) -> usize {
     snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .filter(|cell| !cell.text.trim().is_empty())
         .count()
 }
@@ -4633,8 +4632,7 @@ impl WindowMetrics {
             .next()
             .unwrap_or_default();
         let ordered_text = snapshot
-            .cells()
-            .iter()
+            .iter_cells()
             .filter(|cell| !cell.continuation)
             .flat_map(|cell| cell.text.bytes())
             .collect::<Vec<_>>();

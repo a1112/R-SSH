@@ -395,6 +395,42 @@ fn stage0_documentation_freezes_metric_semantics_schema_and_gate_status() {
     assert!(readme.contains("stage0-schema-v2.md"));
 }
 
+#[test]
+fn stage4_snapshot_cache_gate_runs_only_on_the_fixed_release_runner() {
+    let release = read_repo_file(".github/workflows/release.yml");
+    let pull_request_ci = read_repo_file(".github/workflows/ci.yml");
+    let runner = read_repo_file("scripts/ci/run-stage4-snapshot-cache.ps1");
+    let core_manifest = read_repo_file("crates/rterm-render-core/Cargo.toml");
+
+    for contract in [
+        "scripts/ci/run-stage4-snapshot-cache.ps1",
+        "-Profile release",
+        "-Stage0Aggregate artifacts/stage0-diagnostics/aggregate.json",
+        "stage4-snapshot-cache-windows-x64",
+    ] {
+        assert!(
+            release.contains(contract),
+            "release workflow is missing {contract}"
+        );
+    }
+    assert!(!pull_request_ci.contains("run-stage4-snapshot-cache.ps1"));
+    for contract in [
+        "cargo bench --locked -p rterm-render-core --bench snapshot_memory",
+        "ansi-scroll-query",
+        "$parserBaseline * 0.98",
+        "empty-window",
+        "ssh1",
+        "Stage 4 memory trend must be downward",
+    ] {
+        assert!(
+            runner.contains(contract),
+            "Stage 4 runner is missing {contract}"
+        );
+    }
+    assert!(core_manifest.contains("name = \"snapshot_memory\""));
+    assert!(core_manifest.contains("harness = false"));
+}
+
 fn assert_workload(baseline: &Value, name: &str, measured: [u64; 6], gates: [u64; 4]) {
     let workload = &baseline["runtime"]["workloads"][name];
     assert_eq!(

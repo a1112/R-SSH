@@ -6,7 +6,13 @@ use sha2::{Digest, Sha256};
 const DEADLINE: Duration = Duration::from_secs(30);
 
 fn app() -> PathBuf {
-    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/rssh-app");
+    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .expect("functional tests belong to the workspace")
+        .to_path_buf();
+    let mut path = cargo_target_root_from(&workspace, std::env::var_os("CARGO_TARGET_DIR"))
+        .join("debug/rssh-app");
     if cfg!(windows) {
         path.set_extension("exe");
     }
@@ -16,6 +22,27 @@ fn app() -> PathBuf {
         path.display()
     );
     path
+}
+
+fn cargo_target_root_from(
+    workspace: &std::path::Path,
+    configured_target: Option<std::ffi::OsString>,
+) -> PathBuf {
+    configured_target.map_or_else(|| workspace.join("target"), PathBuf::from)
+}
+
+#[test]
+fn transport_contract_respects_the_configured_cargo_target_directory() {
+    let workspace = std::path::Path::new("workspace");
+    let external = PathBuf::from("external-target");
+    assert_eq!(
+        cargo_target_root_from(workspace, Some(external.clone().into_os_string())),
+        external
+    );
+    assert_eq!(
+        cargo_target_root_from(workspace, None),
+        workspace.join("target")
+    );
 }
 
 #[test]

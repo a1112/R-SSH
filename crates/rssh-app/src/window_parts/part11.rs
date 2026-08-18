@@ -3353,8 +3353,7 @@ fn trim_trailing_spaces(text: &mut String) {
 #[cfg(test)]
 fn snapshot_character(snapshot: &TerminalRenderSnapshot, row: u16, column: u16) -> char {
     snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .find(|cell| cell.row == row && cell.column == column)
         .map_or(' ', |cell| cell.ch)
 }

@@ -1,4 +1,8 @@
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 #[test]
 fn release_renderer_excludes_identifier_limit_test_api_and_artifacts() {
@@ -6,8 +10,7 @@ fn release_renderer_excludes_identifier_limit_test_api_and_artifacts() {
         .parent()
         .and_then(Path::parent)
         .expect("renderer crate belongs to workspace");
-    let probe = workspace
-        .join("target")
+    let probe = cargo_target_root(workspace)
         .join("tmp")
         .join("renderer-release-api");
     let source = probe.join("src");
@@ -43,6 +46,31 @@ fn release_renderer_excludes_identifier_limit_test_api_and_artifacts() {
     ] {
         verify_release_mode(&probe, mode, debug_assertions, rustflags);
     }
+}
+
+fn cargo_target_root(workspace: &Path) -> PathBuf {
+    cargo_target_root_from(workspace, std::env::var_os("CARGO_TARGET_DIR"))
+}
+
+fn cargo_target_root_from(
+    workspace: &Path,
+    configured_target: Option<std::ffi::OsString>,
+) -> PathBuf {
+    configured_target.map_or_else(|| workspace.join("target"), PathBuf::from)
+}
+
+#[test]
+fn release_api_probe_respects_the_configured_cargo_target_directory() {
+    let workspace = Path::new("workspace");
+    let external = PathBuf::from("external-target");
+    assert_eq!(
+        cargo_target_root_from(workspace, Some(external.clone().into_os_string())),
+        external
+    );
+    assert_eq!(
+        cargo_target_root_from(workspace, None),
+        workspace.join("target")
+    );
 }
 
 fn toml_path(path: &Path) -> String {

@@ -74,6 +74,24 @@ jobs:
             artifacts/stage0-diagnostics/raw
             artifacts/stage0-diagnostics/aggregate.json
 
+      - name: Enforce Stage 4 snapshot, cache, parser, and memory contracts
+        shell: pwsh
+        run: >
+          ./scripts/ci/run-stage4-snapshot-cache.ps1
+          -Profile release
+          -Warmups 2
+          -Samples 7
+          -Stage0Aggregate artifacts/stage0-diagnostics/aggregate.json
+          -OutputDirectory artifacts/stage4-snapshot-cache
+          -SkipBuild
+
+      - name: Upload Stage 4 snapshot and cache evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage4-snapshot-cache-windows-x64
+          if-no-files-found: error
+          path: artifacts/stage4-snapshot-cache/report.json
+
       - name: Enforce absolute and same-machine median budgets
         shell: pwsh
         run: |

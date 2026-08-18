@@ -8,10 +8,7 @@ use std::{
 };
 
 use font8x8::UnicodeFonts as _;
-use rssh_terminal::{
-    Cell, Color, CursorShape, InlineImageFormat, Terminal, TerminalGrid, UnderlineStyle,
-    VerticalAlign,
-};
+use rssh_terminal::{Cell, Color, CursorShape, InlineImageFormat, Terminal, TerminalGrid};
 use rterm_render_core::render_inline_images_from_terminal;
 use rterm_types::TerminalSize;
 
@@ -831,10 +828,10 @@ fn render_snapshot_preserves_grapheme_once_on_leader() {
         .iter()
         .find(|cell| cell.column == 1)
         .unwrap();
-    assert_eq!(leader.text, "👍🏽");
+    assert_eq!(leader.text.as_ref(), "👍🏽");
     assert_eq!(leader.columns, 2);
     assert!(!leader.continuation);
-    assert_eq!(continuation.text, "");
+    assert_eq!(continuation.text.as_ref(), "");
     assert!(continuation.continuation);
     assert_eq!(continuation.ch, ' ');
 }
@@ -1071,7 +1068,7 @@ fn render_snapshot_preserves_iterm_inline_image_metadata() {
             source_height: None,
             target_x: None,
             target_y: None,
-            data: b"ABCD".to_vec(),
+            data: b"ABCD".to_vec().into(),
         }]
     );
 }
@@ -1320,18 +1317,13 @@ fn graphics_fragment_snapshot_keeps_parent_data_when_only_offset_fragment_is_in_
     assert_eq!(inline_image_fragments[0].row, 0);
     assert_eq!(inline_image_parent_origins, vec![(0, -1)]);
 
-    let snapshot = TerminalRenderSnapshot {
-        cells: Vec::new(),
-        cursor: None,
-        cursor_color: None,
+    let snapshot = TerminalRenderSnapshot::from_inline_image_projection((
         inline_images,
         inline_image_fragments,
         inline_image_parent_origins,
         empty_inline_image_attachment_parents,
         inline_image_attachment_viewport_offsets,
-        inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
-        scrollback_offset: 0,
-    };
+    ));
     let mut target = vec![0; 24 * 16 * 4];
     let renderer = PixelRenderer::default();
     renderer.render(&snapshot, &mut target, 24, 16, 8, 16);
@@ -1555,18 +1547,13 @@ fn graphics_fragment_viewport_retains_runtime_boundary_candidate_without_default
     assert_eq!(inline_image_fragments.len(), 1);
     assert_eq!(inline_image_parent_origins, vec![(0, -1)]);
 
-    let snapshot = TerminalRenderSnapshot {
-        cells: Vec::new(),
-        cursor: None,
-        cursor_color: None,
+    let snapshot = TerminalRenderSnapshot::from_inline_image_projection((
         inline_images,
         inline_image_fragments,
         inline_image_parent_origins,
         empty_inline_image_attachment_parents,
         inline_image_attachment_viewport_offsets,
-        inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
-        scrollback_offset: 0,
-    };
+    ));
     let mut target = vec![0; 24 * 20 * 4];
     PixelRenderer::default().render(&snapshot, &mut target, 24, 20, 8, 20);
     assert_eq!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);
@@ -1617,18 +1604,13 @@ fn graphics_fragment_viewport_does_not_draw_default_boundary_false_positive() {
     assert_eq!(inline_images.len(), 1);
     assert_eq!(inline_image_fragments.len(), 1);
 
-    let snapshot = TerminalRenderSnapshot {
-        cells: Vec::new(),
-        cursor: None,
-        cursor_color: None,
+    let snapshot = TerminalRenderSnapshot::from_inline_image_projection((
         inline_images,
         inline_image_fragments,
         inline_image_parent_origins,
         empty_inline_image_attachment_parents,
         inline_image_attachment_viewport_offsets,
-        inline_image_attachment_viewport_clips: std::collections::HashMap::new(),
-        scrollback_offset: 0,
-    };
+    ));
     let mut target = vec![0; 24 * 8 * 4];
     PixelRenderer::default().render(&snapshot, &mut target, 24, 8, 8, 8);
     assert_ne!(pixel_at(&target, 24, 0, 0), [255, 0, 0, 255]);
@@ -1694,56 +1676,8 @@ fn render_snapshot_can_offset_rows_and_overlay_cells() {
 
     let snapshot = TerminalRenderSnapshot::from_terminal(&terminal)
         .with_row_offset(1)
-        .with_overlay_cells([RenderCell {
-            row: 0,
-            column: 0,
-            text: "T".to_owned(),
-            columns: 1,
-            continuation: false,
-            ch: 'T',
-            foreground: Color::Default,
-            background: Color::Default,
-            underline_color: Color::Default,
-            underline_style: UnderlineStyle::None,
-            bold: false,
-            faint: false,
-            italic: false,
-            blink: false,
-            rapid_blink: false,
-            underline: false,
-            double_underline: false,
-            conceal: false,
-            strikethrough: false,
-            overline: false,
-            vertical_align: VerticalAlign::Baseline,
-            inverse: false,
-            hyperlink: None,
-        }])
-        .with_overlay_cells([RenderCell {
-            row: 1,
-            column: 0,
-            text: "O".to_owned(),
-            columns: 1,
-            continuation: false,
-            ch: 'O',
-            foreground: Color::Default,
-            background: Color::Default,
-            underline_color: Color::Default,
-            underline_style: UnderlineStyle::None,
-            bold: false,
-            faint: false,
-            italic: false,
-            blink: false,
-            rapid_blink: false,
-            underline: false,
-            double_underline: false,
-            conceal: false,
-            strikethrough: false,
-            overline: false,
-            vertical_align: VerticalAlign::Baseline,
-            inverse: false,
-            hyperlink: None,
-        }]);
+        .with_overlay_cells([RenderCell::new(0, 0, "T")])
+        .with_overlay_cells([RenderCell::new(1, 0, "O")]);
 
     assert_eq!(snapshot_char(&snapshot, 0, 0), Some('T'));
     assert_eq!(snapshot_char(&snapshot, 1, 0), Some('O'));

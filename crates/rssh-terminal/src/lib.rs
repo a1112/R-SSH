@@ -67,7 +67,7 @@ pub struct StableSelectionRange {
     pub rectangular: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Color {
     Default,
     Indexed(u8),
@@ -112,7 +112,7 @@ impl CursorStyle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnderlineStyle {
     None,
     Single,
@@ -122,7 +122,7 @@ pub enum UnderlineStyle {
     Dashed,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum VerticalAlign {
     #[default]
     Baseline,

@@ -4,7 +4,7 @@ fn snapshot_contains_text(snapshot: &TerminalRenderSnapshot, text: &str) -> bool
     snapshot
         .cells()
         .iter()
-        .map(|cell| cell.text.as_str())
+        .map(|cell| cell.text.as_ref())
         .collect::<String>()
         .contains(text)
 }

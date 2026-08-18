@@ -49,7 +49,8 @@ use rssh_ssh::{
 };
 use rterm_render_wgpu::{GpuFramePlanner, gpu::{GpuFrameStatus, GpuPresentationMetrics}};
 use rterm_render_core::{
-    RenderCell, RenderCellColorRole, RenderGeometry, SCROLLBAR_WIDTH, TerminalRenderSnapshot,
+    RenderCell, RenderCellColorRole, RenderGeometry, RenderStyle, SCROLLBAR_WIDTH,
+    TerminalRenderSnapshot,
 };
 use rterm_render_cpu::{
     PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,

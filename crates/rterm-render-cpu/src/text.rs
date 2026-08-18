@@ -8,7 +8,7 @@ use rssh_fonts::{
     FontCatalog, FontConfig, RasterCache, RasterCacheConfig, RasterContent, RasterRequest,
     ShapedRow, TerminalCluster, TerminalShaper,
 };
-use rssh_terminal::{Color, UnderlineStyle, VerticalAlign};
+use rssh_terminal::VerticalAlign;
 
 use super::{
     CursorRenderStyle, DamageRegion, ImageDrawLayer, PixelRenderer, Rect, RenderCell,
@@ -249,7 +249,7 @@ fn render_base_layers(
         renderer.animation_frame,
         renderer.animation_elapsed_ms,
     );
-    for cell in snapshot.cells() {
+    for cell in snapshot.iter_cells() {
         let mut projected = cell.clone();
         projected.column = visual_columns
             .get(&(cell.row, cell.column))
@@ -287,8 +287,7 @@ fn snapshot_visual_columns(
     let rows = u16::try_from(geometry.target_height / geometry.cell_height).unwrap_or(u16::MAX);
     let mut result = HashMap::new();
     for row in snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .filter(|cell| cell.row < rows && !cell.continuation)
         .map(|cell| cell.row)
         .collect::<BTreeSet<_>>()
@@ -345,8 +344,7 @@ fn render_top_layers(
                 ..cursor
             });
         let cursor_cell = snapshot
-            .cells()
-            .iter()
+            .iter_cells()
             .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
         let colors = cursor_colors(
             snapshot,
@@ -494,8 +492,7 @@ fn render_shaped_foreground(
     let columns = u16::try_from(geometry.target_width / geometry.cell_width).unwrap_or(u16::MAX);
     let rows = u16::try_from(geometry.target_height / geometry.cell_height).unwrap_or(u16::MAX);
     let row_numbers = snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .filter(|cell| cell.row < rows && !cell.continuation)
         .map(|cell| cell.row)
         .collect::<BTreeSet<_>>();
@@ -833,8 +830,7 @@ fn blend_rgba_pixel(surface: &mut Surface<'_>, x: u32, y: u32, foreground: [u8; 
 pub fn row_shape_plan(snapshot: &TerminalRenderSnapshot, row: u16, columns: u16) -> RowShapePlan {
     let mut clusters = snapshot.terminal_clusters_for_row(row, columns);
     let cells = snapshot
-        .cells()
-        .iter()
+        .iter_cells()
         .filter(|cell| cell.row == row)
         .map(|cell| (usize::from(cell.column), cell))
         .collect::<HashMap<_, _>>();
@@ -897,31 +893,7 @@ pub fn vertical_align_baseline(baseline: f32, cell_height: u32, style: &RenderCe
 }
 
 fn blank_cell(row: u16, column: usize) -> RenderCell {
-    RenderCell {
-        row,
-        column: u16::try_from(column).unwrap_or(u16::MAX),
-        text: " ".to_owned(),
-        columns: 1,
-        continuation: false,
-        ch: ' ',
-        foreground: Color::Default,
-        background: Color::Default,
-        underline_color: Color::Default,
-        underline_style: UnderlineStyle::None,
-        bold: false,
-        faint: false,
-        italic: false,
-        blink: false,
-        rapid_blink: false,
-        underline: false,
-        double_underline: false,
-        conceal: false,
-        strikethrough: false,
-        overline: false,
-        vertical_align: VerticalAlign::Baseline,
-        inverse: false,
-        hyperlink: None,
-    }
+    RenderCell::new(row, u16::try_from(column).unwrap_or(u16::MAX), " ")
 }
 
 fn same_shape_run_style(left: &RenderCell, right: &RenderCell) -> bool {

@@ -2,9 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rssh_fonts::{FontCatalog, FontConfig, FontSource, RasterCacheConfig};
-use rssh_terminal::{Color, CursorShape, Terminal, UnderlineStyle, VerticalAlign};
+use rssh_terminal::{Color, CursorShape, Terminal};
 use rterm_render_cpu::{
-    CpuTextRenderer, DamageRegion, PixelRenderer, RenderCell, RenderGeometry,
+    CpuTextRenderer, DamageRegion, PixelRenderer, RenderCell, RenderGeometry, RenderStyle,
     TerminalRenderSnapshot, TextBackend,
 };
 use rterm_types::TerminalSize;
@@ -115,31 +115,11 @@ fn cell_has_red_cursor_foreground(target: &[u8], columns: usize, column: usize) 
 }
 
 fn overlay_cell(column: u16, text: &str, foreground: Color, background: Color) -> RenderCell {
-    RenderCell {
-        row: 0,
-        column,
-        text: text.to_owned(),
-        columns: 1,
-        continuation: false,
-        ch: text.chars().next().unwrap_or(' '),
+    RenderCell::new(0, column, text).with_style(RenderStyle {
         foreground,
         background,
-        underline_color: Color::Default,
-        underline_style: UnderlineStyle::None,
-        bold: false,
-        faint: false,
-        italic: false,
-        blink: false,
-        rapid_blink: false,
-        underline: false,
-        double_underline: false,
-        conceal: false,
-        strikethrough: false,
-        overline: false,
-        vertical_align: VerticalAlign::Baseline,
-        inverse: false,
-        hyperlink: None,
-    }
+        ..RenderStyle::default()
+    })
 }
 
 #[test]
@@ -639,12 +619,10 @@ fn bold_and_italic_cells_reach_shaping_attributes() {
 
 #[test]
 fn orphan_continuation_is_projected_as_a_blank_without_span_gaps() {
-    let orphan = RenderCell {
-        continuation: true,
-        text: String::new(),
-        columns: 0,
-        ..overlay_cell(1, " ", Color::Default, Color::Default)
-    };
+    let mut orphan = overlay_cell(1, " ", Color::Default, Color::Default);
+    orphan.continuation = true;
+    orphan.text = String::new().into();
+    orphan.columns = 0;
     let snapshot = snapshot("", 3).with_overlay_cells([orphan]);
 
     let clusters = snapshot.terminal_clusters_for_row(0, 3);

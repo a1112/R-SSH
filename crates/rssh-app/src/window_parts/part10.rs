@@ -2229,8 +2229,7 @@ impl NativeWindowApp {
         let mouse_cell = self.mouse_cell_for_active_pane()?;
         let snapshot = self.pane_snapshot(mouse_cell.pane_id)?;
         if let Some(hyperlink) = snapshot
-            .cells()
-            .iter()
+            .iter_cells()
             .find(|cell| cell.row == mouse_cell.row && cell.column == mouse_cell.column)
             .and_then(|cell| cell.hyperlink.clone())
         {

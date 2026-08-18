@@ -343,7 +343,7 @@ impl GpuFramePlanner {
             state.animation_frame,
             state.animation_elapsed_ms,
         );
-        for cell in snapshot.cells() {
+        for cell in snapshot.iter_cells() {
             let (foreground, background) = effective_cell_colors(
                 cell,
                 state.bold_brightens_ansi_colors,
