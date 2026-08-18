@@ -91,6 +91,56 @@ class RustArchitectureCheckerTests(unittest.TestCase):
         ):
             self.assertIn(required, readme)
 
+    def test_stage2_runtime_package_is_transport_neutral(self):
+        manifest = (
+            REPOSITORY_ROOT / "crates" / "rssh-runtime" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+        transport = (
+            REPOSITORY_ROOT / "crates" / "rssh-runtime" / "src" / "transport.rs"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('name = "rterm-runtime"', manifest)
+        for forbidden in (
+            "rssh-pty",
+            "rssh-ssh",
+            "local-transport",
+            "ssh-transport",
+            "transport-adapters",
+        ):
+            self.assertNotIn(forbidden, manifest)
+        self.assertNotIn("mod local", transport)
+        self.assertNotIn("mod ssh", transport)
+        self.assertFalse(
+            (REPOSITORY_ROOT / "crates" / "rssh-runtime" / "src" / "transport" / "local.rs").exists()
+        )
+        self.assertFalse(
+            (REPOSITORY_ROOT / "crates" / "rssh-runtime" / "src" / "transport" / "ssh.rs").exists()
+        )
+
+    def test_stage2_concrete_crates_own_opt_in_runtime_adapters(self):
+        for crate in ("rssh-pty", "rssh-ssh"):
+            root = REPOSITORY_ROOT / "crates" / crate
+            manifest = (root / "Cargo.toml").read_text(encoding="utf-8")
+            library = (root / "src" / "lib.rs").read_text(encoding="utf-8")
+
+            self.assertIn("runtime-adapter", manifest, crate)
+            self.assertIn("rterm-runtime", manifest, crate)
+            self.assertIn("runtime_adapter", library, crate)
+            self.assertTrue((root / "src" / "runtime_adapter.rs").exists(), crate)
+            self.assertTrue((root / "tests" / "runtime_adapter.rs").exists(), crate)
+
+    def test_readme_documents_stage2_runtime_transport_ownership(self):
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        for required in (
+            "rterm-runtime",
+            "transport-neutral",
+            "runtime-adapter",
+            "rssh-pty",
+            "rssh-ssh",
+        ):
+            self.assertIn(required, readme)
+
     def test_quality_workflow_runs_the_checked_in_architecture_policy(self):
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
