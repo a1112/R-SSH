@@ -460,6 +460,7 @@ T23-PANES-dee82a6242b0|crates/rssh-app/src/local.rs|terminal_output_filter_handl
 T23-RUNTIME-de1e738f14dd|crates/rssh-app/src/main.rs|maps_pty_success_to_process_success|1|rssh-app|crate|runtime
 T23-RUNTIME-18f96b432a78|crates/rssh-app/src/main.rs|maps_pty_failure_to_process_exit_code|1|rssh-app|crate|runtime
 T23-RUNTIME-64fc609b77ec|crates/rssh-app/src/main.rs|maps_large_pty_failure_to_generic_process_failure|1|rssh-app|crate|runtime
+T23-COMPATIBILITY-723a5045502c|crates/rssh-app/src/main.rs|reduced_gui_build_reports_disabled_diagnostic_entrypoints|1|rssh-app|crate|compatibility
 T23-COMPATIBILITY-03a994c24078|crates/rssh-app/src/main.rs|gui_dispatch_preserves_the_process_start_instant|1|rssh-app|crate|compatibility
 T23-COMPATIBILITY-d2fae065530f|crates/rssh-app/src/main.rs|gui_profile_dispatch_preserves_the_process_start_instant|1|rssh-app|crate|compatibility
 T23-COMPATIBILITY-f8ad3623f2de|crates/rssh-app/src/platform.rs|macos_uses_application_support_without_xdg_override|1|rssh-app|platform::tests|compatibility

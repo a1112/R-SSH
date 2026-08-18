@@ -7,7 +7,23 @@ rust-version.workspace = true
 version.workspace = true
 
 [features]
-default = []
+default = ["developer-full"]
+developer-full = [
+    "production-gui",
+    "image-gif",
+    "image-legacy",
+    "transfer-tools",
+    "diagnostic-tools",
+]
+production-gui = ["native-gui", "ssh", "local-pty", "image-basic"]
+native-gui = []
+ssh = []
+local-pty = []
+image-basic = ["rterm-render-cpu/image-basic", "rterm-render-wgpu/image-basic"]
+image-gif = ["rterm-render-cpu/image-gif", "rterm-render-wgpu/image-gif"]
+image-legacy = ["rterm-render-cpu/image-legacy", "rterm-render-wgpu/image-legacy"]
+transfer-tools = []
+diagnostic-tools = []
 functional-test-observer = ["dep:rssh-functional-tests"]
 
 [dependencies]
@@ -26,8 +42,8 @@ rssh-functional-tests = { path = "../rssh-functional-tests", version = "0.1.0", 
 rssh-native = { path = "../rssh-native", version = "0.1.0" }
 rssh-pty = { path = "../rssh-pty", version = "0.1.0", features = ["runtime-adapter"] }
 rterm-render-core = { path = "../rterm-render-core", version = "0.1.0" }
-rterm-render-cpu = { path = "../rterm-render-cpu", version = "0.1.0" }
-rterm-render-wgpu = { path = "../rterm-render-wgpu", version = "0.1.0" }
+rterm-render-cpu = { path = "../rterm-render-cpu", version = "0.1.0", default-features = false }
+rterm-render-wgpu = { path = "../rterm-render-wgpu", version = "0.1.0", default-features = false }
 rterm-runtime = { path = "../rssh-runtime", version = "0.1.0" }
 rssh-ssh = { path = "../rssh-ssh", version = "0.1.0", features = ["runtime-adapter"] }
 rssh-terminal = { package = "rterm-terminal", path = "../rssh-terminal", version = "0.1.0" }

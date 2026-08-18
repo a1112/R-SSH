@@ -1,13 +1,15 @@
 use std::{
     cmp::Ordering,
     collections::{HashMap, HashSet},
-    io::Cursor,
     sync::Arc,
 };
 
 use font8x8::{BASIC_FONTS, UnicodeFonts};
+#[cfg(feature = "image-gif")]
 use image::AnimationDecoder;
 use rssh_terminal::{Color, CursorShape, InlineImageFormat, UnderlineStyle, VerticalAlign};
+#[cfg(feature = "image-gif")]
+use std::io::Cursor;
 
 #[doc(hidden)]
 pub mod text;
@@ -3615,14 +3617,20 @@ fn decode_image_rgba(
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
 ) -> Option<DecodedImage> {
+    #[cfg(not(feature = "image-gif"))]
+    let _ = (animation_frame, animation_elapsed_ms);
     if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        #[cfg(feature = "image-gif")]
         return decode_gif_frame_rgba(data, animation_frame, animation_elapsed_ms);
+        #[cfg(not(feature = "image-gif"))]
+        return None;
     }
 
-    let image = image::load_from_memory(data)
-        .or_else(|_| image::load_from_memory_with_format(data, image::ImageFormat::Tga))
-        .ok()?
-        .to_rgba8();
+    let decoded = image::load_from_memory(data);
+    #[cfg(feature = "image-legacy")]
+    let decoded =
+        decoded.or_else(|_| image::load_from_memory_with_format(data, image::ImageFormat::Tga));
+    let image = decoded.ok()?.to_rgba8();
     let width = image.width();
     let height = image.height();
 
@@ -3633,6 +3641,7 @@ fn decode_image_rgba(
     })
 }
 
+#[cfg(feature = "image-gif")]
 fn decode_gif_frame_rgba(
     data: &[u8],
     animation_frame: usize,
@@ -3659,11 +3668,13 @@ fn decode_gif_frame_rgba(
     })
 }
 
+#[cfg(feature = "image-gif")]
 fn gif_frame_index_for_elapsed_ms(frames: &[image::Frame], elapsed_ms: u64) -> usize {
     let delays = frames.iter().map(gif_frame_delay_ms).collect::<Vec<_>>();
     animation_frame_index_for_delays(&delays, elapsed_ms)
 }
 
+#[cfg(feature = "image-gif")]
 fn gif_frame_delays_ms(data: &[u8]) -> Option<Vec<u64>> {
     if !data.starts_with(b"GIF87a") && !data.starts_with(b"GIF89a") {
         return None;
@@ -3671,6 +3682,11 @@ fn gif_frame_delays_ms(data: &[u8]) -> Option<Vec<u64>> {
     let decoder = image::codecs::gif::GifDecoder::new(Cursor::new(data)).ok()?;
     let frames = decoder.into_frames().collect_frames().ok()?;
     (!frames.is_empty()).then(|| frames.iter().map(gif_frame_delay_ms).collect())
+}
+
+#[cfg(not(feature = "image-gif"))]
+fn gif_frame_delays_ms(_data: &[u8]) -> Option<Vec<u64>> {
+    None
 }
 
 fn animation_frame_index_for_delays(delays: &[u64], elapsed_ms: u64) -> usize {
@@ -3693,6 +3709,7 @@ fn animation_frame_index_for_delays(delays: &[u64], elapsed_ms: u64) -> usize {
     0
 }
 
+#[cfg(feature = "image-gif")]
 fn gif_frame_delay_ms(frame: &image::Frame) -> u64 {
     let (numerator, denominator) = frame.delay().numer_denom_ms();
     if denominator == 0 {

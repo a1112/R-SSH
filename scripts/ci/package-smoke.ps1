@@ -117,12 +117,6 @@ $powerShellHost = if ($null -ne $pwshCommand) {
   (Get-Process -Id $PID).Path
 }
 
-function Assert-OkReport([string] $phase, [string] $json) {
-  $report = $json | ConvertFrom-Json
-  if ($report.ok -ne $true) { throw "$phase did not report ok=true" }
-  return $report
-}
-
 $originalLocation = Get-Location
 $oldExecutable = $env:RSSH_TEST_APP_EXECUTABLE
 $oldRequireOpenSsh = $env:RSSH_REQUIRE_OPENSSH
@@ -136,20 +130,6 @@ try {
   if ($version.pty_backend -ne $ExpectedPtyBackend) { throw "version PTY backend mismatch" }
   if ($version.version -ne $manifest.package.version) { throw "version mismatch with package manifest" }
   if ($version.native_ssh_backend -ne "russh") { throw "packaged native SSH backend is not russh" }
-
-  $doctorResult = Invoke-BoundedProcess -Phase "packaged doctor" -FilePath $binary -ArgumentList @("doctor", "--json") -TimeoutSeconds 30
-  $null = Assert-OkReport "doctor" $doctorResult.Stdout
-  $selfTestResult = Invoke-BoundedProcess -Phase "packaged self-test" -FilePath $binary -ArgumentList @("self-test", "--json") -TimeoutSeconds 60
-  $selfTest = Assert-OkReport "self-test" $selfTestResult.Stdout
-  foreach ($check in @("local-pty", "openssh-ssh", "openssh-sftp", "openssh-scp")) {
-    if (-not @($selfTest.checks | Where-Object { $_.name -eq $check -and $_.ok -eq $true })) {
-      throw "self-test is missing successful check: $check"
-    }
-  }
-  $benchArguments = @("bench", "--json", "--workload", "ansi-scroll-query", "--bytes", "1048576", "--chunk-size", "8192", "--render-frames", "3", "--idle-ms", "1")
-  $benchResult = Invoke-BoundedProcess -Phase "packaged benchmark gate" -FilePath $binary -ArgumentList $benchArguments -TimeoutSeconds 120
-  $bench = Assert-OkReport "benchmark" $benchResult.Stdout
-  if (@($bench.threshold_violations).Count -ne 0) { throw "benchmark reported threshold violations" }
 
   $launcher = Join-Path $packageRootPath "rssh-console.cmd"
   if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw "Windows console launcher is missing" }

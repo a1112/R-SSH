@@ -627,6 +627,19 @@ private-key authentication is disabled because the Rust RSA implementation has
 an unresolved timing-side-channel advisory; use the OpenSSH backend when a
 legacy RSA identity is unavoidable.
 
+Release packages build the native application with the minimal
+`production-gui` feature set: native GUI, native SSH, local PTY, and PNG/JPEG
+images. GIF and legacy DDS/Farbfeld/ICO/PNM/TGA/TIFF decoders are opt-in build
+features. Developer builds retain the full command inventory by default;
+`bench`, `doctor`, `self-test`, SFTP, and SCP are diagnostic/transfer entrypoints
+and are intentionally not exposed by the reduced packaged GUI binary. The two
+build profiles can be checked directly with:
+
+```sh
+cargo build --locked --release -p rssh-app
+cargo build --locked --release -p rssh-app --no-default-features --features production-gui
+```
+
 ### Stage 0 GUI diagnostics
 
 The cross-platform Stage 0 launcher measures a fresh empty native window and a

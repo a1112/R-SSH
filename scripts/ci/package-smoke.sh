@@ -127,34 +127,6 @@ PY
 )
   run_bounded "validate packaged macOS bundle identity" 30 python3 -c "$plist_validation" "$package_root" "$expected_target" "$temporary/macos-cli-version.json"
 fi
-run_bounded "packaged doctor" 30 "$binary" doctor --json > "$temporary/doctor.json"
-doctor_validation=$(cat <<'PY'
-import json, sys
-assert json.load(open(sys.argv[1], encoding='utf-8'))['ok'] is True
-PY
-)
-run_bounded "validate packaged doctor JSON" 30 python3 -c "$doctor_validation" "$temporary/doctor.json"
-run_bounded "packaged self-test" 60 "$binary" self-test --json > "$temporary/self-test.json"
-self_test_validation=$(cat <<'PY'
-import json, sys
-report = json.load(open(sys.argv[1], encoding='utf-8'))
-assert report['ok'] is True
-checks = {check['name']: check['ok'] for check in report['checks']}
-for name in ('local-pty', 'openssh-ssh', 'openssh-sftp', 'openssh-scp'):
-    assert checks.get(name) is True, name
-PY
-)
-run_bounded "validate packaged self-test JSON" 30 python3 -c "$self_test_validation" "$temporary/self-test.json"
-run_bounded "packaged benchmark gate" 120 "$binary" bench --json --workload ansi-scroll-query --bytes 1048576 --chunk-size 8192 --render-frames 3 --idle-ms 1 > "$temporary/bench.json"
-bench_validation=$(cat <<'PY'
-import json, sys
-report = json.load(open(sys.argv[1], encoding='utf-8'))
-assert report['ok'] is True
-assert report['threshold_violations'] == []
-PY
-)
-run_bounded "validate packaged benchmark JSON" 30 python3 -c "$bench_validation" "$temporary/bench.json"
-
 launcher="$package_root/rssh-console.sh"
 if [[ ! -x "$launcher" ]]; then printf 'packaged console launcher is missing or not executable\n' >&2; exit 1; fi
 run_bounded "packaged launcher preflight" 30 "$launcher" --preflight -- sh -c 'printf package-launcher-smoke'

@@ -6,11 +6,17 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+default = ["image-basic", "image-gif", "image-legacy"]
+image-basic = ["rterm-render-cpu/image-basic"]
+image-gif = ["rterm-render-cpu/image-gif"]
+image-legacy = ["rterm-render-cpu/image-legacy"]
+
 [dependencies]
 glyphon = "=0.12.0"
 raw-window-handle = { version = "0.6", features = ["std"] }
 rterm-render-core = { path = "../rterm-render-core", version = "0.1.0" }
-rterm-render-cpu = { path = "../rterm-render-cpu", version = "0.1.0" }
+rterm-render-cpu = { path = "../rterm-render-cpu", version = "0.1.0", default-features = false }
 rssh-fonts = { package = "rterm-fonts", path = "../rterm-fonts", version = "0.1.0" }
 rssh-terminal = { package = "rterm-terminal", path = "../rssh-terminal", version = "0.1.0" }
 wgpu = { version = "=30.0.0", default-features = false, features = ["std", "wgsl"] }
