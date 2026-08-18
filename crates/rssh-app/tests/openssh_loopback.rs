@@ -3,6 +3,10 @@ use std::{
     io::{self, Read as _, Write as _},
     net::{TcpListener, TcpStream},
     process::Command,
+    sync::{
+        OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -49,6 +53,24 @@ fn required_openssh_probe_rejects_an_empty_path_with_a_nonzero_child_exit() {
 #[test]
 fn required_openssh_probe_child() {
     if std::env::var_os("RSSH_OPENSSH_PROBE_CHILD").is_none() {
+        let cache = OnceLock::new();
+        let probes = AtomicUsize::new(0);
+        thread::scope(|scope| {
+            for _ in 0..8 {
+                let cache = &cache;
+                let probes = &probes;
+                scope.spawn(move || {
+                    assert_eq!(
+                        cached_openssh_availability(cache, || {
+                            probes.fetch_add(1, Ordering::SeqCst);
+                            Ok(true)
+                        }),
+                        Ok(true)
+                    );
+                });
+            }
+        });
+        assert_eq!(probes.load(Ordering::SeqCst), 1);
         return;
     }
     probe_openssh_tools_from_environment(&[OpenSshClientTool::Ssh])
@@ -56,8 +78,18 @@ fn required_openssh_probe_child() {
 }
 
 fn openssh_available() -> bool {
-    probe_openssh_tools_from_environment(&[OpenSshClientTool::Ssh])
-        .expect("required OpenSSH ssh probe")
+    static OPENSSH_AVAILABILITY: OnceLock<Result<bool, String>> = OnceLock::new();
+    cached_openssh_availability(&OPENSSH_AVAILABILITY, || {
+        probe_openssh_tools_from_environment(&[OpenSshClientTool::Ssh])
+    })
+    .expect("required OpenSSH ssh probe")
+}
+
+fn cached_openssh_availability(
+    cache: &OnceLock<Result<bool, String>>,
+    probe: impl FnOnce() -> Result<bool, String>,
+) -> Result<bool, String> {
+    cache.get_or_init(probe).clone()
 }
 
 fn run(command: Command) -> ChildOutput {
