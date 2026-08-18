@@ -178,6 +178,15 @@ composes the CPU bootstrap/fallback path with the WGPU path. The
 `rssh-renderer compatibility facade` remains implementation-free for one migration
 stage and re-exports the legacy public surface.
 
+Stage 4 reduces snapshot and cache retention without changing rendered output.
+Rows, graphemes, styles, hyperlinks, and inline-image payloads use shared immutable
+identities; damage updates replace only touched rows. Snapshot and image retention
+have independent byte budgets, while compatibility callers can still request a
+lazy flat cell view. The fixed Windows runner enforces full/damage equivalence,
+80×24 and 200×60 evidence, parser throughput of at least 98% of the checked-in
+baseline, and a downward Stage 0 memory trend. See the
+[Stage 4 snapshot/cache contract](docs/benchmarks/stage4-snapshot-cache.md).
+
 ## Local Commands
 
 ### Web terminal
