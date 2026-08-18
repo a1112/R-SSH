@@ -2,10 +2,10 @@ use std::fmt;
 use std::io::{self, Read, Write};
 use std::time::Duration;
 
-use rssh_core::TerminalSize;
 use rssh_pty::{
     PtyCommand, PtyExitStatus, PtyMasterClose, PtySession, PtySessionInterrupt, PtySize,
 };
+use rterm_types::TerminalSize;
 
 use super::{
     SessionControl, SessionExit, SessionExitSignal, SessionInterrupt, SessionParts,

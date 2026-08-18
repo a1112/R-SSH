@@ -5,7 +5,8 @@ use std::{
     time::Duration,
 };
 
-use rssh_core::{DamageRegion, PaneId};
+use rssh_domain::PaneId;
+use rterm_types::DamageRegion;
 
 use crate::RuntimeBatchMetrics;
 

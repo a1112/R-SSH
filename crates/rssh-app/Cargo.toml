@@ -28,7 +28,7 @@ rssh-pty = { path = "../rssh-pty", version = "0.1.0" }
 rssh-renderer = { path = "../rssh-renderer", version = "0.1.0" }
 rssh-runtime = { path = "../rssh-runtime", version = "0.1.0", features = ["transport-adapters"] }
 rssh-ssh = { path = "../rssh-ssh", version = "0.1.0" }
-rssh-terminal = { package = "rterm-terminal", path = "../rterm-terminal", version = "0.1.0" }
+rssh-terminal = { package = "rterm-terminal", path = "../rssh-terminal", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 softbuffer = "=0.4.8"

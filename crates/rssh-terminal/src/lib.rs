@@ -380,7 +380,7 @@ mod tests {
     };
 
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use rssh_core::{DamageRegion, TerminalSize};
+    use rterm_types::{DamageRegion, TerminalSize};
 
     use super::{
         Cell, CellAttachment, CellWidthOverride, Color, CursorShape, CursorStyle,

@@ -1,11 +1,11 @@
 use std::fmt::Write as _;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use rssh_core::DamageRegion;
 use rssh_terminal::{
     Cell, CellAttachment, CellContent, Color, CursorShape, InlineImageFormat, InlineImageFragment,
     ItermInlineImage, SemanticType, Terminal, TerminalScreenDomain, UnderlineStyle, VerticalAlign,
 };
+use rterm_types::DamageRegion;
 use sha2::{Digest, Sha256};
 
 pub(super) struct RuntimeStateView<'a> {

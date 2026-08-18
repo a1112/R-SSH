@@ -9,7 +9,7 @@ version.workspace = true
 [dependencies]
 base64 = "0.22"
 flate2 = "1"
-rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rterm-types = { path = "../rterm-types", version = "0.1.0" }
 smol_str = "0.2"
 unicode-normalization = "0.1"
 unicode-segmentation = "1"

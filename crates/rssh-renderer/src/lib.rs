@@ -8,11 +8,11 @@ use std::{
 
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use image::AnimationDecoder;
-pub use rssh_core::DamageRegion;
 use rssh_terminal::{
     Cell, Color, CursorShape, InlineImageFormat, InlineImageFragment, ItermInlineImage, Terminal,
     TerminalGrid, UnderlineStyle, VerticalAlign,
 };
+pub use rterm_types::DamageRegion;
 use sha2::{Digest, Sha256};
 
 pub mod gpu;
@@ -6979,11 +6979,11 @@ mod tests {
     };
 
     use font8x8::UnicodeFonts as _;
-    use rssh_core::TerminalSize;
     use rssh_terminal::{
         Cell, Color, CursorShape, InlineImageFormat, Terminal, TerminalGrid, UnderlineStyle,
         VerticalAlign,
     };
+    use rterm_types::TerminalSize;
 
     use super::{
         BASIC_FONTS, DamageRegion, DecodedImage, ImageDrawPlan, ImageTiePolicy, PixelRenderer,

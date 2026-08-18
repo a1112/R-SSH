@@ -5,7 +5,6 @@ use std::{
     time::Duration,
 };
 
-use rssh_core::TerminalSize;
 use rssh_fonts::{FontCatalog, FontConfig, FontSource, RasterCacheConfig};
 use rssh_renderer::{
     CpuTextRenderer, DamageRegion, PixelRenderer, RenderBoldBrightensAnsiColors, RenderGeometry,
@@ -17,6 +16,7 @@ use rssh_renderer::{
     terminal_snapshot_content_digest,
 };
 use rssh_terminal::{CursorShape, Terminal};
+use rterm_types::TerminalSize;
 
 static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 

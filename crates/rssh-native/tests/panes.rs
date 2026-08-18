@@ -1,4 +1,4 @@
-use rssh_core::PaneId;
+use rssh_domain::PaneId;
 use rssh_native::{
     CommandIntent, PaneSplitDirection, RuntimePortEffect, SpawnEffect, WindowEffect, WindowIntent,
     WindowPortEffect, WindowState,

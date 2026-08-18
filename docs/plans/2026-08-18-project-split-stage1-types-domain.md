@@ -59,7 +59,7 @@
 ## Task 4: Rename terminal and font packages
 
 **Files:**
-- Move: `crates/rssh-terminal` to `crates/rterm-terminal`
+- Keep the provenance-bound directory `crates/rssh-terminal`; rename its Cargo package to `rterm-terminal`
 - Move: `crates/rssh-fonts` to `crates/rterm-fonts`
 - Modify: both moved `Cargo.toml` files
 - Modify: workspace and consumer `Cargo.toml` files
@@ -67,7 +67,7 @@
 
 1. Add manifest contract assertions for the new package names and old-name absence.
 2. Observe the contract fail.
-3. Use `git mv` for both directories and rename the package names.
+3. Rename both Cargo packages and move the font directory. Keep the terminal directory path until the immutable Task 10 provenance schema can version its recorded source paths without rewriting frozen evidence.
 4. Use explicit Cargo aliases (`rssh-terminal = { package = "rterm-terminal", ... }`, likewise fonts) in compatibility consumers; use direct `rterm-*` names in newly migrated foundation packages.
 5. Regenerate the lockfile, run package tests, and commit.
 

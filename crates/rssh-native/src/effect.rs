@@ -1,7 +1,7 @@
 use std::num::NonZeroU64;
 
-use rssh_core::{DamageRegion, TerminalSize};
 use rssh_runtime::{EffectSequence, PaneToken, RuntimeRevision, TerminalStateSummary};
+use rterm_types::{DamageRegion, TerminalSize};
 
 use crate::PaneSplitDirection;
 

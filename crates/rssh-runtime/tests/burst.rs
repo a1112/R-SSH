@@ -1,7 +1,7 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rssh_core::PaneId;
+use rssh_domain::PaneId;
 use rssh_runtime::testing::{ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction};
 use rssh_runtime::{
     BatchPolicy, EffectSequence, MailboxLimits, PaneNotice, PaneToken, PaneWorkerConfig,

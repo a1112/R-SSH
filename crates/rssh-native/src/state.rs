@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use crate::{PaneState, TimerId};
 use rssh_config::EffectiveConfig;
-use rssh_core::{PaneId, TerminalSize};
+use rssh_domain::PaneId;
+use rterm_types::TerminalSize;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct LifecycleState {

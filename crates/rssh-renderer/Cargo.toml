@@ -12,9 +12,9 @@ font8x8 = "0.3"
 glyphon = "=0.12.0"
 image = { version = "0.25", default-features = false, features = ["dds", "ff", "gif", "ico", "jpeg", "png", "pnm", "tga", "tiff"] }
 raw-window-handle = { version = "0.6", features = ["std"] }
-rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rterm-types = { path = "../rterm-types", version = "0.1.0" }
 rssh-fonts = { package = "rterm-fonts", path = "../rterm-fonts", version = "0.1.0" }
-rssh-terminal = { package = "rterm-terminal", path = "../rterm-terminal", version = "0.1.0" }
+rssh-terminal = { package = "rterm-terminal", path = "../rssh-terminal", version = "0.1.0" }
 sha2 = "0.11"
 wgpu = { version = "=30.0.0", default-features = false, features = ["std", "wgsl"] }
 

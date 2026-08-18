@@ -8,7 +8,8 @@ version.workspace = true
 
 [dependencies]
 rssh-config = { path = "../rssh-config", version = "0.1.0" }
-rssh-core = { path = "../rssh-core", version = "0.1.0" }
+rssh-domain = { path = "../rssh-domain", version = "0.1.0" }
+rterm-types = { path = "../rterm-types", version = "0.1.0" }
 rssh-runtime = { path = "../rssh-runtime", version = "0.1.0" }
 
 [lints]

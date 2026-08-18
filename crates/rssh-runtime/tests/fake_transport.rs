@@ -2,7 +2,6 @@ use std::io::{self, Read, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rssh_core::TerminalSize;
 use rssh_runtime::testing::{
     ControlCall, ExitAction, ReadAction, ScriptedTransport, VirtualClock, VirtualClockAdvanceError,
     WriteAction,
@@ -10,6 +9,7 @@ use rssh_runtime::testing::{
 use rssh_runtime::{
     Clock, SessionControl, SessionExit, SessionInterrupt, SessionTransport, SystemClock,
 };
+use rterm_types::TerminalSize;
 
 #[test]
 fn system_clock_observes_a_real_instant() {

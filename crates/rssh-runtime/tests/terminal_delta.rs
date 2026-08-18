@@ -1,8 +1,8 @@
-use rssh_core::TerminalSize;
 use rssh_runtime::{
     MetadataChangeRef, RuntimeBuffers, RuntimeEffectRef, RuntimeProgress, TerminalModeChange,
     TerminalRuntime,
 };
+use rterm_types::TerminalSize;
 
 fn captured_console(delta: rssh_runtime::RuntimeDelta<'_>) -> Vec<u8> {
     delta

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flate2::read::ZlibDecoder;
-use rssh_core::{DamageRegion, TerminalSize};
+use rterm_types::{DamageRegion, TerminalSize};
 use smol_str::SmolStr;
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::canonical_combining_class;

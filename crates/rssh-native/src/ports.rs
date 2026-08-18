@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use rssh_core::WindowId;
+use rssh_domain::WindowId;
 use rssh_runtime::PaneToken;
 
 use crate::{

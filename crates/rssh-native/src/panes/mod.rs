@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rssh_core::PaneId;
+use rssh_domain::PaneId;
 use rssh_runtime::{
     EffectSequenceCursor, PaneToken, RuntimeProgress, RuntimeRevision, TerminalStateSummary,
 };

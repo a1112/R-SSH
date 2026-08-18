@@ -3,7 +3,6 @@ use std::{
     time::Duration,
 };
 
-use rssh_core::TerminalSize;
 use rssh_renderer::gpu::{
     GpuContext, GpuContextOptions, GpuImage, GpuLayer, GpuLayerRenderer, GpuQuad, ImageProtocol,
     PixelRect, RenderGraph, SignedPixelRect,
@@ -17,6 +16,7 @@ use rssh_renderer::{
     RenderBackgroundLayer, RenderGeometry, ScrollbackScrollbar, TerminalRenderSnapshot,
 };
 use rssh_terminal::Terminal;
+use rterm_types::TerminalSize;
 
 static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 

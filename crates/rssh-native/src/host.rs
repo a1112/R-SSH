@@ -3,8 +3,9 @@ use std::{
     time::Duration,
 };
 
-use rssh_core::{TerminalSize, WindowId};
+use rssh_domain::WindowId;
 use rssh_runtime::{Clock, PaneToken, SystemClock};
+use rterm_types::TerminalSize;
 
 use crate::{
     CommandIntent, ConfigDiff, HostPorts, PaneLifecycleIntent, PlatformIntent, PortError, PortKind,

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rssh_core::{DamageRegion, PaneId, TabId, TerminalSize};
+use rssh_domain::{PaneId, TabId};
 use rssh_native::{
     CellMetrics, CursorPresentation, FrameRevision, OverlayPresentation, PaneFrameCandidate,
     PaneLayoutPane, PaneLayoutSpec, PaneRenderRect, PaneSplitDirection, PaneSplitSpec,
@@ -8,6 +8,7 @@ use rssh_native::{
     SurfacePresentation, TabPresentation, build_pane_layout, build_presentation,
 };
 use rssh_runtime::{PaneToken, PaneTokenAllocator, RuntimeRevision};
+use rterm_types::{DamageRegion, TerminalSize};
 
 fn token(pane: u64) -> PaneToken {
     PaneTokenAllocator::new()

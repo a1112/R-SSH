@@ -1,4 +1,4 @@
-use rssh_core::{DamageRegion, TerminalSize};
+use rterm_types::{DamageRegion, TerminalSize};
 use std::{any::Any, collections::HashSet, fmt::Write as _};
 
 use rssh_terminal::{

@@ -1,4 +1,4 @@
-use rssh_core::PaneId;
+use rssh_domain::PaneId;
 
 use crate::{
     ClipboardEffect, PaneCommand, PersistenceCommand, RuntimePortEffect, SpawnEffect, UriEffect,

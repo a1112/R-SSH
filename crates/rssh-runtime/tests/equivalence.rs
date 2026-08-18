@@ -2,9 +2,9 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rssh_core::{DamageRegion, TerminalSize};
 use rssh_runtime::{RuntimeBuffers, RuntimeEffectRef, TerminalRuntime};
 use rssh_terminal::Terminal;
+use rterm_types::{DamageRegion, TerminalSize};
 
 const REQUIRED_TRANSCRIPTS: &[&str] = &[
     "plain_ansi_query.txt",

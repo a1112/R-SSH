@@ -5,7 +5,7 @@ use std::{
 };
 
 use rssh_config::EffectiveConfig;
-use rssh_core::{DamageRegion, PaneId, TerminalSize, WindowId};
+use rssh_domain::{PaneId, WindowId};
 use rssh_native::{
     ClipboardEffect, CommandIntent, ConfigDiff, HostEffectContext, HostError, HostPorts,
     NotificationEffect, PaneLifecycleIntent, PlatformEvent, PortError, PortErrorKind, PortKind,
@@ -16,6 +16,7 @@ use rssh_runtime::{
     Clock, EffectSequence, PaneToken, PaneTokenAllocator, RuntimeBatch, RuntimeBatchMetrics,
     RuntimeRevision, TerminalStateSummary,
 };
+use rterm_types::{DamageRegion, TerminalSize};
 
 #[derive(Debug, Clone)]
 struct TestClock(Arc<Mutex<Instant>>);

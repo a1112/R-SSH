@@ -1,4 +1,4 @@
-use rssh_core::TabId;
+use rssh_domain::TabId;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabPresentation {

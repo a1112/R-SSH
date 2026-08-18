@@ -1,5 +1,5 @@
-use rssh_core::TerminalSize;
 use rterm_terminal::{ScrollbackLine, Terminal};
+use rterm_types::TerminalSize;
 
 #[test]
 fn public_history_api_is_logically_indexed_and_iterable() {

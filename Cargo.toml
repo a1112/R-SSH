@@ -6,7 +6,7 @@ members = [
     "crates/rssh-core",
     "crates/rssh-domain",
     "crates/rssh-diagnostics",
-    "crates/rterm-terminal",
+    "crates/rssh-terminal",
     "crates/rssh-renderer",
     "crates/rssh-runtime",
     "crates/rssh-native",
