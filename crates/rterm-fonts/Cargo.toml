@@ -1,5 +1,5 @@
 [package]
-name = "rssh-fonts"
+name = "rterm-fonts"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

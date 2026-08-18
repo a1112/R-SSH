@@ -4897,15 +4897,15 @@ dependencies = [
  "rssh-config",
  "rssh-core",
  "rssh-diagnostics",
- "rssh-fonts",
  "rssh-functional-tests",
  "rssh-native",
  "rssh-pty",
  "rssh-renderer",
  "rssh-runtime",
  "rssh-ssh",
- "rssh-terminal",
  "rssh-test-support",
+ "rterm-fonts",
+ "rterm-terminal",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4956,17 +4956,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rssh-fonts"
-version = "0.1.0"
-dependencies = [
- "cosmic-text",
- "sha2 0.11.0",
- "ttf-parser",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
 name = "rssh-functional-tests"
 version = "0.1.0"
 dependencies = [
@@ -5009,8 +4998,8 @@ dependencies = [
  "pollster",
  "raw-window-handle",
  "rssh-core",
- "rssh-fonts",
- "rssh-terminal",
+ "rterm-fonts",
+ "rterm-terminal",
  "serde_json",
  "sha2 0.11.0",
  "wgpu",
@@ -5026,7 +5015,7 @@ dependencies = [
  "rssh-core",
  "rssh-pty",
  "rssh-ssh",
- "rssh-terminal",
+ "rterm-terminal",
  "sha2 0.11.0",
  "syn 2.0.117",
 ]
@@ -5051,22 +5040,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tokio",
-]
-
-[[package]]
-name = "rssh-terminal"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "flate2",
- "proc-macro2",
- "rssh-core",
- "sha2 0.11.0",
- "smol_str 0.2.2",
- "syn 2.0.117",
- "unicode-normalization",
- "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]
@@ -5096,6 +5069,33 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "rterm-fonts"
+version = "0.1.0"
+dependencies = [
+ "cosmic-text",
+ "sha2 0.11.0",
+ "ttf-parser",
+ "unicode-segmentation",
+ "unicode-width",
+]
+
+[[package]]
+name = "rterm-terminal"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "proc-macro2",
+ "rssh-core",
+ "sha2 0.11.0",
+ "smol_str 0.2.2",
+ "syn 2.0.117",
+ "unicode-normalization",
+ "unicode-segmentation",
+ "unicode-width",
 ]
 
 [[package]]

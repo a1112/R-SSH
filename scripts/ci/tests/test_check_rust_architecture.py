@@ -35,6 +35,22 @@ class RustArchitectureCheckerTests(unittest.TestCase):
         for forbidden in ("rssh-app", "rssh-runtime", "rssh-renderer", "rssh-ssh"):
             self.assertNotIn(forbidden, domain)
 
+    def test_stage1_renames_terminal_and_font_packages_without_losing_compatibility_aliases(self):
+        workspace = (REPOSITORY_ROOT / "Cargo.toml").read_text(encoding="utf-8")
+        terminal = (
+            REPOSITORY_ROOT / "crates" / "rterm-terminal" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+        fonts = (
+            REPOSITORY_ROOT / "crates" / "rterm-fonts" / "Cargo.toml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('"crates/rterm-terminal"', workspace)
+        self.assertIn('"crates/rterm-fonts"', workspace)
+        self.assertNotIn('"crates/rssh-terminal"', workspace)
+        self.assertNotIn('"crates/rssh-fonts"', workspace)
+        self.assertIn('name = "rterm-terminal"', terminal)
+        self.assertIn('name = "rterm-fonts"', fonts)
+
     def test_quality_workflow_runs_the_checked_in_architecture_policy(self):
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"

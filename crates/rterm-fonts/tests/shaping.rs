@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use rssh_fonts::{
+use rterm_fonts::{
     DiagnosticKind, FontCatalog, FontConfig, FontSource, ShapeError, TerminalCluster,
     TerminalShaper,
 };
@@ -292,7 +292,7 @@ fn cluster_weight_and_style_are_forwarded_to_raster_attributes() {
                     .with_weight(700),
                 TerminalCluster::new("C", 2..3)
                     .with_shape_boundary(2)
-                    .with_style(rssh_fonts::FontStyle::Italic),
+                    .with_style(rterm_fonts::FontStyle::Italic),
             ],
         )
         .expect("shape styled clusters");
@@ -302,7 +302,7 @@ fn cluster_weight_and_style_are_forwarded_to_raster_attributes() {
     assert_eq!(row.glyphs[2].raster_weight, 400);
     assert_ne!(
         row.glyphs[2].raster_flags,
-        rssh_fonts::RasterFlags::default()
+        rterm_fonts::RasterFlags::default()
     );
 }
 
@@ -761,7 +761,7 @@ fn configuration_and_authoritative_spans_participate_in_shape_cache_keys() {
     shaper.shape_row(&mut catalog, "fi").expect("cached shape");
     assert_eq!(
         shaper.cache_stats(),
-        rssh_fonts::ShapeCacheStats { hits: 1, misses: 1 }
+        rterm_fonts::ShapeCacheStats { hits: 1, misses: 1 }
     );
 
     shaper.set_config(

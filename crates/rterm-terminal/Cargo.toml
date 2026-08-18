@@ -1,5 +1,5 @@
 [package]
-name = "rssh-terminal"
+name = "rterm-terminal"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

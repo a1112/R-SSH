@@ -6,7 +6,7 @@ members = [
     "crates/rssh-core",
     "crates/rssh-domain",
     "crates/rssh-diagnostics",
-    "crates/rssh-terminal",
+    "crates/rterm-terminal",
     "crates/rssh-renderer",
     "crates/rssh-runtime",
     "crates/rssh-native",
@@ -14,7 +14,7 @@ members = [
     "crates/rssh-pty",
     "crates/rssh-test-support",
     "crates/rssh-functional-tests",
-    "crates/rssh-fonts",
+    "crates/rterm-fonts",
     "crates/rssh-web",
     "tauri/src-tauri",
 ]

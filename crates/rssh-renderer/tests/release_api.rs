@@ -13,7 +13,7 @@ fn release_renderer_excludes_identifier_limit_test_api_and_artifacts() {
     let source = probe.join("src");
     fs::create_dir_all(&source).expect("create release API probe");
     let renderer = toml_path(&workspace.join("crates/rssh-renderer"));
-    let fonts = toml_path(&workspace.join("crates/rssh-fonts"));
+    let fonts = toml_path(&workspace.join("crates/rterm-fonts"));
     let glyphon = toml_path(&workspace.join("vendor/glyphon-0.12.0"));
     let gpu_allocator = toml_path(&workspace.join("vendor/gpu-allocator-0.28.0"));
     fs::write(
@@ -21,7 +21,7 @@ fn release_renderer_excludes_identifier_limit_test_api_and_artifacts() {
         format!(
             "[package]\nname = \"renderer-release-api-probe\"\nversion = \"0.0.0\"\n\
              edition = \"2024\"\n\n[workspace]\n\n[dependencies]\nrssh-renderer = {{ path = \"{renderer}\" }}\n\
-             rssh-fonts = {{ path = \"{fonts}\" }}\n\n[patch.crates-io]\n\
+             rssh-fonts = {{ package = \"rterm-fonts\", path = \"{fonts}\" }}\n\n[patch.crates-io]\n\
              glyphon = {{ path = \"{glyphon}\" }}\n\
              gpu-allocator = {{ path = \"{gpu_allocator}\" }}\n"
         ),

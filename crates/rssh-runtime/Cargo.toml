@@ -17,7 +17,7 @@ base64 = "0.22"
 rssh-core = { path = "../rssh-core", version = "0.1.0" }
 rssh-pty = { path = "../rssh-pty", version = "0.1.0", optional = true }
 rssh-ssh = { path = "../rssh-ssh", version = "0.1.0", optional = true }
-rssh-terminal = { path = "../rssh-terminal", version = "0.1.0" }
+rssh-terminal = { package = "rterm-terminal", path = "../rterm-terminal", version = "0.1.0" }
 
 [dev-dependencies]
 flate2 = "1"
