@@ -83,7 +83,9 @@ Create `rterm-types` for terminal-sized, renderer-neutral value types and
 - Move `TerminalSize`, `DamageRegion`, and `SessionId` into `rterm-types`.
 - Move `WindowId`, `WorkspaceId`, `TabId`, `PaneId`, pane launch/domain, and app
   shell state into `rssh-domain`.
-- Rename `rssh-terminal` to `rterm-terminal` and `rssh-fonts` to `rterm-fonts`
+- Rename the Cargo packages `rssh-terminal` to `rterm-terminal` and
+  `rssh-fonts` to `rterm-fonts`. The terminal package keeps its provenance-bound
+  directory path through Stage 1; the font directory moves immediately.
   using `git mv` so history remains extractable.
 - Keep `rssh-core` as a narrow compatibility facade that re-exports the exact
   public API currently used by downstream crates.

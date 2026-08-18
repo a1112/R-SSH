@@ -68,6 +68,18 @@ class RustArchitectureCheckerTests(unittest.TestCase):
             for package in required:
                 self.assertIn(package, manifest, crate)
 
+    def test_readme_documents_stage1_package_ownership_and_facade_policy(self):
+        readme = (REPOSITORY_ROOT / "README.md").read_text(encoding="utf-8")
+
+        for required in (
+            "rterm-types",
+            "rssh-domain",
+            "rterm-terminal",
+            "rterm-fonts",
+            "rssh-core compatibility facade",
+        ):
+            self.assertIn(required, readme)
+
     def test_quality_workflow_runs_the_checked_in_architecture_policy(self):
         workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
             encoding="utf-8"
