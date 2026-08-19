@@ -81,8 +81,8 @@
     },
     "records": {
       "path": "crates/rssh-runtime/tests/fixtures/task10_legacy_fixture_records.txt",
-      "length": 218442,
-      "sha256": "aac3c4f053da9fe4ceb40b263655bfae7da4e5e0043890d3b7abae7d628455a2",
+      "length": 218492,
+      "sha256": "f8dd20eba51982605b4541e77ed3ca07f4d729a1f39c3946584608765e133c91",
       "row_count": 356
     },
     "pack": {
@@ -141,14 +141,14 @@
     },
     {
       "path": "crates/rssh-runtime/src/task10_runtime_trace_codec.rs",
-      "length": 23689,
-      "sha256": "f1460313a4723c4eeada1d3692aad37c6142c7f212d01fdf24b673e9aaa186ed",
+      "length": 23691,
+      "sha256": "0907623833e6df2e2d9955f62ba65976adae74f1f9164bc53b2c1e86edb03c0a",
       "role": "runtime-package-state-codec"
     },
     {
       "path": "crates/rssh-runtime/src/frozen_trace_pack.rs",
-      "length": 30363,
-      "sha256": "9caa02238d044951e15336fd903476db91d0d6a0086d73e830676b4107deb793",
+      "length": 31777,
+      "sha256": "3f987d5ecfbb83798ca272810e3d2f4c9773434a693f373b3dbcb4f4b95884e7",
       "role": "runtime-package-read-only-verifier"
     },
     {
