@@ -1,7 +1,6 @@
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rssh_domain::PaneId;
 use rterm_runtime::testing::{
     ExitAction, ReadAction, ScriptedTransport, VirtualClock, WriteAction,
 };
@@ -10,6 +9,7 @@ use rterm_runtime::{
     RuntimeBuffers, RuntimeEffectKind, RuntimeHub, SubmitResult, TerminalRuntime,
     TerminalStateSummary,
 };
+use rterm_types::PaneId;
 
 const CHUNK_BYTES: usize = 8 * 1024;
 const CHUNKS: usize = 8 * 1024;

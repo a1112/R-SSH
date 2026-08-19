@@ -62,6 +62,26 @@ SOURCE_POLICY = {
 }
 
 APPROVED_MIGRATIONS = {
+    "cf29891657988fa0319349f69fd680e8daa0e7902dbcc3a732cba9b0e6180995": (
+        "crates/rssh-app/src/terminal_runtime.rs",
+        "reports_damage_regions_from_terminal_feed",
+        "3e118865c6942548fca5e6e0c7f36ea99d29c98c01291742fb81f182116da472",
+        "crates/rssh-runtime/src/terminal.rs",
+        "reports_damage_regions_from_terminal_feed",
+        "61b58c91a61f886c3a18ba7b1dcf6d7e21feef8a82ebb689eb2441555f924127",
+        "approved:neutral-type-boundary",
+        "1b3794e9db22142aac80140a873bd8dbebd8aeeaaa1acfbd5e0016fbadb67baa",
+    ),
+    "e56dc7488cc895ae7c43ab7cb8cdccdaafa6122d1dd71e853263248fabf0c883": (
+        "crates/rssh-app/src/terminal_runtime.rs",
+        "delays_synchronized_output_damage_until_mode_resets",
+        "c473458b8fcb1b5d39ad0670f5597a810005e125f6f5576e310acca2ca91ed57",
+        "crates/rssh-runtime/src/terminal.rs",
+        "delays_synchronized_output_damage_until_mode_resets",
+        "1123bd8febe85c9b5028f755579999fede46840af1c07ff2da87efe4aca55128",
+        "approved:neutral-type-boundary",
+        "a4c233800b94c6b3b3ac9b71b70599b6570c6d26273bd7ef925a3017b882931e",
+    ),
     "927c661ab69f79fee32f07fcb131363e5aba0ed0b9b4f10dcb3b2c6b3849918c": (
         "crates/rssh-app/src/terminal_queries.rs",
         "terminal_queries_rejects_malformed_mode_sequences_and_reserves_clipboard_controls",

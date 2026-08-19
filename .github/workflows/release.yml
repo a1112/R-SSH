@@ -37,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
 
@@ -374,21 +375,22 @@ jobs:
             }
           } | ConvertTo-Json -Depth 4 -Compress
 
-      - name: Build Stage 5 minimal production GUI
+      - name: Compare candidate and rollback R-Term releases
         shell: pwsh
         run: >
-          cargo build --locked --release -p rssh-app
-          --no-default-features
-          --features production-gui
-
-      - name: Enforce Stage 5 minimal GUI cold-start budgets
-        shell: pwsh
-        run: >
-          ./scripts/ci/run-ssh-gui-startup.ps1
-          -Profile release
+          ./scripts/ci/run-rterm-release-comparison.ps1
+          -CandidateRef "${{ github.sha }}"
           -Warmups 5
           -Samples 40
-          -SkipBuild
+          -OutputDirectory artifacts/rterm-release-comparison
+
+      - name: Upload R-Term candidate and rollback comparison
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rterm-release-comparison-windows-x64
+          path: artifacts/rterm-release-comparison/report.json
+          if-no-files-found: error
 
   build-package:
     name: Build and test unsigned package (${{ matrix.runtime_target }})

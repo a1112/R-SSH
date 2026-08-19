@@ -1,0 +1,21 @@
+[package]
+name = "rterm-consumer-contract"
+version = "0.1.0"
+edition = "2024"
+publish = false
+rust-version = "1.89"
+
+[workspace]
+
+[dependencies]
+rterm-types = { path = "../../crates/rterm-types", version = "0.1.0" }
+rterm-terminal = { path = "../../crates/rssh-terminal", version = "0.1.0" }
+rterm-runtime = { path = "../../crates/rssh-runtime", version = "0.1.0" }
+rterm-fonts = { path = "../../crates/rterm-fonts", version = "0.1.0" }
+rterm-render-core = { path = "../../crates/rterm-render-core", version = "0.1.0" }
+rterm-render-cpu = { path = "../../crates/rterm-render-cpu", version = "0.1.0" }
+rterm-render-wgpu = { path = "../../crates/rterm-render-wgpu", version = "0.1.0" }
+
+[patch.crates-io]
+glyphon = { path = "../../vendor/glyphon-0.12.0" }
+gpu-allocator = { path = "../../vendor/gpu-allocator-0.28.0" }

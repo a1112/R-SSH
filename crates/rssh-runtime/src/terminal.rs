@@ -2538,7 +2538,7 @@ mod tests {
     };
 
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use rssh_core::TerminalSize;
+    use rterm_types::TerminalSize;
 
     use crate::{
         delta::{RuntimeBuffers, RuntimeDelta},
@@ -2833,7 +2833,7 @@ mod tests {
 
         assert_eq!(
             output.damage,
-            vec![rssh_core::DamageRegion::new(0, 0, 3, 1)]
+            vec![rterm_types::DamageRegion::new(0, 0, 3, 1)]
         );
     }
 
@@ -5411,7 +5411,10 @@ mod tests {
         let first = runtime.feed_pty_output_with_display(b"before\x1b[?2026hmid");
 
         assert_eq!(first.display, b"beforemid");
-        assert_eq!(first.damage, vec![rssh_core::DamageRegion::new(0, 0, 6, 1)]);
+        assert_eq!(
+            first.damage,
+            vec![rterm_types::DamageRegion::new(0, 0, 6, 1)]
+        );
         assert!(runtime.synchronized_output());
         assert!(terminal_text(&runtime).contains("beforemid"));
 

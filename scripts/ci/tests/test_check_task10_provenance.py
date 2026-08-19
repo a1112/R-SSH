@@ -89,7 +89,11 @@ class Task10ProvenanceCheckerTests(unittest.TestCase):
     def test_synchronized_local_record_hashes_cannot_replace_c69_body(self):
         provenance = json.loads(PROVENANCE.read_text(encoding="utf-8"))
         lines = RECORDS.read_text(encoding="utf-8").splitlines()
-        row_index = next(index for index, line in enumerate(lines) if line.startswith("record|"))
+        row_index = next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("record|") and "|exact|" in line
+        )
         fields = lines[row_index].split("|")
         fields[6] = "0" * 64
         fields[9] = "0" * 64

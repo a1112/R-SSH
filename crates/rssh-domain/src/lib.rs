@@ -3,7 +3,7 @@
 pub mod app_shell;
 pub mod session;
 
-pub use rterm_types::SessionId;
+pub use rterm_types::{PaneId, SessionId};
 
 macro_rules! domain_id {
     ($name:ident) => {
@@ -27,4 +27,3 @@ macro_rules! domain_id {
 domain_id!(WindowId);
 domain_id!(WorkspaceId);
 domain_id!(TabId);
-domain_id!(PaneId);
