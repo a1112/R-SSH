@@ -82,6 +82,47 @@ jobs:
           npm --prefix web run build
       - run: cargo check --locked --workspace --all-targets
 
+  rterm-consumer-contract:
+    name: R-Term candidate and rollback contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+      - name: Install clean consumer build dependencies
+        run: |
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+            build-essential \
+            libssl-dev \
+            pkg-config
+      - name: Validate the versioned release contract
+        run: |
+          python -m unittest scripts.ci.tests.test_check_rterm_release_contract scripts.ci.tests.test_rehearse_rterm_consumer -v
+          python scripts/ci/check-rterm-release-contract.py --contract scripts/ci/rterm-release-contract.json
+      - name: Compile the standalone downstream API probe
+        run: cargo check --locked --manifest-path contracts/rterm-consumer/Cargo.toml
+      - name: Rehearse clean candidate and last-known-good consumers
+        run: >-
+          python scripts/ci/rehearse-rterm-consumer.py
+          --repo .
+          --contract scripts/ci/rterm-release-contract.json
+          --candidate-ref ${{ github.sha }}
+          --consumer-ref ${{ github.sha }}
+          --output-dir evidence/rterm-release
+      - name: Upload R-Term release evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rterm-release-contract-${{ github.sha }}
+          path: |
+            evidence/rterm-release/candidate.json
+            evidence/rterm-release/rollback.json
+          if-no-files-found: error
+
   deterministic-performance:
     name: Deterministic performance
     runs-on: windows-2025

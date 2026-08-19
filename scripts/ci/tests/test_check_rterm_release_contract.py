@@ -225,6 +225,42 @@ class RTermReleaseContractTests(unittest.TestCase):
         ):
             self.assertIn(public_surface, source)
 
+    def test_hosted_ci_enforces_candidate_and_rollback_without_absolute_gates(self):
+        workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
+        start = workflow.index("  rterm-consumer-contract:")
+        remainder = workflow[start + 2 :]
+        next_job = re.search(r"^  [a-z0-9-]+:\s*$", remainder, re.MULTILINE)
+        job = workflow[start:] if next_job is None else workflow[start : start + 2 + next_job.start()]
+
+        for required in (
+            "runs-on: ubuntu-24.04",
+            "timeout-minutes:",
+            "persist-credentials: false",
+            "fetch-depth: 0",
+            "dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de",
+            "python -m unittest scripts.ci.tests.test_check_rterm_release_contract scripts.ci.tests.test_rehearse_rterm_consumer -v",
+            "python scripts/ci/check-rterm-release-contract.py --contract scripts/ci/rterm-release-contract.json",
+            "cargo check --locked --manifest-path contracts/rterm-consumer/Cargo.toml",
+            "python scripts/ci/rehearse-rterm-consumer.py",
+            "--candidate-ref ${{ github.sha }}",
+            "--consumer-ref ${{ github.sha }}",
+            "evidence/rterm-release/candidate.json",
+            "evidence/rterm-release/rollback.json",
+            "if-no-files-found: error",
+        ):
+            self.assertIn(required, job)
+        self.assertIn("permissions:\n  contents: read", workflow)
+        for forbidden in (
+            "run-ssh-gui-startup",
+            "first_frame_private_bytes",
+            "Warmups",
+            "Samples",
+            "process_to_first_present_ms",
+        ):
+            self.assertNotIn(forbidden, job)
+
 
 if __name__ == "__main__":
     unittest.main()
