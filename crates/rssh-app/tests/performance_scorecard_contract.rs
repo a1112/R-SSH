@@ -170,6 +170,7 @@ fn rterm_release_comparison_is_protected_structured_and_fixed_runner_only() {
         "first_present_p95_ratio",
         "private_bytes_p95_ratio",
         "machine fingerprint mismatch",
+        "startup samples mismatch",
         "threshold_violations",
     ] {
         assert!(

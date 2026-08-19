@@ -162,6 +162,28 @@ function Convert-FingerprintToKey($Fingerprint) {
   ) -join "|"
 }
 
+function Assert-StartupSummary($Summary, [string] $Name) {
+  if (
+    $null -eq $Summary -or
+    [int] $Summary.warmups -ne $Warmups -or
+    [int] $Summary.samples -ne $Samples -or
+    @($Summary.samples_detail).Count -ne $Samples
+  ) {
+    throw "$Name startup samples mismatch"
+  }
+  if (
+    [string] $Summary.profile -ne "release" -or
+    [double] $Summary.first_present_ms_p50 -le 0 -or
+    [double] $Summary.first_present_ms_p95 -le 0 -or
+    [double] $Summary.private_bytes_p95 -le 0 -or
+    [double] $Summary.private_bytes_max -le 0 -or
+    @($Summary.renderer_values).Count -ne 1 -or
+    [string] @($Summary.renderer_values)[0] -ne "cpu"
+  ) {
+    throw "$Name startup summary is incomplete or incompatible"
+  }
+}
+
 function Invoke-RtermReleaseMode(
   [string] $Name,
   [string] $Commit,
@@ -189,6 +211,7 @@ function Invoke-RtermReleaseMode(
       $startupJson = & (Join-Path $sourcePath "scripts/ci/run-ssh-gui-startup.ps1") `
         -Profile release -Warmups $Warmups -Samples $Samples -SkipBuild
       $startup = ($startupJson -join "`n") | ConvertFrom-Json
+      Assert-StartupSummary $startup $Name
 
       $binary = Join-Path $targetPath "release/rssh-app.exe"
       $versionJson = & $binary version --json
