@@ -124,32 +124,103 @@ fn ssh_gui_absolute_startup_gate_is_isolated_to_the_fixed_release_runner() {
         .split("\n  build-package:")
         .next()
         .expect("fixed-performance job boundary");
-    let build_offset = fixed_performance
-        .find("cargo build --locked --release -p rssh-app")
-        .expect("fixed runner release build");
-    let startup_offset = fixed_performance
-        .find("scripts/ci/run-ssh-gui-startup.ps1")
-        .expect("fixed runner SSH GUI startup gate");
-
-    assert!(
-        build_offset < startup_offset,
-        "the startup probe must reuse the preceding locked release build"
-    );
-    for argument in [
-        "-Profile release",
-        "-Warmups 5",
-        "-Samples 40",
-        "-SkipBuild",
-    ] {
+    let comparison = read_repo_file("scripts/ci/run-rterm-release-comparison.ps1");
+    for argument in ["-Profile release", "run-ssh-gui-startup.ps1", "-SkipBuild"] {
+        assert!(
+            comparison.contains(argument),
+            "release comparison is missing the absolute startup gate contract {argument}"
+        );
+    }
+    for argument in ["-Warmups 5", "-Samples 40"] {
         assert!(
             fixed_performance.contains(argument),
-            "fixed runner startup gate is missing {argument}"
+            "fixed runner release comparison is missing {argument}"
         );
     }
     assert!(
         !pull_request_ci.contains("run-ssh-gui-startup.ps1"),
         "shared PR CI must not enforce machine-specific absolute startup budgets"
     );
+}
+
+#[test]
+fn rterm_release_comparison_is_protected_structured_and_fixed_runner_only() {
+    let release = read_repo_file(".github/workflows/release.yml");
+    let pull_request_ci = read_repo_file(".github/workflows/ci.yml");
+    let script = read_repo_file("scripts/ci/run-rterm-release-comparison.ps1");
+    let fixed_performance = release
+        .split("  fixed-performance:\n")
+        .nth(1)
+        .expect("release workflow fixed-performance job")
+        .split("\n  build-package:")
+        .next()
+        .expect("fixed-performance job boundary");
+
+    for contract in [
+        "[int] $Warmups = 5",
+        "[int] $Samples = 40",
+        "[double] $RelativeRegressionCeiling = 0.05",
+        "git clone --no-local",
+        "candidate-target",
+        "rollback-target",
+        "run-ssh-gui-startup.ps1",
+        "package-native.ps1",
+        "package-smoke.ps1",
+        "production-gui",
+        "first_present_p95_ratio",
+        "private_bytes_p95_ratio",
+        "machine fingerprint mismatch",
+        "threshold_violations",
+    ] {
+        assert!(
+            script.contains(contract),
+            "comparison script is missing {contract}"
+        );
+    }
+    for contract in [
+        "fetch-depth: 0",
+        "scripts/ci/run-rterm-release-comparison.ps1",
+        "-Warmups 5",
+        "-Samples 40",
+        "artifacts/rterm-release-comparison/report.json",
+        "if-no-files-found: error",
+    ] {
+        assert!(
+            fixed_performance.contains(contract),
+            "fixed release runner is missing {contract}"
+        );
+    }
+    assert!(
+        !pull_request_ci.contains("run-rterm-release-comparison.ps1"),
+        "shared PR CI must not run the fixed-machine release comparison"
+    );
+}
+
+#[test]
+#[cfg(target_os = "windows")]
+fn rterm_release_comparison_validates_ratio_boundaries_without_building() {
+    let output = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            repo_path("scripts/ci/run-rterm-release-comparison.ps1")
+                .to_str()
+                .expect("UTF-8 script path"),
+            "-ValidationOnly",
+        ])
+        .output()
+        .expect("run release comparison validation");
+    assert!(
+        output.status.success(),
+        "validation failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value = serde_json::from_slice(&output.stdout).expect("validation JSON");
+    assert_eq!(report["ok"], true);
+    assert_eq!(report["mode"], "validation-only");
+    assert_eq!(report["relative_regression_ceiling"], 0.05);
 }
 
 #[test]
