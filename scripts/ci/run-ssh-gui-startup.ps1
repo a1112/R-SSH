@@ -12,7 +12,11 @@ param(
   [ValidateRange(5, 300)]
   [int] $TimeoutSeconds = 60,
 
-  [switch] $SkipBuild
+  [switch] $SkipBuild,
+
+  [string] $ExecutablePath = "",
+
+  [switch] $CollectOnly
 )
 
 # Fixed Windows runner for the SSH GUI first-frame contract. The measured
@@ -35,7 +39,11 @@ $targetDirectory = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
 } else {
   $env:CARGO_TARGET_DIR
 }
-$executable = Join-Path $targetDirectory "$profileDirectory/rssh-app.exe"
+$executable = if ([string]::IsNullOrWhiteSpace($ExecutablePath)) {
+  Join-Path $targetDirectory "$profileDirectory/rssh-app.exe"
+} else {
+  [IO.Path]::GetFullPath($ExecutablePath)
+}
 
 Assert-BoundedProcessHarness
 
@@ -273,7 +281,7 @@ try {
   # Absolute startup gates are intentionally limited to the protected
   # Windows release runner. Shared/debug runners still produce measurements
   # without turning host scheduling noise into a hard failure.
-  if ($Profile -eq "release") {
+  if ($Profile -eq "release" -and -not $CollectOnly) {
     if ($p50 -gt 400 -or $p95 -gt 500) {
       throw ("SSH GUI first-present contract failed: p50={0:N2} ms (limit 400), " +
         "p95={1:N2} ms (limit 500)" -f $p50, $p95)
