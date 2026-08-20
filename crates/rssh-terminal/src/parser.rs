@@ -1014,6 +1014,31 @@ impl Terminal {
     }
 
     fn feed_at_current_seqno(&mut self, bytes: &[u8]) {
+        if self.try_feed_direct_ascii_at_current_seqno(bytes) {
+            return;
+        }
+        self.feed_decoded_at_current_seqno(bytes);
+    }
+
+    fn try_feed_direct_ascii_at_current_seqno(&mut self, bytes: &[u8]) -> bool {
+        if self.normalize_output_to_unicode_nfc
+            || !self.pending_utf8.is_empty()
+            || !self.pending_control.is_empty()
+            || !bytes.is_ascii()
+            || bytes.contains(&0x1b)
+        {
+            return false;
+        }
+
+        for byte in bytes {
+            if !self.consume_ascii_control(*byte) {
+                self.write_char(char::from(*byte));
+            }
+        }
+        true
+    }
+
+    fn feed_decoded_at_current_seqno(&mut self, bytes: &[u8]) {
         let mut scratch = std::mem::take(&mut self.feed_scratch);
         let input_capacity = scratch.input.capacity();
         let chars_capacity = scratch.chars.capacity();
@@ -1195,67 +1220,73 @@ impl Terminal {
 
     fn consume_text_run_or_ascii_control(&mut self, chars: &[char], index: usize) -> usize {
         let ch = chars[index];
-        match ch {
-            ch if is_ignored_c0_control(ch) => {
+        if ch.is_ascii() && self.consume_ascii_control(ch as u8) {
+            return index + 1;
+        }
+        if !self.normalize_output_to_unicode_nfc {
+            self.write_char(ch);
+            return index + 1;
+        }
+
+        let mut end = index + 1;
+        while end < chars.len()
+            && !is_escape_or_c1_sequence_start(chars[end])
+            && !is_ascii_control(chars[end])
+        {
+            end += 1;
+        }
+        let text = chars[index..end].iter().collect::<String>();
+        if text.contains(KITTY_UNICODE_PLACEHOLDER) {
+            for ch in text.chars() {
+                self.write_char(ch);
+            }
+        } else {
+            let remaining_start = self.normalize_leading_combining_marks(&text);
+            for normalized in text[remaining_start..].nfc() {
+                self.write_char(normalized);
+            }
+        }
+        end
+    }
+
+    fn consume_ascii_control(&mut self, byte: u8) -> bool {
+        match byte {
+            0x00..=0x06 | 0x0e..=0x1a | 0x1c..=0x1f => {
                 self.finish_pending_kitty_placeholder();
                 self.nfc_last_printable_cell = None;
-                index + 1
+                true
             }
-            '\u{7}' => {
+            0x07 => {
                 self.finish_pending_kitty_placeholder();
                 self.nfc_last_printable_cell = None;
                 self.bell_count = self.bell_count.saturating_add(1);
-                index + 1
+                true
             }
-            '\u{8}' => {
+            0x08 => {
                 self.finish_pending_kitty_placeholder();
                 self.nfc_last_printable_cell = None;
                 self.backspace();
-                index + 1
+                true
             }
-            '\t' => {
+            0x09 => {
                 self.finish_pending_kitty_placeholder();
                 self.nfc_last_printable_cell = None;
                 self.horizontal_tab();
-                index + 1
+                true
             }
-            '\n' | '\u{b}' | '\u{c}' => {
+            0x0a..=0x0c => {
                 self.finish_pending_kitty_placeholder();
                 self.nfc_last_printable_cell = None;
                 self.line_feed();
-                index + 1
+                true
             }
-            '\r' => {
+            0x0d => {
                 self.finish_pending_kitty_placeholder();
                 self.nfc_last_printable_cell = None;
                 self.carriage_return();
-                index + 1
+                true
             }
-            ch => {
-                if !self.normalize_output_to_unicode_nfc {
-                    self.write_char(ch);
-                    return index + 1;
-                }
-                let mut end = index + 1;
-                while end < chars.len()
-                    && !is_escape_or_c1_sequence_start(chars[end])
-                    && !is_ascii_control(chars[end])
-                {
-                    end += 1;
-                }
-                let text = chars[index..end].iter().collect::<String>();
-                if text.contains(KITTY_UNICODE_PLACEHOLDER) {
-                    for ch in text.chars() {
-                        self.write_char(ch);
-                    }
-                } else {
-                    let remaining_start = self.normalize_leading_combining_marks(&text);
-                    for normalized in text[remaining_start..].nfc() {
-                        self.write_char(normalized);
-                    }
-                }
-                end
-            }
+            _ => false,
         }
     }
 
@@ -4425,15 +4456,17 @@ impl Terminal {
         let Some((row, column)) = self.nfc_last_printable_cell else {
             return false;
         };
-        let Some(previous_cell) = self.grid.get(row, column).cloned() else {
+        let Some(previous_cell) = self.grid.get(row, column) else {
             return false;
         };
         if previous_cell.primary_char() == KITTY_UNICODE_PLACEHOLDER
             || previous_cell.is_continuation()
             || previous_cell.is_blank()
+            || !may_extend_previous_grapheme(previous_cell.text(), ch)
         {
             return false;
         }
+        let previous_cell = previous_cell.clone();
 
         let mut grapheme = String::with_capacity(previous_cell.text().len() + ch.len_utf8());
         grapheme.push_str(previous_cell.text());
@@ -7279,6 +7312,10 @@ fn is_ascii_control(ch: char) -> bool {
     matches!(ch, '\0'..='\u{1f}' | '\u{7f}')
 }
 
+fn may_extend_previous_grapheme(previous_text: &str, ch: char) -> bool {
+    !(previous_text.is_ascii() && ch.is_ascii())
+}
+
 fn leading_combining_marks_end(text: &str) -> usize {
     let mut end = 0;
     for (index, ch) in text.char_indices() {
@@ -7288,10 +7325,6 @@ fn leading_combining_marks_end(text: &str) -> usize {
         end = index + ch.len_utf8();
     }
     end
-}
-
-fn is_ignored_c0_control(ch: char) -> bool {
-    matches!(ch, '\0'..='\u{6}' | '\u{e}'..='\u{1a}' | '\u{1c}'..='\u{1f}')
 }
 
 fn decode_base64_utf8(value: &str) -> Option<String> {
@@ -9166,6 +9199,10 @@ impl Drop for Terminal {
 #[cfg(test)]
 #[path = "parser_task10_trace.rs"]
 mod task10_trace;
+
+#[cfg(test)]
+#[path = "parser_ascii_fast_path_tests.rs"]
+mod ascii_fast_path_tests;
 
 #[cfg(test)]
 mod stable_row_tests {
