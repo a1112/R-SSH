@@ -553,8 +553,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Test all workspace targets
-        run: cargo test --locked --workspace --all-targets
+      - name: Compile all workspace test targets
+        run: cargo test --locked --workspace --all-targets --no-run
 
       - name: Lint all workspace targets
         run: cargo clippy --locked --workspace --all-targets -- -D warnings

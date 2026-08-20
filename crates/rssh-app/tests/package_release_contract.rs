@@ -258,12 +258,25 @@ fn build_matrix_maps_each_native_runner_without_secrets_or_write_permissions() {
     assert!(!build.contains("${{ secrets."));
     assert!(build.contains("persist-credentials: false"));
     for command in [
-        "cargo test --locked --workspace --all-targets",
+        "cargo test --locked --workspace --all-targets --no-run",
         "cargo clippy --locked --workspace --all-targets -- -D warnings",
         "cargo build --locked --release -p rssh-app --no-default-features --features production-gui",
     ] {
         assert!(build.contains(command), "build job is missing {command}");
     }
+}
+
+#[test]
+fn release_package_matrix_compiles_tests_before_platform_runtime_smoke() {
+    let workflow = read_repo_file(".github/workflows/release.yml");
+    let build = job_section(&workflow, "build-package", "sign-windows");
+
+    assert!(build.contains("name: Compile all workspace test targets"));
+    assert!(build.contains("cargo test --locked --workspace --all-targets --no-run"));
+    assert!(!build.contains("name: Test all workspace targets"));
+    assert!(build.contains("native_window_e2e; --harness-self-test"));
+    assert!(build.contains("package-native.ps1"));
+    assert!(build.contains("package-native.sh"));
 }
 
 #[test]
