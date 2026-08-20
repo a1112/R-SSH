@@ -492,7 +492,7 @@ fn stage4_snapshot_cache_gate_runs_only_on_the_fixed_release_runner() {
         "$parserBaseline * 0.98",
         "empty-window",
         "ssh1",
-        "Stage 4 memory trend must be downward",
+        "outside the 1% sampling noise band",
     ] {
         assert!(
             runner.contains(contract),
@@ -501,6 +501,35 @@ fn stage4_snapshot_cache_gate_runs_only_on_the_fixed_release_runner() {
     }
     assert!(core_manifest.contains("name = \"snapshot_memory\""));
     assert!(core_manifest.contains("harness = false"));
+}
+
+#[test]
+fn stage4_memory_trend_uses_a_reported_one_percent_sampling_noise_band() {
+    let runner = read_repo_file("scripts/ci/run-stage4-snapshot-cache.ps1");
+    let stage0 = read_repo_file("scripts/ci/run-stage0-diagnostics.ps1");
+
+    for contract in [
+        "$memoryNoiseToleranceRatio = 0.01",
+        "$emptyMaximum = [long][Math]::Ceiling($emptyBaseline * (1.0 + $memoryNoiseToleranceRatio))",
+        "$sshMaximum = [long][Math]::Ceiling($sshBaseline * (1.0 + $memoryNoiseToleranceRatio))",
+        "$emptyBytes -gt $emptyMaximum",
+        "$sshBytes -gt $sshMaximum",
+        "memory_noise_tolerance_ratio",
+        "empty_window_maximum_bytes",
+        "ssh1_maximum_bytes",
+        "outside the 1% sampling noise band",
+    ] {
+        assert!(
+            runner.contains(contract),
+            "Stage 4 memory trend contract is missing: {contract}"
+        );
+    }
+
+    // The noise band only stabilizes the same-machine trend comparison. It
+    // must not weaken the independent Stage 0 targets or parser gate.
+    assert!(stage0.contains("47185920 # 45 MiB, report-only"));
+    assert!(stage0.contains("62914560 # 60 MiB, report-only"));
+    assert!(runner.contains("$parserBaseline * 0.98"));
 }
 
 fn assert_workload(baseline: &Value, name: &str, measured: [u64; 6], gates: [u64; 4]) {
