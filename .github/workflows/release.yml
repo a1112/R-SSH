@@ -497,6 +497,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
         with:
           components: clippy, rustfmt
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - name: Install Linux package-smoke dependencies
         if: runner.os == 'Linux'
@@ -526,7 +531,24 @@ jobs:
           sudo chmod 0755 "$policy_path"
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
-            openssh-client openssh-server xvfb weston
+            build-essential \
+            curl \
+            file \
+            libayatana-appindicator3-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            librsvg2-dev \
+            openssh-client \
+            openssh-server \
+            wget \
+            weston \
+            xvfb
+
+      - name: Build Web assets for Tauri resources
+        run: |
+          npm --prefix web ci
+          npm --prefix web run build
 
       - name: Check formatting
         run: cargo fmt --all -- --check
