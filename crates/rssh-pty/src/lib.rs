@@ -2870,6 +2870,7 @@ pub struct PtyMasterClose {
     terminal: Option<PtyMasterCloseStatus>,
 }
 
+#[cfg(windows)]
 type PtyMasterOwner = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 type PtyReaderOwner = Arc<Mutex<Option<Box<dyn Read + Send>>>>;
 
@@ -2885,45 +2886,44 @@ impl PtyMasterClose {
         #[cfg(not(windows))]
         {
             drop(master);
-            return Self {
+            Self {
                 worker: None,
                 close_io,
                 terminal: None,
-            };
+            }
         }
         #[cfg(windows)]
-        let owner = Arc::new(Mutex::new(Some(master)));
-        #[cfg(windows)]
-        let owner_for_worker = Arc::clone(&owner);
-        #[cfg(windows)]
-        let worker = if let Ok(worker) = thread::Builder::new()
-            .name("rssh-pty-master-close".to_owned())
-            .spawn(move || {
-                #[cfg(test)]
-                pty_close_trace("master-close-worker-enter");
-                drop(
-                    owner_for_worker
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .take(),
-                );
-                #[cfg(test)]
-                pty_close_trace("master-close-worker-return");
-            }) {
-            Some(worker)
-        } else {
-            retain_capture_job(CaptureReapJob::MasterOwner(owner));
-            return Self {
-                worker: None,
-                close_io,
-                terminal: Some(PtyMasterCloseStatus::Retained),
+        {
+            let owner = Arc::new(Mutex::new(Some(master)));
+            let owner_for_worker = Arc::clone(&owner);
+            let worker = if let Ok(worker) = thread::Builder::new()
+                .name("rssh-pty-master-close".to_owned())
+                .spawn(move || {
+                    #[cfg(test)]
+                    pty_close_trace("master-close-worker-enter");
+                    drop(
+                        owner_for_worker
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .take(),
+                    );
+                    #[cfg(test)]
+                    pty_close_trace("master-close-worker-return");
+                }) {
+                Some(worker)
+            } else {
+                retain_capture_job(CaptureReapJob::MasterOwner(owner));
+                return Self {
+                    worker: None,
+                    close_io,
+                    terminal: Some(PtyMasterCloseStatus::Retained),
+                };
             };
-        };
-        #[cfg(windows)]
-        Self {
-            worker,
-            close_io,
-            terminal: None,
+            Self {
+                worker,
+                close_io,
+                terminal: None,
+            }
         }
     }
 
@@ -3061,6 +3061,7 @@ enum CaptureReapJob {
     Io(CaptureIo),
     Process(PtyOwnedProcess),
     MasterClose(PtyMasterCloseReap),
+    #[cfg(windows)]
     MasterOwner(PtyMasterOwner),
     #[cfg(test)]
     Test(Box<dyn FnMut() -> bool + Send>),
@@ -3068,7 +3069,12 @@ enum CaptureReapJob {
 
 impl CaptureReapJob {
     fn counts_as_capture_cleanup(&self) -> bool {
-        !matches!(self, Self::MasterClose(_) | Self::MasterOwner(_))
+        match self {
+            Self::MasterClose(_) => false,
+            #[cfg(windows)]
+            Self::MasterOwner(_) => false,
+            _ => true,
+        }
     }
 
     fn counts_as_master_close(&self) -> bool {
@@ -4029,6 +4035,7 @@ fn defer_capture_job(job: CaptureReapJob) {
         .push(job);
 }
 
+#[cfg(windows)]
 fn retain_capture_job(job: CaptureReapJob) {
     if job.counts_as_capture_cleanup() {
         CAPTURE_REAPER_PENDING.fetch_add(1, Ordering::SeqCst);
@@ -4151,6 +4158,7 @@ fn poll_capture_reap_job(job: &mut CaptureReapJob) -> bool {
             }
             true
         }
+        #[cfg(windows)]
         CaptureReapJob::MasterOwner(owner) => {
             let _ = Arc::strong_count(owner);
             false
