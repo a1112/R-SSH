@@ -198,6 +198,36 @@ fn rterm_release_comparison_is_protected_structured_and_fixed_runner_only() {
 }
 
 #[test]
+fn fixed_runner_evidence_uploads_retry_transient_artifact_endpoint_failures() {
+    let release = read_repo_file(".github/workflows/release.yml");
+    let fixed_performance = release
+        .split("  fixed-performance:\n")
+        .nth(1)
+        .expect("release workflow fixed-performance job")
+        .split("\n  build-package:")
+        .next()
+        .expect("fixed-performance job boundary");
+
+    for (id, artifact) in [
+        ("stage0_evidence", "stage0-diagnostics-windows-x64"),
+        ("stage4_evidence", "stage4-snapshot-cache-windows-x64"),
+        ("rterm_evidence", "rterm-release-comparison-windows-x64"),
+    ] {
+        for contract in [
+            format!("id: {id}"),
+            "continue-on-error: true".to_owned(),
+            format!("steps.{id}.outcome == 'failure'"),
+            format!("name: {artifact}-retry-${{{{ github.run_attempt }}}}"),
+        ] {
+            assert!(
+                fixed_performance.contains(&contract),
+                "fixed runner evidence upload is missing retry contract {contract}"
+            );
+        }
+    }
+}
+
+#[test]
 fn rterm_release_comparison_interleaves_candidate_and_rollback_startup_samples() {
     let comparison = read_repo_file("scripts/ci/run-rterm-release-comparison.ps1");
     let startup = read_repo_file("scripts/ci/run-ssh-gui-startup.ps1");

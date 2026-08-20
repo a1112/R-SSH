@@ -58,9 +58,21 @@ jobs:
           -SkipBuild
 
       - name: Upload Stage 0 raw and aggregate diagnostics
+        id: stage0_evidence
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stage0-diagnostics-windows-x64
+          if-no-files-found: error
+          path: |
+            artifacts/stage0-diagnostics/raw
+            artifacts/stage0-diagnostics/aggregate.json
+
+      - name: Retry Stage 0 raw and aggregate diagnostics upload
+        if: steps.stage0_evidence.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage0-diagnostics-windows-x64-retry-${{ github.run_attempt }}
           if-no-files-found: error
           path: |
             artifacts/stage0-diagnostics/raw
@@ -78,9 +90,19 @@ jobs:
           -SkipBuild
 
       - name: Upload Stage 4 snapshot and cache evidence
+        id: stage4_evidence
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stage4-snapshot-cache-windows-x64
+          if-no-files-found: error
+          path: artifacts/stage4-snapshot-cache/report.json
+
+      - name: Retry Stage 4 snapshot and cache evidence upload
+        if: steps.stage4_evidence.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage4-snapshot-cache-windows-x64-retry-${{ github.run_attempt }}
           if-no-files-found: error
           path: artifacts/stage4-snapshot-cache/report.json
 
@@ -385,10 +407,20 @@ jobs:
           -OutputDirectory artifacts/rterm-release-comparison
 
       - name: Upload R-Term candidate and rollback comparison
+        id: rterm_evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rterm-release-comparison-windows-x64
+          path: artifacts/rterm-release-comparison/report.json
+          if-no-files-found: error
+
+      - name: Retry R-Term candidate and rollback comparison upload
+        if: always() && steps.rterm_evidence.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rterm-release-comparison-windows-x64-retry-${{ github.run_attempt }}
           path: artifacts/rterm-release-comparison/report.json
           if-no-files-found: error
 
