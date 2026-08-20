@@ -228,6 +228,33 @@ fn fixed_runner_evidence_uploads_retry_transient_artifact_endpoint_failures() {
 }
 
 #[test]
+fn release_package_matrix_prepares_web_and_linux_native_dependencies() {
+    let release = read_repo_file(".github/workflows/release.yml");
+    let build_package = release
+        .split("  build-package:\n")
+        .nth(1)
+        .expect("release workflow build-package job")
+        .split("\n  sign-windows:")
+        .next()
+        .expect("build-package job boundary");
+
+    for contract in [
+        "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+        "cache-dependency-path: web/package-lock.json",
+        "npm --prefix web ci",
+        "npm --prefix web run build",
+        "libwebkit2gtk-4.1-dev",
+        "libayatana-appindicator3-dev",
+        "librsvg2-dev",
+    ] {
+        assert!(
+            build_package.contains(contract),
+            "release package matrix is missing prerequisite {contract}"
+        );
+    }
+}
+
+#[test]
 fn rterm_release_comparison_interleaves_candidate_and_rollback_startup_samples() {
     let comparison = read_repo_file("scripts/ci/run-rterm-release-comparison.ps1");
     let startup = read_repo_file("scripts/ci/run-ssh-gui-startup.ps1");
