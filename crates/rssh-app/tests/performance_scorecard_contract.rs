@@ -198,6 +198,31 @@ fn rterm_release_comparison_is_protected_structured_and_fixed_runner_only() {
 }
 
 #[test]
+fn rterm_release_comparison_interleaves_candidate_and_rollback_startup_samples() {
+    let comparison = read_repo_file("scripts/ci/run-rterm-release-comparison.ps1");
+    let startup = read_repo_file("scripts/ci/run-ssh-gui-startup.ps1");
+
+    for contract in [
+        "Invoke-InterleavedStartupComparison",
+        "$candidateFirst = ($index % 2 -eq 1)",
+        "@($candidate, $rollback)",
+        "@($rollback, $candidate)",
+        "-Warmups 0 -Samples 1 -SkipBuild",
+        "-CollectOnly",
+        "measurement_order = \"alternating-ab-ba\"",
+    ] {
+        assert!(
+            comparison.contains(contract),
+            "comparison script is missing the order-neutral startup contract {contract}"
+        );
+    }
+    assert!(
+        startup.contains("[string] $ExecutablePath"),
+        "the startup harness must accept the already-built candidate or rollback executable"
+    );
+}
+
+#[test]
 #[cfg(target_os = "windows")]
 fn rterm_release_comparison_validates_ratio_boundaries_without_building() {
     let output = Command::new("powershell.exe")

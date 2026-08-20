@@ -184,6 +184,103 @@ function Assert-StartupSummary($Summary, [string] $Name) {
   }
 }
 
+function New-StartupSummary(
+  [System.Collections.Generic.List[object]] $Results,
+  [string] $Name
+) {
+  if ($Results.Count -ne $Samples) {
+    throw "$Name startup samples mismatch"
+  }
+  $orderedTimes = @($Results | ForEach-Object process_to_first_present_ms | Sort-Object)
+  $orderedMemory = @($Results | ForEach-Object first_frame_private_bytes | Sort-Object)
+  $p50Index = [Math]::Max(0, [Math]::Ceiling($Samples * 0.50) - 1)
+  $p95Index = [Math]::Max(0, [Math]::Ceiling($Samples * 0.95) - 1)
+  $summary = [ordered]@{
+    profile = "release"
+    columns = 80
+    rows = 24
+    dpi_scale = 1.0
+    warmups = $Warmups
+    samples = $Samples
+    first_present_ms_p50 = $orderedTimes[$p50Index]
+    first_present_ms_p95 = $orderedTimes[$p95Index]
+    private_bytes_p95 = $orderedMemory[$p95Index]
+    private_bytes_max = $orderedMemory[-1]
+    renderer_values = @($Results | Select-Object -ExpandProperty final_renderer -Unique)
+    samples_detail = $Results
+  }
+  Assert-StartupSummary $summary $Name
+  if (
+    [double] $summary.first_present_ms_p50 -gt 400 -or
+    [double] $summary.first_present_ms_p95 -gt 500
+  ) {
+    throw "$Name startup first-present contract failed"
+  }
+  if (
+    [uint64] $summary.private_bytes_p95 -gt (55 * 1MB) -or
+    [uint64] $summary.private_bytes_max -ge (60 * 1MB)
+  ) {
+    throw "$Name startup Private Bytes contract failed"
+  }
+  return $summary
+}
+
+function Invoke-SingleStartupSample($Mode) {
+  $startupJson = & (Join-Path $repositoryRoot "scripts/ci/run-ssh-gui-startup.ps1") `
+    -Profile release -Warmups 0 -Samples 1 -SkipBuild `
+    -ExecutablePath ([string] $Mode.executable_path) -CollectOnly
+  $startup = ($startupJson -join "`n") | ConvertFrom-Json
+  if (@($startup.samples_detail).Count -ne 1) {
+    throw "$($Mode.name) single startup sample is incomplete"
+  }
+  return @($startup.samples_detail)[0]
+}
+
+function Invoke-InterleavedStartupComparison($candidate, $rollback) {
+  for ($index = 1; $index -le $Warmups; $index++) {
+    $candidateFirst = ($index % 2 -eq 1)
+    $warmupOrder = if ($candidateFirst) {
+      @($candidate, $rollback)
+    } else {
+      @($rollback, $candidate)
+    }
+    foreach ($mode in $warmupOrder) {
+      $null = Invoke-SingleStartupSample $mode
+    }
+  }
+
+  $candidateResults = [System.Collections.Generic.List[object]]::new()
+  $rollbackResults = [System.Collections.Generic.List[object]]::new()
+  for ($index = 1; $index -le $Samples; $index++) {
+    $candidateFirst = ($index % 2 -eq 1)
+    $measurementOrder = if ($candidateFirst) {
+      @($candidate, $rollback)
+    } else {
+      @($rollback, $candidate)
+    }
+    foreach ($mode in $measurementOrder) {
+      $sample = Invoke-SingleStartupSample $mode
+      $detail = [pscustomobject]@{
+        sample = $index
+        process_to_first_present_ms = [double] $sample.process_to_first_present_ms
+        reported_process_to_first_present_ms = [double] $sample.reported_process_to_first_present_ms
+        first_frame_private_bytes = [uint64] $sample.first_frame_private_bytes
+        final_renderer = [string] $sample.final_renderer
+      }
+      if ([string] $mode.name -eq "candidate") {
+        $candidateResults.Add($detail)
+      } else {
+        $rollbackResults.Add($detail)
+      }
+    }
+  }
+  return [ordered]@{
+    measurement_order = "alternating-ab-ba"
+    candidate = New-StartupSummary $candidateResults "candidate"
+    rollback = New-StartupSummary $rollbackResults "rollback"
+  }
+}
+
 function Invoke-RtermReleaseMode(
   [string] $Name,
   [string] $Commit,
@@ -207,11 +304,6 @@ function Invoke-RtermReleaseMode(
       if ($LASTEXITCODE -ne 0) {
         throw "$Name production-gui build failed with exit code $LASTEXITCODE"
       }
-
-      $startupJson = & (Join-Path $sourcePath "scripts/ci/run-ssh-gui-startup.ps1") `
-        -Profile release -Warmups $Warmups -Samples $Samples -SkipBuild
-      $startup = ($startupJson -join "`n") | ConvertFrom-Json
-      Assert-StartupSummary $startup $Name
 
       $binary = Join-Path $targetPath "release/rssh-app.exe"
       $versionJson = & $binary version --json
@@ -239,11 +331,13 @@ function Invoke-RtermReleaseMode(
       Pop-Location
     }
     return [ordered]@{
+      name = $Name
       commit = $Commit
       source_path = $sourcePath
       cargo_target = $targetPath
+      executable_path = $binary
       machine = Get-MachineFingerprint
-      startup = $startup
+      startup = $null
       package = [ordered]@{
         root = $packageRoot
         artifact = Join-Path $packageParent $artifactName
@@ -260,6 +354,9 @@ $candidateCommit = Resolve-Commit $CandidateRef
 $rollbackCommit = Resolve-Commit $rollbackRef
 $candidate = Invoke-RtermReleaseMode "candidate" $candidateCommit "candidate-target"
 $rollback = Invoke-RtermReleaseMode "rollback" $rollbackCommit "rollback-target"
+$startupComparison = Invoke-InterleavedStartupComparison $candidate $rollback
+$candidate["startup"] = $startupComparison.candidate
+$rollback["startup"] = $startupComparison.rollback
 
 $thresholdViolations = [System.Collections.Generic.List[object]]::new()
 $candidateFingerprint = Convert-FingerprintToKey $candidate.machine
@@ -300,6 +397,7 @@ $report = [ordered]@{
   warmups = $Warmups
   samples = $Samples
   relative_regression_ceiling = $RelativeRegressionCeiling
+  measurement_order = $startupComparison.measurement_order
   candidate = $candidate
   rollback = $rollback
   comparison = [ordered]@{
