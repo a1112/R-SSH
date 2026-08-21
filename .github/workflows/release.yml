@@ -546,6 +546,7 @@ jobs:
             libssl-dev \
             libwebkit2gtk-4.1-dev \
             libxdo-dev \
+            libxkbcommon-x11-0 \
             librsvg2-dev \
             openssh-client \
             openssh-server \
@@ -892,7 +893,7 @@ jobs:
           sudo chmod 0755 "$policy_path"
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
-            openssh-client openssh-server xvfb
+            libxkbcommon-x11-0 openssh-client openssh-server xvfb
           mkdir -p dist/signed-package-smoke
           tar -xzf "dist/${{ matrix.artifact }}" -C dist/signed-package-smoke
           xvfb-run -a bash scripts/ci/package-smoke.sh \

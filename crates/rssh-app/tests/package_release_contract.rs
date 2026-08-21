@@ -116,6 +116,38 @@ fn linux_release_jobs_guard_openssh_server_installation() {
 }
 
 #[test]
+fn linux_release_smoke_installs_the_xkb_x11_runtime() {
+    let workflow = read_repo_file(".github/workflows/release.yml");
+    let ci = read_repo_file(".github/workflows/ci.yml");
+    let build = job_section(&workflow, "build-package", "sign-windows");
+    let sign_linux = job_section(&workflow, "sign-linux", "sign-macos");
+    let native_e2e = ci
+        .split("  native-terminal-e2e:\n")
+        .nth(1)
+        .expect("CI native-terminal-e2e job");
+
+    for (scope, install) in [
+        (
+            "build-package",
+            named_step(build, "Install Linux package-smoke dependencies"),
+        ),
+        (
+            "sign-linux",
+            named_step(sign_linux, "signed-package-smoke Linux"),
+        ),
+        (
+            "native-terminal-e2e",
+            named_step(native_e2e, "Install Linux native E2E dependencies"),
+        ),
+    ] {
+        assert!(
+            install.contains("libxkbcommon-x11-0"),
+            "{scope} must install the XKB X11 runtime used by the packaged GUI smoke"
+        );
+    }
+}
+
+#[test]
 fn linux_release_guard_contract_does_not_accept_a_different_job() {
     let workflow = r"
 jobs:
