@@ -9,13 +9,16 @@ use std::{
 
 use rssh_test_support::ssh::HermeticSshServer;
 
+#[cfg(target_os = "windows")]
+use crate::WindowsPrivateWorkingSetSampler;
+
 use crate::{
     CollectedMarkers, ConnectionState, ConnectionSummary, DiagnosticFailure, DiagnosticsResult,
     LauncherOptions, LauncherPhase, LauncherStateMachine, MarkerCollector, MarkerDisposition,
     MarkerIdentity, MarkerKind, MemoryMetric, MemorySample, MemorySampler, MemoryStatistics,
     MemorySummary, Platform, ProcessExitKind, ProcessSummary, Readiness, ReadinessStatus,
     RendererSummary, RunIdentity, SamplerError, Scenario, SchemaVersion, StartupMilestones,
-    WindowsPrivateWorkingSetSampler, summarize_bytes,
+    summarize_bytes,
 };
 
 const READINESS_TIMEOUT: Duration = Duration::from_secs(20);
