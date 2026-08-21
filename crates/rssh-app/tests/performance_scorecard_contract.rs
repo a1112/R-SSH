@@ -1,4 +1,7 @@
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, path::PathBuf};
+
+#[cfg(target_os = "windows")]
+use std::process::Command;
 
 use serde_json::Value;
 

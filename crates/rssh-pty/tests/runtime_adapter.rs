@@ -1,11 +1,14 @@
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
 use rssh_domain::PaneId;
 use rssh_pty::{LocalPtyTransport, PtyCommand};
+#[cfg(windows)]
+use rterm_runtime::{PaneNotice, PaneWorkerConfig, RuntimeEffectKind, RuntimeHub, SystemClock};
 use rterm_runtime::{
-    PaneNotice, PaneWorkerConfig, RuntimeBuffers, RuntimeEffectKind, RuntimeEffectRef, RuntimeHub,
-    SessionControl, SessionInterrupt, SessionTransport, SystemClock, TerminalRuntime,
+    RuntimeBuffers, RuntimeEffectRef, SessionControl, SessionInterrupt, SessionTransport,
+    TerminalRuntime,
 };
 use rterm_types::TerminalSize;
 

@@ -7,7 +7,9 @@
     use std::collections::{BTreeMap, HashMap, HashSet};
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
-    use std::process::{Child, Command, Stdio};
+    use std::process::{Child, Command};
+    #[cfg(target_os = "windows")]
+    use std::process::Stdio;
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
