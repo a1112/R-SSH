@@ -621,7 +621,7 @@ fn launch_isolated_openssh_sshd(
         );
         let mut command = Command::new("bash");
         command
-            .arg(&script)
+            .arg(script)
             .arg(&state_directory)
             .arg(port.to_string());
         let mut sshd =
