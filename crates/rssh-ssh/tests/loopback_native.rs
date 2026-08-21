@@ -531,9 +531,47 @@ fn isolated_openssh_sshd_launcher_declares_hardened_effective_configuration_chec
 #[cfg(target_os = "linux")]
 #[test]
 fn native_client_interoperates_with_an_isolated_real_openssh_sshd() {
-    use std::{path::Path, process::Command, thread, time::Instant};
+    use std::path::Path;
 
-    use rssh_test_support::{ChildGuard, ChildOutput, TempHome};
+    use rssh_test_support::TempHome;
+
+    require_linux_openssh_fixture_tools();
+
+    let state = TempHome::new().expect("create isolated sshd state");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci/openssh-sshd.sh");
+    let (sshd, port, state_directory) = launch_isolated_openssh_sshd(&state, &script);
+
+    let user = std::fs::read_to_string(state_directory.join("user"))
+        .expect("read sshd user")
+        .trim()
+        .to_owned();
+    let request = SshConnectRequest::private_key(
+        SshSessionConfig::new("127.0.0.1", port, user, TerminalSize::new(80, 24)),
+        state_directory.join("client_key"),
+        None::<String>,
+    )
+    .expect("build real sshd request")
+    .with_startup(
+        SshSessionStartup::command(["printf".to_owned(), "native-openssh-sshd".to_owned()])
+            .expect("build real sshd command"),
+    );
+    let mut opener =
+        RusshChannelOpener::default().with_known_hosts_path(state_directory.join("known_hosts"));
+    let channel = opener
+        .open_channel(request)
+        .expect("connect to real OpenSSH sshd");
+    let (reader, _writer) = channel.into_read_writer();
+    let (output, result) = read_channel(Box::new(reader));
+    assert_eq!(output, b"native-openssh-sshd");
+    assert_eq!(result.exit_status, Some(0));
+    drop(sshd);
+}
+
+#[cfg(target_os = "linux")]
+fn require_linux_openssh_fixture_tools() {
+    use std::process::Command;
+
+    use rssh_test_support::ChildGuard;
 
     for (tool, argument) in [("bash", "--version"), ("sshd", "-V"), ("ssh-keygen", "-?")] {
         let mut availability = Command::new(tool);
@@ -545,23 +583,18 @@ fn native_client_interoperates_with_an_isolated_real_openssh_sshd() {
             .wait()
             .unwrap_or_else(|error| panic!("required Linux tool {tool} probe failed: {error}"));
     }
+}
 
-    let state = TempHome::new().expect("create isolated sshd state");
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/ci/openssh-sshd.sh");
+#[cfg(target_os = "linux")]
+fn launch_isolated_openssh_sshd(
+    state: &rssh_test_support::TempHome,
+    script: &std::path::Path,
+) -> (rssh_test_support::ChildGuard, u16, std::path::PathBuf) {
+    use std::{process::Command, thread, time::Instant};
+
+    use rssh_test_support::ChildGuard;
+
     let mut launched = None;
-    let assert_retryable_collision = |output: &ChildOutput| {
-        let diagnostics = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        assert!(
-            diagnostics
-                .to_ascii_lowercase()
-                .contains("address already in use"),
-            "isolated sshd exited for a non-retryable reason: {diagnostics:?}"
-        );
-    };
     let mut forced_contention = Some(
         TcpListener::bind(("127.0.0.1", 0)).expect("occupy first isolated sshd candidate port"),
     );
@@ -596,7 +629,7 @@ fn native_client_interoperates_with_an_isolated_real_openssh_sshd() {
         let started = Instant::now();
         loop {
             if let Some(output) = sshd.try_wait().expect("observe isolated sshd") {
-                assert_retryable_collision(&output);
+                assert_retryable_sshd_collision(&output);
                 break;
             }
             if forced_attempt {
@@ -614,13 +647,13 @@ fn native_client_interoperates_with_an_isolated_real_openssh_sshd() {
                         break;
                     }
                     Some(output) => {
-                        assert_retryable_collision(&output);
+                        assert_retryable_sshd_collision(&output);
                         break;
                     }
                 },
                 Err(error) => {
                     if let Some(output) = sshd.try_wait().expect("recheck failed sshd readiness") {
-                        assert_retryable_collision(&output);
+                        assert_retryable_sshd_collision(&output);
                         break;
                     }
                     assert!(
@@ -636,33 +669,22 @@ fn native_client_interoperates_with_an_isolated_real_openssh_sshd() {
             break;
         }
     }
-    let (sshd, port, state_directory) =
-        launched.expect("isolated sshd exhausted five address-in-use retries");
+    launched.expect("isolated sshd exhausted five address-in-use retries")
+}
 
-    let user = std::fs::read_to_string(state_directory.join("user"))
-        .expect("read sshd user")
-        .trim()
-        .to_owned();
-    let request = SshConnectRequest::private_key(
-        SshSessionConfig::new("127.0.0.1", port, user, TerminalSize::new(80, 24)),
-        state_directory.join("client_key"),
-        None::<String>,
-    )
-    .expect("build real sshd request")
-    .with_startup(
-        SshSessionStartup::command(["printf".to_owned(), "native-openssh-sshd".to_owned()])
-            .expect("build real sshd command"),
+#[cfg(target_os = "linux")]
+fn assert_retryable_sshd_collision(output: &rssh_test_support::ChildOutput) {
+    let diagnostics = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
-    let mut opener =
-        RusshChannelOpener::default().with_known_hosts_path(state_directory.join("known_hosts"));
-    let channel = opener
-        .open_channel(request)
-        .expect("connect to real OpenSSH sshd");
-    let (reader, _writer) = channel.into_read_writer();
-    let (output, result) = read_channel(Box::new(reader));
-    assert_eq!(output, b"native-openssh-sshd");
-    assert_eq!(result.exit_status, Some(0));
-    drop(sshd);
+    assert!(
+        diagnostics
+            .to_ascii_lowercase()
+            .contains("address already in use"),
+        "isolated sshd exited for a non-retryable reason: {diagnostics:?}"
+    );
 }
 
 #[cfg(target_os = "linux")]
