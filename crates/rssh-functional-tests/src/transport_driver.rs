@@ -57,6 +57,7 @@ pub fn run_ssh_loopback_journey(
         )
         .start(budget.remaining()?)
         .map_err(fixture_error)?;
+    #[cfg(windows)]
     prepare_identity(&server, budget.remaining()?)?;
     let task_probe = server.task_probe();
 
@@ -296,6 +297,7 @@ pub fn run_transfer_roundtrip_journey(
 ) -> Result<TransferJourneyResult, TransportJourneyError> {
     let budget = JourneyBudget::new(deadline, cleanup)?;
     let server = HermeticSshServer::start(budget.remaining()?).map_err(fixture_error)?;
+    #[cfg(windows)]
     prepare_identity(&server, budget.remaining()?)?;
     let task_probe = server.task_probe();
     let client = TempHome::new().map_err(|error| TransportJourneyError(error.to_string()))?;
@@ -437,14 +439,6 @@ fn prepare_identity(
     } else {
         Err(process_failure("icacls", &output))
     }
-}
-
-#[cfg(not(windows))]
-fn prepare_identity(
-    _server: &HermeticSshServer,
-    _deadline: Duration,
-) -> Result<(), TransportJourneyError> {
-    Ok(())
 }
 
 fn process_failure(
