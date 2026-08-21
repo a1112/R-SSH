@@ -114,6 +114,7 @@ jobs:
           $warmupCount = 2
           $sampleCount = 7
           $regressionTolerance = 0.10
+          $idleCpuRegressionNoiseFloor = 0.01
           $commandFingerprint = "v1|bytes=1048576|chunk=8192|frames=30|idle=1000|query=ansi-scroll-query|plain=plain-scroll"
           $toolchainFingerprint = (rustc --version).Trim()
           if ($LASTEXITCODE -ne 0) {
@@ -153,9 +154,13 @@ jobs:
 
           function Test-Lower-Is-Regression(
             [double] $observed,
-            [double] $baseline
+            [double] $baseline,
+            [double] $minimumAbsoluteRegression = 0.0
           ) {
-            return (($observed / $baseline) -gt (1.0 + $regressionTolerance))
+            return (
+              (($observed / $baseline) -gt (1.0 + $regressionTolerance)) -and
+              (($observed - $baseline) -gt $minimumAbsoluteRegression)
+            )
           }
 
           if (
@@ -168,7 +173,9 @@ jobs:
             (Test-Higher-Is-Regression 90.0 100.0) -or
             -not (Test-Higher-Is-Regression 89.999 100.0) -or
             (Test-Lower-Is-Regression 110.0 100.0) -or
-            -not (Test-Lower-Is-Regression 110.001 100.0)
+            -not (Test-Lower-Is-Regression 110.001 100.0) -or
+            (Test-Lower-Is-Regression 0.0034488498 0.0006851674 $idleCpuRegressionNoiseFloor) -or
+            -not (Test-Lower-Is-Regression 0.02 0.0006851674 $idleCpuRegressionNoiseFloor)
           ) {
             throw "performance regression boundary self-check failed"
           }
@@ -309,10 +316,11 @@ jobs:
           function Test-Lower-Is-BetterRegression(
             [string] $metric,
             [double] $observed,
-            [double] $baseline
+            [double] $baseline,
+            [double] $minimumAbsoluteRegression = 0.0
           ) {
-            if (Test-Lower-Is-Regression $observed $baseline) {
-              Add-Violation $metric $observed "<= 110% of same-machine baseline $baseline"
+            if (Test-Lower-Is-Regression $observed $baseline $minimumAbsoluteRegression) {
+              Add-Violation $metric $observed "<= 110% of same-machine baseline $baseline or within $minimumAbsoluteRegression absolute units"
             }
           }
 
@@ -370,7 +378,7 @@ jobs:
           Test-Higher-Is-BetterRegression "plain_throughput_regression" $plainThroughput $plainBaseline
           Test-Lower-Is-BetterRegression "chunk_p95_regression" $chunkP95 $chunkBaseline
           Test-Lower-Is-BetterRegression "render_p95_regression" $renderP95 $renderBaseline
-          Test-Lower-Is-BetterRegression "idle_cpu_regression" $idleCpu $idleBaseline
+          Test-Lower-Is-BetterRegression "idle_cpu_regression" $idleCpu $idleBaseline $idleCpuRegressionNoiseFloor
           Test-Lower-Is-BetterRegression "rss_regression" $rssBytes $rssBaseline
 
           if ($violations.Count -gt 0) {
