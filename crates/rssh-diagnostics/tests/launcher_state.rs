@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use rssh_diagnostics::{
+    DiagnosticGpuBackend, DiagnosticRendererMode, LAUNCHER_USAGE, LauncherCliError,
     LauncherFailureCode, LauncherOptions, LauncherPhase, LauncherStateMachine, MarkerKind,
     RunConfiguration, Scenario,
 };
@@ -35,7 +36,103 @@ fn defaults_encode_the_approved_sampling_contract() {
     assert_eq!(options.shutdown_timeout, Duration::from_millis(2_000));
     assert_eq!(options.columns, 80);
     assert_eq!(options.rows, 24);
+    assert_eq!(options.renderer, DiagnosticRendererMode::Auto);
+    assert_eq!(options.gpu_backend, None);
     assert!(options.json);
+}
+
+#[test]
+fn parser_records_requested_renderer_and_gpu_backend_in_configuration() {
+    let mut args = base_args("empty-window");
+    args.extend([
+        "--renderer".to_owned(),
+        "gpu".to_owned(),
+        "--gpu-backend".to_owned(),
+        "dx12".to_owned(),
+    ]);
+
+    let options = LauncherOptions::parse(args).unwrap();
+
+    assert_eq!(options.renderer, DiagnosticRendererMode::Gpu);
+    assert_eq!(options.gpu_backend, Some(DiagnosticGpuBackend::Dx12));
+    assert_eq!(
+        options.configuration().requested_renderer,
+        DiagnosticRendererMode::Gpu
+    );
+    assert_eq!(
+        options.configuration().requested_gpu_backend,
+        Some(DiagnosticGpuBackend::Dx12)
+    );
+}
+
+#[test]
+fn parser_rejects_cpu_renderer_with_a_gpu_backend() {
+    let mut args = base_args("empty-window");
+    args.extend([
+        "--renderer".to_owned(),
+        "cpu".to_owned(),
+        "--gpu-backend".to_owned(),
+        "vulkan".to_owned(),
+    ]);
+
+    assert_eq!(
+        LauncherOptions::parse(args).unwrap_err(),
+        LauncherCliError::CpuRendererWithGpuBackend
+    );
+}
+
+#[test]
+fn parser_reports_precise_renderer_and_backend_value_errors() {
+    let mut invalid_renderer = base_args("empty-window");
+    invalid_renderer.extend(["--renderer".to_owned(), "metal".to_owned()]);
+    assert_eq!(
+        LauncherOptions::parse(invalid_renderer)
+            .unwrap_err()
+            .to_string(),
+        "invalid value 'metal' for --renderer; expected auto, cpu, or gpu"
+    );
+
+    let mut invalid_backend = base_args("empty-window");
+    invalid_backend.extend(["--gpu-backend".to_owned(), "metal".to_owned()]);
+    assert_eq!(
+        LauncherOptions::parse(invalid_backend)
+            .unwrap_err()
+            .to_string(),
+        "invalid value 'metal' for --gpu-backend; expected dx12, vulkan, or gl"
+    );
+}
+
+#[test]
+fn parser_rejects_repeated_renderer_and_backend_arguments() {
+    let mut repeated_renderer = base_args("empty-window");
+    repeated_renderer.extend([
+        "--renderer".to_owned(),
+        "auto".to_owned(),
+        "--renderer".to_owned(),
+        "gpu".to_owned(),
+    ]);
+    assert_eq!(
+        LauncherOptions::parse(repeated_renderer).unwrap_err(),
+        LauncherCliError::RepeatedArgument("--renderer")
+    );
+
+    let mut repeated_backend = base_args("empty-window");
+    repeated_backend.extend([
+        "--gpu-backend".to_owned(),
+        "dx12".to_owned(),
+        "--gpu-backend".to_owned(),
+        "gl".to_owned(),
+    ]);
+    assert_eq!(
+        LauncherOptions::parse(repeated_backend).unwrap_err(),
+        LauncherCliError::RepeatedArgument("--gpu-backend")
+    );
+}
+
+#[test]
+fn launcher_usage_documents_renderer_and_backend_options() {
+    assert!(LAUNCHER_USAGE.contains("[--renderer auto|cpu|gpu]"));
+    assert!(LAUNCHER_USAGE.contains("[--gpu-backend dx12|vulkan|gl]"));
 }
 
 #[test]

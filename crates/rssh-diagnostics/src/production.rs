@@ -570,31 +570,8 @@ fn diagnostic_command(
     run_id: &str,
     fixture: Option<&SshFixtureContext>,
 ) -> Command {
-    let scenario = match options.scenario {
-        Scenario::EmptyWindow => "empty-window",
-        Scenario::Ssh1 => "ssh1",
-    };
-    let hold_ms = options
-        .stabilization
-        .saturating_add(options.sample_interval.saturating_mul(options.sample_count))
-        .saturating_add(options.shutdown_timeout)
-        .saturating_add(Duration::from_secs(30));
     let mut command = Command::new(&options.app);
-    command.args([
-        "diagnostic-gui",
-        "--run-id",
-        run_id,
-        "--scenario",
-        scenario,
-        "--hold-ms",
-        &duration_millis(hold_ms).to_string(),
-        "--renderer",
-        "auto",
-        "--cols",
-        &options.columns.to_string(),
-        "--rows",
-        &options.rows.to_string(),
-    ]);
+    command.args(diagnostic_arguments(options, run_id));
     command.env("RSSH_BENCHMARK_WINDOW_SCALE_FACTOR", "1");
     if let Some(fixture) = fixture {
         let address = fixture.server.address();
@@ -614,6 +591,39 @@ fn diagnostic_command(
             .env("SSH_AUTH_SOCK", "rssh-diagnostics-invalid-agent");
     }
     command
+}
+
+pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> Vec<String> {
+    let scenario = match options.scenario {
+        Scenario::EmptyWindow => "empty-window",
+        Scenario::Ssh1 => "ssh1",
+    };
+    let hold_ms = options
+        .stabilization
+        .saturating_add(options.sample_interval.saturating_mul(options.sample_count))
+        .saturating_add(options.shutdown_timeout)
+        .saturating_add(Duration::from_secs(30));
+    let mut arguments = vec![
+        "diagnostic-gui".to_owned(),
+        "--run-id".to_owned(),
+        run_id.to_owned(),
+        "--scenario".to_owned(),
+        scenario.to_owned(),
+        "--hold-ms".to_owned(),
+        duration_millis(hold_ms).to_string(),
+        "--renderer".to_owned(),
+        options.renderer.to_string(),
+    ];
+    if let Some(backend) = options.gpu_backend {
+        arguments.extend(["--gpu-backend".to_owned(), backend.to_string()]);
+    }
+    arguments.extend([
+        "--cols".to_owned(),
+        options.columns.to_string(),
+        "--rows".to_owned(),
+        options.rows.to_string(),
+    ]);
+    arguments
 }
 
 struct SshFixtureContext {
@@ -947,5 +957,80 @@ const fn empty_statistics() -> MemoryStatistics {
         median: 0,
         p50: 0,
         p95: 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::{DiagnosticGpuBackend, DiagnosticRendererMode};
+
+    #[test]
+    fn diagnostic_arguments_forward_requested_renderer_and_backend_exactly() {
+        let options = LauncherOptions {
+            app: PathBuf::from("rssh-app"),
+            scenario: Scenario::EmptyWindow,
+            stabilization: Duration::from_millis(5_000),
+            sample_interval: Duration::from_millis(100),
+            sample_count: 10,
+            shutdown_timeout: Duration::from_millis(2_000),
+            columns: 80,
+            rows: 24,
+            renderer: DiagnosticRendererMode::Gpu,
+            gpu_backend: Some(DiagnosticGpuBackend::Dx12),
+            json: true,
+        };
+
+        assert_eq!(
+            diagnostic_arguments(&options, "probe-run"),
+            [
+                "diagnostic-gui",
+                "--run-id",
+                "probe-run",
+                "--scenario",
+                "empty-window",
+                "--hold-ms",
+                "38000",
+                "--renderer",
+                "gpu",
+                "--gpu-backend",
+                "dx12",
+                "--cols",
+                "80",
+                "--rows",
+                "24",
+            ]
+            .map(str::to_owned)
+        );
+    }
+
+    #[test]
+    fn diagnostic_arguments_keep_auto_default_without_a_backend_override() {
+        let options = LauncherOptions {
+            app: PathBuf::from("rssh-app"),
+            scenario: Scenario::EmptyWindow,
+            stabilization: Duration::from_millis(5_000),
+            sample_interval: Duration::from_millis(100),
+            sample_count: 10,
+            shutdown_timeout: Duration::from_millis(2_000),
+            columns: 80,
+            rows: 24,
+            renderer: DiagnosticRendererMode::Auto,
+            gpu_backend: None,
+            json: true,
+        };
+
+        let arguments = diagnostic_arguments(&options, "default-run");
+
+        assert_eq!(
+            arguments
+                .windows(2)
+                .find(|pair| pair[0] == "--renderer")
+                .map(|pair| pair[1].as_str()),
+            Some("auto")
+        );
+        assert!(!arguments.iter().any(|argument| argument == "--gpu-backend"));
     }
 }

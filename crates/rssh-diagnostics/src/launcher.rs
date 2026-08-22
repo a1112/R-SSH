@@ -3,9 +3,9 @@ use std::fmt::{self, Display, Formatter};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::{MarkerKind, RunConfiguration, Scenario};
+use crate::{DiagnosticGpuBackend, DiagnosticRendererMode, MarkerKind, RunConfiguration, Scenario};
 
-pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
+pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--renderer auto|cpu|gpu] [--gpu-backend dx12|vulkan|gl] [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LauncherOptions {
@@ -17,6 +17,8 @@ pub struct LauncherOptions {
     pub shutdown_timeout: Duration,
     pub columns: u16,
     pub rows: u16,
+    pub renderer: DiagnosticRendererMode,
+    pub gpu_backend: Option<DiagnosticGpuBackend>,
     pub json: bool,
 }
 
@@ -39,6 +41,8 @@ impl LauncherOptions {
         let mut shutdown_timeout_ms = 2_000_u64;
         let mut columns = 80_u16;
         let mut rows = 24_u16;
+        let mut renderer = None;
+        let mut gpu_backend = None;
         let mut json = false;
 
         while let Some(argument) = arguments.next() {
@@ -90,6 +94,14 @@ impl LauncherOptions {
                 "--rows" => {
                     rows = parse_positive(&next_value(&mut arguments, "--rows")?, "--rows")?;
                 }
+                "--renderer" => {
+                    let value = next_value(&mut arguments, "--renderer")?;
+                    assign_once(&mut renderer, parse_renderer(value)?, "--renderer")?;
+                }
+                "--gpu-backend" => {
+                    let value = next_value(&mut arguments, "--gpu-backend")?;
+                    assign_once(&mut gpu_backend, parse_gpu_backend(value)?, "--gpu-backend")?;
+                }
                 "--json" => json = true,
                 _ => return Err(LauncherCliError::UnknownArgument(argument)),
             }
@@ -98,6 +110,10 @@ impl LauncherOptions {
         let app = app.ok_or(LauncherCliError::MissingArgument("--app"))?;
         if !app.is_file() {
             return Err(LauncherCliError::AppDoesNotExist(app));
+        }
+        let renderer = renderer.unwrap_or_default();
+        if renderer == DiagnosticRendererMode::Cpu && gpu_backend.is_some() {
+            return Err(LauncherCliError::CpuRendererWithGpuBackend);
         }
         Ok(Self {
             app,
@@ -108,6 +124,8 @@ impl LauncherOptions {
             shutdown_timeout: Duration::from_millis(shutdown_timeout_ms),
             columns,
             rows,
+            renderer,
+            gpu_backend,
             json,
         })
     }
@@ -120,6 +138,8 @@ impl LauncherOptions {
             sample_count: self.sample_count,
             columns: self.columns,
             rows: self.rows,
+            requested_renderer: self.renderer,
+            requested_gpu_backend: self.gpu_backend,
             ..RunConfiguration::default()
         }
     }
@@ -127,6 +147,18 @@ impl LauncherOptions {
 
 fn duration_millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn parse_renderer(value: String) -> Result<DiagnosticRendererMode, LauncherCliError> {
+    value
+        .parse()
+        .map_err(|_| LauncherCliError::InvalidRenderer(value))
+}
+
+fn parse_gpu_backend(value: String) -> Result<DiagnosticGpuBackend, LauncherCliError> {
+    value
+        .parse()
+        .map_err(|_| LauncherCliError::InvalidGpuBackend(value))
 }
 
 fn next_value(
@@ -179,6 +211,9 @@ pub enum LauncherCliError {
     RepeatedArgument(&'static str),
     UnknownArgument(String),
     InvalidScenario(String),
+    InvalidRenderer(String),
+    InvalidGpuBackend(String),
+    CpuRendererWithGpuBackend,
     InvalidPositiveValue { option: &'static str, value: String },
     AppDoesNotExist(PathBuf),
 }
@@ -195,6 +230,19 @@ impl Display for LauncherCliError {
                 formatter,
                 "invalid scenario {value}; expected empty-window or ssh1"
             ),
+            Self::InvalidRenderer(value) => {
+                write!(
+                    formatter,
+                    "invalid value '{value}' for --renderer; expected auto, cpu, or gpu"
+                )
+            }
+            Self::InvalidGpuBackend(value) => write!(
+                formatter,
+                "invalid value '{value}' for --gpu-backend; expected dx12, vulkan, or gl"
+            ),
+            Self::CpuRendererWithGpuBackend => {
+                formatter.write_str("--gpu-backend cannot be used with --renderer cpu")
+            }
             Self::InvalidPositiveValue { option, value } => {
                 write!(
                     formatter,
