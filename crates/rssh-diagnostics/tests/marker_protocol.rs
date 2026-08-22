@@ -113,16 +113,18 @@ fn singleton_and_terminal_markers_reject_duplicates() {
 }
 
 #[test]
-fn unknown_marker_fields_are_preserved_for_forward_diagnostics() {
+fn selected_backend_marker_fields_are_preserved_for_result_enrichment() {
     let line = FIRST_PRESENT.replace(
         "\"renderer\":\"cpu\"",
-        "\"renderer\":\"cpu\",\"future_detail\":{\"value\":7}",
+        "\"renderer\":\"cpu\",\"backend\":\"dx12\",\"adapter_name\":\"fixture-adapter\",\"future_detail\":{\"value\":7}",
     );
     let disposition = collector().push_line(&line).unwrap();
     let MarkerDisposition::Accepted(record) = disposition else {
         panic!("marker was not accepted");
     };
 
+    assert_eq!(record.extra["backend"], "dx12");
+    assert_eq!(record.extra["adapter_name"], "fixture-adapter");
     assert_eq!(record.extra["future_detail"]["value"], 7);
 }
 

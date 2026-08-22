@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
+use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +8,88 @@ use serde::{Deserialize, Serialize};
 pub enum SchemaVersion {
     #[serde(rename = "rssh.diagnostics/v2")]
     V2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticRendererMode {
+    Auto,
+    Cpu,
+    Gpu,
+}
+
+impl Default for DiagnosticRendererMode {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl DiagnosticRendererMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Cpu => "cpu",
+            Self::Gpu => "gpu",
+        }
+    }
+}
+
+impl Display for DiagnosticRendererMode {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for DiagnosticRendererMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "cpu" => Ok(Self::Cpu),
+            "gpu" => Ok(Self::Gpu),
+            _ => Err(format!("unsupported diagnostic renderer mode: {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticGpuBackend {
+    Dx12,
+    Vulkan,
+    Gl,
+}
+
+impl DiagnosticGpuBackend {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Dx12 => "dx12",
+            Self::Vulkan => "vulkan",
+            Self::Gl => "gl",
+        }
+    }
+}
+
+impl Display for DiagnosticGpuBackend {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for DiagnosticGpuBackend {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "dx12" => Ok(Self::Dx12),
+            "vulkan" => Ok(Self::Vulkan),
+            "gl" => Ok(Self::Gl),
+            _ => Err(format!("unsupported diagnostic GPU backend: {value}")),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +143,10 @@ pub struct RunConfiguration {
     pub columns: u16,
     pub rows: u16,
     pub scale_factor_milli: u16,
+    #[serde(default)]
+    pub requested_renderer: DiagnosticRendererMode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_gpu_backend: Option<DiagnosticGpuBackend>,
 }
 
 impl Default for RunConfiguration {
@@ -71,6 +158,8 @@ impl Default for RunConfiguration {
             columns: 80,
             rows: 24,
             scale_factor_milli: 1_000,
+            requested_renderer: DiagnosticRendererMode::Auto,
+            requested_gpu_backend: None,
         }
     }
 }
@@ -111,11 +200,21 @@ pub enum RendererKind {
     Gpu,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RendererSummary {
     pub first: Option<RendererKind>,
     #[serde(rename = "final")]
     pub final_renderer: Option<RendererKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<DiagnosticGpuBackend>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_vendor_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_device_id: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -238,6 +337,7 @@ impl DiagnosticsResult {
             renderer: RendererSummary {
                 first: Some(RendererKind::Cpu),
                 final_renderer: Some(RendererKind::Cpu),
+                ..RendererSummary::default()
             },
             connection: ConnectionSummary {
                 final_state: ConnectionState::NotStarted,

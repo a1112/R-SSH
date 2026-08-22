@@ -466,6 +466,7 @@ fn successful_result(
         renderer: RendererSummary {
             first: trace.first_renderer,
             final_renderer: trace.final_renderer,
+            ..RendererSummary::default()
         },
         connection: ConnectionSummary {
             final_state: trace
@@ -539,6 +540,7 @@ fn failed_execution_with_trace(
             renderer: RendererSummary {
                 first: trace.first_renderer,
                 final_renderer: trace.final_renderer,
+                ..RendererSummary::default()
             },
             connection: ConnectionSummary {
                 final_state: trace
