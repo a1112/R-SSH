@@ -119,7 +119,7 @@ fn schema_v2_serializes_requested_and_selected_gpu_backend() {
     result.renderer.adapter_name = Some("fixture-adapter".to_owned());
     result.renderer.adapter_vendor_id = Some(0x10de);
     result.renderer.adapter_device_id = Some(0x1234);
-    result.renderer.adapter_type = Some("discrete_gpu".to_owned());
+    result.renderer.adapter_type = Some("discrete-gpu".to_owned());
 
     let value = serde_json::to_value(result).unwrap();
 
@@ -129,7 +129,7 @@ fn schema_v2_serializes_requested_and_selected_gpu_backend() {
     assert_eq!(value["renderer"]["adapter_name"], "fixture-adapter");
     assert_eq!(value["renderer"]["adapter_vendor_id"], 0x10de);
     assert_eq!(value["renderer"]["adapter_device_id"], 0x1234);
-    assert_eq!(value["renderer"]["adapter_type"], "discrete_gpu");
+    assert_eq!(value["renderer"]["adapter_type"], "discrete-gpu");
 }
 
 #[test]
