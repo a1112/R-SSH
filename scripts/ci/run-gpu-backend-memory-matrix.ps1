@@ -153,6 +153,22 @@ function Assert-JsonUInt64Equals(
     }
 }
 
+function Test-ProductionAdapterType(
+    [AllowNull()]
+    [object] $Value
+) {
+    if ($Value -isnot [string]) {
+        return $false
+    }
+    return (
+        $Value -ceq "other" -or
+        $Value -ceq "integrated-gpu" -or
+        $Value -ceq "discrete-gpu" -or
+        $Value -ceq "virtual-gpu" -or
+        $Value -ceq "cpu"
+    )
+}
+
 function Get-SafeFailureMessage([System.Management.Automation.ErrorRecord] $Failure) {
     $message = $Failure.Exception.Message
     $pathsToRedact = @(
@@ -279,14 +295,18 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
     if ($Record.renderer.backend -isnot [string] -or $Record.renderer.backend -cne $Probe) {
         throw "actual GPU backend mismatch: requested '$Probe', observed '$($Record.renderer.backend)'"
     }
-    foreach ($identityField in @("adapter_name", "adapter_type")) {
-        if (
-            -not ($Record.renderer.PSObject.Properties.Name -contains $identityField) -or
-            $Record.renderer.$identityField -isnot [string] -or
-            [string]::IsNullOrWhiteSpace($Record.renderer.$identityField)
-        ) {
-            throw "GPU probe '$Probe' $identityField must be an actual non-empty string"
-        }
+    if (
+        -not ($Record.renderer.PSObject.Properties.Name -contains "adapter_name") -or
+        $Record.renderer.adapter_name -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($Record.renderer.adapter_name)
+    ) {
+        throw "GPU probe '$Probe' adapter_name must be an actual non-empty string"
+    }
+    if (
+        -not ($Record.renderer.PSObject.Properties.Name -contains "adapter_type") -or
+        -not (Test-ProductionAdapterType -Value $Record.renderer.adapter_type)
+    ) {
+        throw "GPU probe '$Probe' adapter_type must match a production adapter type"
     }
     foreach ($identityField in @("adapter_vendor_id", "adapter_device_id")) {
         [UInt64] $identityValue = 0

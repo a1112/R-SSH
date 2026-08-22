@@ -30,7 +30,12 @@ fn matrix_accepts_strict_cpu_and_gpu_records_and_emits_exact_current_evidence() 
         assert_eq!(report["adapter_vendor_id"], 4318);
         let expected_device_id = if backend == "gl" { 0 } else { 9860 };
         assert_eq!(report["adapter_device_id"], expected_device_id);
-        assert_eq!(report["adapter_type"], "discrete-gpu");
+        let expected_adapter_type = if backend == "gl" {
+            "other"
+        } else {
+            "discrete-gpu"
+        };
+        assert_eq!(report["adapter_type"], expected_adapter_type);
     }
     assert_eq!(
         report["evidence"]["raw_files"],
@@ -235,6 +240,27 @@ fn matrix_rejects_string_encoded_configuration_numbers() {
     assert_eq!(probe(probes, "vulkan")["status"], "succeeded");
 }
 
+#[test]
+fn matrix_rejects_case_changed_and_unknown_production_adapter_types() {
+    let fixture = MatrixFixture::new("invalid-adapter-types", "invalid-adapter-types");
+    let output = fixture.run();
+    assert_success(&output);
+
+    let report = fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    for backend in ["dx12", "vulkan"] {
+        let failed = probe(probes, backend);
+        assert_eq!(failed["status"], "failed");
+        assert!(
+            failed["probe_failure"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("production adapter type"))
+        );
+    }
+    assert_eq!(probe(probes, "gl")["status"], "succeeded");
+    assert_eq!(probe(probes, "gl")["adapter_type"], "other");
+}
+
 fn assert_cpu_identity_omitted(report: &Value) {
     for field in [
         "requested_gpu_backend",
@@ -433,7 +459,17 @@ $rendererSummary = if ($probe -eq "cpu") {
     if ($mode -eq "object-array-vulkan-adapter" -and $probe -eq "vulkan") {
         $adapterName = [ordered]@{ unexpected = "object" }
     }
-    $adapterType = if ($mode -eq "object-array-vulkan-adapter" -and $probe -eq "vulkan") { @("discrete-gpu") } else { "discrete-gpu" }
+    $adapterType = if ($mode -eq "object-array-vulkan-adapter" -and $probe -eq "vulkan") {
+        @("discrete-gpu")
+    } elseif ($mode -eq "invalid-adapter-types" -and $probe -eq "dx12") {
+        "DISCRETE-GPU"
+    } elseif ($mode -eq "invalid-adapter-types" -and $probe -eq "vulkan") {
+        "mystery-gpu"
+    } elseif ($probe -eq "gl") {
+        "other"
+    } else {
+        "discrete-gpu"
+    }
     [ordered]@{
         first = "cpu"
         final = if ($mode -eq "uppercase-wire-b" -and $probe -eq "dx12") { "GPU" } else { "gpu" }
