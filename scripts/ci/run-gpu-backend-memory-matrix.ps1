@@ -197,19 +197,21 @@ try {
         }
 
         $requestedRenderer = if ($probe -eq "cpu") { "cpu" } else { "auto" }
-        $requestedBackend = if ($probe -eq "cpu") { $null } else { $probe }
         if ($null -ne $probeFailure) {
-            $probeReports.Add([ordered]@{
+            $failedReport = [ordered]@{
                 name = $probe
                 status = "failed"
                 requested_renderer = $requestedRenderer
-                requested_gpu_backend = $requestedBackend
                 measured_runs_completed = $completedRuns
                 samples_per_run = 10
                 probe_failure = [ordered]@{
                     message = $probeFailure
                 }
-            })
+            }
+            if ($probe -ne "cpu") {
+                $failedReport["requested_gpu_backend"] = $probe
+            }
+            $probeReports.Add($failedReport)
             Write-Warning "GPU backend memory probe '$probe' failed: $probeFailure"
             continue
         }

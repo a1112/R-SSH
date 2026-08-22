@@ -613,6 +613,32 @@ fn gpu_backend_memory_matrix_is_report_only_identity_checked_and_not_a_shared_pr
             "GPU success aggregates must conditionally insert {conditional_gpu_field}"
         );
     }
+    let failed_report = runner
+        .split("$failedReport = [ordered]@{")
+        .nth(1)
+        .expect("failed probe report construction");
+    let unconditional_failure_fields = failed_report
+        .split("if ($probe -ne \"cpu\")")
+        .next()
+        .expect("failed report fields before conditional GPU identity");
+    for omitted_cpu_field in ["requested_gpu_backend", "actual_gpu_backend"] {
+        assert!(
+            !unconditional_failure_fields.contains(omitted_cpu_field),
+            "CPU failure aggregates must omit {omitted_cpu_field} rather than serialize null"
+        );
+    }
+    assert!(
+        failed_report.contains("$failedReport[\"requested_gpu_backend\"] = $probe"),
+        "GPU failure aggregates must retain the requested backend"
+    );
+    let failed_report_before_continue = failed_report
+        .split("continue")
+        .next()
+        .expect("failed report boundary");
+    assert!(
+        !failed_report_before_continue.contains("$failedReport[\"actual_gpu_backend\"]"),
+        "failed probes must not claim an actual backend that never passed validation"
+    );
     assert!(
         !pull_request_ci.contains("run-gpu-backend-memory-matrix.ps1"),
         "the report-only hardware matrix must not become a shared PR absolute gate"
