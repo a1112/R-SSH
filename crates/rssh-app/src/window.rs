@@ -7974,4 +7974,38 @@ mod ssh_gui_startup_contract_tests {
         app.set_diagnostic_gpu_backend(Some(DiagnosticGpuBackend::Dx12));
         assert_eq!(app.diagnostic_gpu_backend, Some(DiagnosticGpuBackend::Dx12));
     }
+
+    #[test]
+    fn diagnostic_gpu_ready_extra_contains_only_safe_adapter_identity() {
+        let mut metrics = GpuPresentationMetrics::uninitialized();
+        metrics.backend = "Vulkan".to_owned();
+        metrics.adapter_name = "fixture-adapter".to_owned();
+        metrics.adapter_vendor_id = 0x10de;
+        metrics.adapter_device_id = 0x2684;
+        metrics.adapter_type = "discrete-gpu".to_owned();
+
+        let extra = gpu_ready_extra(&metrics);
+
+        assert_eq!(
+            extra.keys().map(String::as_str).collect::<HashSet<_>>(),
+            HashSet::from([
+                "gpu_backend",
+                "gpu_adapter_name",
+                "gpu_adapter_vendor_id",
+                "gpu_adapter_device_id",
+                "gpu_adapter_type",
+            ])
+        );
+        assert_eq!(extra["gpu_backend"], serde_json::json!("Vulkan"));
+        assert_eq!(
+            extra["gpu_adapter_name"],
+            serde_json::json!("fixture-adapter")
+        );
+        assert_eq!(extra["gpu_adapter_vendor_id"], serde_json::json!(0x10de));
+        assert_eq!(extra["gpu_adapter_device_id"], serde_json::json!(0x2684));
+        assert_eq!(
+            extra["gpu_adapter_type"],
+            serde_json::json!("discrete-gpu")
+        );
+    }
 }

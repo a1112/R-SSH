@@ -5,7 +5,9 @@ use std::fmt::{self, Display, Formatter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{ConnectionState, RendererKind, Scenario, SchemaVersion, StartupMilestones};
+use crate::{
+    ConnectionState, DiagnosticGpuBackend, RendererKind, Scenario, SchemaVersion, StartupMilestones,
+};
 
 pub const MARKER_PREFIX: &str = "rssh_diagnostic ";
 
@@ -71,6 +73,11 @@ pub struct CollectedMarkers {
     pub first_renderer: Option<RendererKind>,
     pub final_renderer: Option<RendererKind>,
     pub connection_state: Option<ConnectionState>,
+    pub gpu_backend: Option<DiagnosticGpuBackend>,
+    pub gpu_adapter_name: Option<String>,
+    pub gpu_adapter_vendor_id: Option<u32>,
+    pub gpu_adapter_device_id: Option<u32>,
+    pub gpu_adapter_type: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +143,11 @@ impl MarkerCollector {
                 first_renderer: None,
                 final_renderer: None,
                 connection_state: None,
+                gpu_backend: None,
+                gpu_adapter_name: None,
+                gpu_adapter_vendor_id: None,
+                gpu_adapter_device_id: None,
+                gpu_adapter_type: None,
             },
         }
     }
@@ -230,6 +242,25 @@ impl MarkerCollector {
             MarkerKind::GpuReady => {
                 self.trace.milestones.gpu_ready_ms = Some(record.elapsed_ms);
                 self.trace.final_renderer = record.renderer.or(Some(RendererKind::Gpu));
+                self.trace.gpu_backend = record
+                    .extra
+                    .get("gpu_backend")
+                    .and_then(Value::as_str)
+                    .and_then(|backend| backend.to_ascii_lowercase().parse().ok());
+                self.trace.gpu_adapter_name = record
+                    .extra
+                    .get("gpu_adapter_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                self.trace.gpu_adapter_vendor_id =
+                    marker_u32(&record.extra, "gpu_adapter_vendor_id");
+                self.trace.gpu_adapter_device_id =
+                    marker_u32(&record.extra, "gpu_adapter_device_id");
+                self.trace.gpu_adapter_type = record
+                    .extra
+                    .get("gpu_adapter_type")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
             }
             MarkerKind::ScenarioReady => {
                 self.trace.milestones.scenario_ready_ms = Some(record.elapsed_ms);
@@ -248,6 +279,13 @@ impl MarkerCollector {
             self.trace.connection_state = record.connection_state;
         }
     }
+}
+
+fn marker_u32(extra: &HashMap<String, Value>, key: &str) -> Option<u32> {
+    extra
+        .get(key)
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
 }
 
 fn identity_mismatch(field: &'static str, expected: String, observed: String) -> MarkerError {

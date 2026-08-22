@@ -42,6 +42,58 @@ fn parser_ignores_plain_output_and_accepts_cpu_first_gpu_later() {
 }
 
 #[test]
+fn gpu_ready_collects_selected_backend_and_adapter_identity() {
+    let gpu_ready = concat!(
+        "rssh_diagnostic ",
+        r#"{"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"gpu_ready","elapsed_ms":50,"renderer":"gpu","gpu_backend":"Dx12","gpu_adapter_name":"fixture-adapter","gpu_adapter_vendor_id":4318,"gpu_adapter_device_id":9860,"gpu_adapter_type":"discrete-gpu"}"#
+    );
+    let mut collector = collector();
+
+    collector.push_line(gpu_ready).unwrap();
+
+    let trace = collector.trace();
+    assert_eq!(
+        trace.gpu_backend,
+        Some(rssh_diagnostics::DiagnosticGpuBackend::Dx12)
+    );
+    assert_eq!(trace.gpu_adapter_name.as_deref(), Some("fixture-adapter"));
+    assert_eq!(trace.gpu_adapter_vendor_id, Some(4318));
+    assert_eq!(trace.gpu_adapter_device_id, Some(9860));
+    assert_eq!(trace.gpu_adapter_type.as_deref(), Some("discrete-gpu"));
+}
+
+#[test]
+fn missing_or_malformed_gpu_identity_preserves_gpu_ready_marker_semantics() {
+    let malformed_gpu_ready = concat!(
+        "rssh_diagnostic ",
+        r#"{"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"gpu_ready","elapsed_ms":50,"renderer":"gpu","gpu_backend":7,"gpu_adapter_name":false,"gpu_adapter_vendor_id":"4318","gpu_adapter_device_id":-1,"gpu_adapter_type":{"unexpected":true}}"#
+    );
+    let mut malformed = collector();
+
+    malformed.push_line(malformed_gpu_ready).unwrap();
+
+    let trace = malformed.trace();
+    assert_eq!(trace.milestones.gpu_ready_ms, Some(50));
+    assert_eq!(trace.final_renderer, Some(RendererKind::Gpu));
+    assert_eq!(trace.gpu_backend, None);
+    assert_eq!(trace.gpu_adapter_name, None);
+    assert_eq!(trace.gpu_adapter_vendor_id, None);
+    assert_eq!(trace.gpu_adapter_device_id, None);
+    assert_eq!(trace.gpu_adapter_type, None);
+
+    let mut legacy = collector();
+    legacy.push_line(GPU_READY).unwrap();
+    let trace = legacy.trace();
+    assert_eq!(trace.milestones.gpu_ready_ms, Some(50));
+    assert_eq!(trace.final_renderer, Some(RendererKind::Gpu));
+    assert_eq!(trace.gpu_backend, None);
+    assert_eq!(trace.gpu_adapter_name, None);
+    assert_eq!(trace.gpu_adapter_vendor_id, None);
+    assert_eq!(trace.gpu_adapter_device_id, None);
+    assert_eq!(trace.gpu_adapter_type, None);
+}
+
+#[test]
 fn malformed_prefixed_json_is_not_treated_as_plain_output() {
     let error = collector()
         .push_line("rssh_diagnostic {broken")

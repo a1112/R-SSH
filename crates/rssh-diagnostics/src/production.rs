@@ -466,7 +466,11 @@ fn successful_result(
         renderer: RendererSummary {
             first: trace.first_renderer,
             final_renderer: trace.final_renderer,
-            ..RendererSummary::default()
+            backend: trace.gpu_backend,
+            adapter_name: trace.gpu_adapter_name,
+            adapter_vendor_id: trace.gpu_adapter_vendor_id,
+            adapter_device_id: trace.gpu_adapter_device_id,
+            adapter_type: trace.gpu_adapter_type,
         },
         connection: ConnectionSummary {
             final_state: trace
@@ -540,7 +544,11 @@ fn failed_execution_with_trace(
             renderer: RendererSummary {
                 first: trace.first_renderer,
                 final_renderer: trace.final_renderer,
-                ..RendererSummary::default()
+                backend: trace.gpu_backend,
+                adapter_name: trace.gpu_adapter_name,
+                adapter_vendor_id: trace.gpu_adapter_vendor_id,
+                adapter_device_id: trace.gpu_adapter_device_id,
+                adapter_type: trace.gpu_adapter_type,
             },
             connection: ConnectionSummary {
                 final_state: trace
@@ -945,6 +953,11 @@ fn empty_trace() -> CollectedMarkers {
         first_renderer: None,
         final_renderer: None,
         connection_state: None,
+        gpu_backend: None,
+        gpu_adapter_name: None,
+        gpu_adapter_vendor_id: None,
+        gpu_adapter_device_id: None,
+        gpu_adapter_type: None,
     }
 }
 
@@ -966,6 +979,85 @@ mod tests {
 
     use super::*;
     use crate::{DiagnosticGpuBackend, DiagnosticRendererMode};
+
+    fn fixture_options() -> LauncherOptions {
+        LauncherOptions {
+            app: PathBuf::from("rssh-app"),
+            scenario: Scenario::EmptyWindow,
+            stabilization: Duration::from_millis(1),
+            sample_interval: Duration::from_millis(1),
+            sample_count: 1,
+            shutdown_timeout: Duration::from_millis(1),
+            columns: 80,
+            rows: 24,
+            renderer: DiagnosticRendererMode::Gpu,
+            gpu_backend: Some(DiagnosticGpuBackend::Dx12),
+            json: true,
+        }
+    }
+
+    fn gpu_identity_trace() -> CollectedMarkers {
+        CollectedMarkers {
+            milestones: StartupMilestones::default(),
+            first_renderer: Some(crate::RendererKind::Cpu),
+            final_renderer: Some(crate::RendererKind::Gpu),
+            connection_state: Some(ConnectionState::NotStarted),
+            gpu_backend: Some(DiagnosticGpuBackend::Dx12),
+            gpu_adapter_name: Some("fixture-adapter".to_owned()),
+            gpu_adapter_vendor_id: Some(0x10de),
+            gpu_adapter_device_id: Some(0x2684),
+            gpu_adapter_type: Some("discrete-gpu".to_owned()),
+        }
+    }
+
+    fn assert_gpu_identity(renderer: &RendererSummary) {
+        assert_eq!(renderer.backend, Some(DiagnosticGpuBackend::Dx12));
+        assert_eq!(renderer.adapter_name.as_deref(), Some("fixture-adapter"));
+        assert_eq!(renderer.adapter_vendor_id, Some(0x10de));
+        assert_eq!(renderer.adapter_device_id, Some(0x2684));
+        assert_eq!(renderer.adapter_type.as_deref(), Some("discrete-gpu"));
+    }
+
+    #[test]
+    fn successful_result_copies_collected_gpu_identity() {
+        let options = fixture_options();
+        let result = successful_result(
+            RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+            &options,
+            MemoryMetric::WindowsPrivateWorkingSetBytes,
+            42,
+            vec![MemorySample {
+                sequence: 0,
+                elapsed_ms: 10,
+                bytes: 1,
+            }],
+            ProcessExitKind::Requested,
+            Some(0),
+            1,
+            gpu_identity_trace(),
+        )
+        .expect("valid successful fixture result");
+
+        assert_gpu_identity(&result.renderer);
+    }
+
+    #[test]
+    fn failed_result_copies_collected_gpu_identity() {
+        let options = fixture_options();
+        let execution = failed_execution_with_trace(
+            RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+            &options,
+            MemoryMetric::WindowsPrivateWorkingSetBytes,
+            42,
+            RunFailure::new("fixture_failure", "fixture", "fixture failure"),
+            ProcessExitKind::Forced,
+            Some(1),
+            Some(1),
+            gpu_identity_trace(),
+        );
+
+        assert_gpu_identity(&execution.result.renderer);
+    }
 
     #[test]
     fn diagnostic_arguments_forward_requested_renderer_and_backend_exactly() {

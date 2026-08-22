@@ -1,3 +1,28 @@
+fn gpu_ready_extra(metrics: &GpuPresentationMetrics) -> HashMap<String, serde_json::Value> {
+    HashMap::from([
+        (
+            "gpu_backend".to_owned(),
+            serde_json::json!(metrics.backend),
+        ),
+        (
+            "gpu_adapter_name".to_owned(),
+            serde_json::json!(metrics.adapter_name),
+        ),
+        (
+            "gpu_adapter_vendor_id".to_owned(),
+            serde_json::json!(metrics.adapter_vendor_id),
+        ),
+        (
+            "gpu_adapter_device_id".to_owned(),
+            serde_json::json!(metrics.adapter_device_id),
+        ),
+        (
+            "gpu_adapter_type".to_owned(),
+            serde_json::json!(metrics.adapter_type),
+        ),
+    ])
+}
+
 impl NativeWindowApp {
     fn set_diagnostic_gpu_backend(
         &mut self,
@@ -191,11 +216,7 @@ impl NativeWindowApp {
             }
         }
         if renderer == DiagnosticRendererKind::Gpu {
-            self.emit_diagnostic_marker(
-                DiagnosticMarkerKind::GpuReady,
-                Some(DiagnosticRendererKind::Gpu),
-                None,
-            );
+            self.mark_diagnostic_gpu_ready();
         }
         if let Some(diagnostic) = self.diagnostic_gui_mut()
             && diagnostic.scenario == DiagnosticScenario::EmptyWindow
@@ -213,11 +234,21 @@ impl NativeWindowApp {
     }
 
     fn mark_diagnostic_gpu_ready(&self) {
-        self.emit_diagnostic_marker(
+        let Some(diagnostic) = self.diagnostic_gui() else {
+            return;
+        };
+        let extra = self
+            .gpu
+            .as_ref()
+            .map_or_else(HashMap::new, |gpu| gpu_ready_extra(gpu.metrics()));
+        if let Err(error) = diagnostic.markers.emit_with_extra(
             DiagnosticMarkerKind::GpuReady,
             Some(DiagnosticRendererKind::Gpu),
             None,
-        );
+            extra,
+        ) {
+            eprintln!("failed to emit diagnostic GPU readiness: {error}");
+        }
     }
 
     fn record_first_present(
