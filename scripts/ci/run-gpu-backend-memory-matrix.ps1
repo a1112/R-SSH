@@ -7,7 +7,9 @@ param(
     [ValidateRange(1, 1000)]
     [int] $Samples = 30,
     [string] $OutputDirectory = "artifacts/gpu-backend-memory-matrix",
-    [switch] $SkipBuild
+    [switch] $SkipBuild,
+    [string] $AppPath,
+    [string] $LauncherPath
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,10 +26,40 @@ $targetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
 } else {
     [System.IO.Path]::GetFullPath((Join-Path $repoRoot $env:CARGO_TARGET_DIR))
 }
-$app = Join-Path (Join-Path $targetRoot $profileDirectory) "rssh-app$executableSuffix"
-$launcher = Join-Path (Join-Path $targetRoot $profileDirectory) "rssh-bench-launcher$executableSuffix"
+$hasAppOverride = -not [string]::IsNullOrWhiteSpace($AppPath)
+$hasLauncherOverride = -not [string]::IsNullOrWhiteSpace($LauncherPath)
+if (($hasAppOverride -or $hasLauncherOverride) -and -not $SkipBuild) {
+    throw "path overrides require -SkipBuild"
+}
+if ($hasAppOverride -ne $hasLauncherOverride) {
+    throw "both -AppPath and -LauncherPath must be provided together"
+}
+if ($hasAppOverride) {
+    if (-not (Test-Path -LiteralPath $AppPath -PathType Leaf)) {
+        throw "-AppPath must identify an existing file"
+    }
+    if (-not (Test-Path -LiteralPath $LauncherPath -PathType Leaf)) {
+        throw "-LauncherPath must identify an existing file"
+    }
+    $app = (Resolve-Path -LiteralPath $AppPath).Path
+    $launcher = (Resolve-Path -LiteralPath $LauncherPath).Path
+} else {
+    $app = Join-Path (Join-Path $targetRoot $profileDirectory) "rssh-app$executableSuffix"
+    $launcher = Join-Path (Join-Path $targetRoot $profileDirectory) "rssh-bench-launcher$executableSuffix"
+}
 $rawDirectory = Join-Path $OutputDirectory "raw"
 $aggregatePath = Join-Path $OutputDirectory "aggregate.json"
+
+if (Test-Path -LiteralPath $OutputDirectory) {
+    if (-not (Test-Path -LiteralPath $OutputDirectory -PathType Container)) {
+        throw "OutputDirectory must be a directory"
+    }
+    if ($null -ne (Get-ChildItem -LiteralPath $OutputDirectory -Force | Select-Object -First 1)) {
+        throw "OutputDirectory must be empty before collection"
+    }
+} else {
+    New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+}
 
 if (-not $SkipBuild) {
     $profileArguments = @()
@@ -107,6 +139,36 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
     ) {
         throw "memory schema/sample count mismatch"
     }
+    for ($index = 0; $index -lt 10; $index++) {
+        $sample = $Record.memory.samples[$index]
+        if (-not ($sample.PSObject.Properties.Name -contains "sequence")) {
+            throw "memory sample $index is missing sequence"
+        }
+        if (-not ($sample.PSObject.Properties.Name -contains "elapsed_ms")) {
+            throw "memory sample $index is missing elapsed_ms"
+        }
+        if (-not ($sample.PSObject.Properties.Name -contains "bytes")) {
+            throw "memory sample $index is missing bytes"
+        }
+        [UInt32] $sequence = 0
+        if (
+            -not [UInt32]::TryParse([string] $sample.sequence, [ref] $sequence) -or
+            $sequence -ne [UInt32] $index
+        ) {
+            throw "memory sample sequence mismatch at index $index"
+        }
+        [UInt64] $elapsedMs = 0
+        if (-not [UInt64]::TryParse([string] $sample.elapsed_ms, [ref] $elapsedMs)) {
+            throw "memory sample elapsed_ms is invalid at index $index"
+        }
+        [UInt64] $bytes = 0
+        if (
+            -not [UInt64]::TryParse([string] $sample.bytes, [ref] $bytes) -or
+            $bytes -eq 0
+        ) {
+            throw "memory sample bytes is invalid at index $index"
+        }
+    }
 
     if ($Probe -eq "cpu") {
         if ($Record.configuration.requested_renderer -ne "cpu") {
@@ -118,8 +180,16 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
         if ($Record.renderer.final -ne "cpu") {
             throw "final renderer mismatch: CPU probe observed '$($Record.renderer.final)'"
         }
-        if ($Record.renderer.PSObject.Properties.Name -contains "backend") {
-            throw "CPU probe unexpectedly reported an actual GPU backend"
+        foreach ($identityField in @(
+            "backend",
+            "adapter_name",
+            "adapter_vendor_id",
+            "adapter_device_id",
+            "adapter_type"
+        )) {
+            if ($Record.renderer.PSObject.Properties.Name -contains $identityField) {
+                throw "CPU probe unexpectedly reported GPU identity field '$identityField'"
+            }
         }
         return
     }
@@ -135,6 +205,26 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
     }
     if ($Record.renderer.backend -ne $Probe) {
         throw "actual GPU backend mismatch: requested '$Probe', observed '$($Record.renderer.backend)'"
+    }
+    foreach ($identityField in @("adapter_name", "adapter_type")) {
+        if (
+            -not ($Record.renderer.PSObject.Properties.Name -contains $identityField) -or
+            [string]::IsNullOrWhiteSpace([string] $Record.renderer.$identityField)
+        ) {
+            throw "GPU probe '$Probe' is missing valid $identityField"
+        }
+    }
+    foreach ($identityField in @("adapter_vendor_id", "adapter_device_id")) {
+        [UInt32] $identityValue = 0
+        if (
+            -not ($Record.renderer.PSObject.Properties.Name -contains $identityField) -or
+            -not [UInt32]::TryParse(
+                [string] $Record.renderer.$identityField,
+                [ref] $identityValue
+            )
+        ) {
+            throw "GPU probe '$Probe' is missing valid $identityField"
+        }
     }
 }
 
@@ -177,6 +267,7 @@ function Invoke-GpuBackendMemoryRun(
 
 try {
     $probeReports = [System.Collections.Generic.List[object]]::new()
+    $rawFiles = [System.Collections.Generic.List[string]]::new()
     foreach ($probe in $probes) {
         $records = [System.Collections.Generic.List[object]]::new()
         $probeFailure = $null
@@ -186,8 +277,16 @@ try {
                 $null = Invoke-GpuBackendMemoryRun -Probe $probe -RawPath $null
             }
             for ($index = 0; $index -lt $Samples; $index++) {
-                $rawPath = Join-Path $rawDirectory ("{0}-{1:D2}.json" -f $probe, ($index + 1))
-                $record = Invoke-GpuBackendMemoryRun -Probe $probe -RawPath $rawPath
+                $rawName = "raw/{0}-{1:D2}.json" -f $probe, ($index + 1)
+                $rawPath = Join-Path $OutputDirectory $rawName
+                try {
+                    $record = Invoke-GpuBackendMemoryRun -Probe $probe -RawPath $rawPath
+                }
+                finally {
+                    if (Test-Path -LiteralPath $rawPath -PathType Leaf) {
+                        $rawFiles.Add($rawName)
+                    }
+                }
                 $records.Add($record)
                 $completedRuns++
             }
@@ -245,6 +344,10 @@ try {
         if ($probe -ne "cpu") {
             $successfulReport["requested_gpu_backend"] = $probe
             $successfulReport["actual_gpu_backend"] = $firstRecord.renderer.backend
+            $successfulReport["adapter_name"] = $firstRecord.renderer.adapter_name
+            $successfulReport["adapter_vendor_id"] = $firstRecord.renderer.adapter_vendor_id
+            $successfulReport["adapter_device_id"] = $firstRecord.renderer.adapter_device_id
+            $successfulReport["adapter_type"] = $firstRecord.renderer.adapter_type
         }
         $probeReports.Add($successfulReport)
         if ($p95 -gt $report_only_target_bytes) {
@@ -275,6 +378,7 @@ try {
         probes = @($probeReports)
         evidence = [ordered]@{
             raw_directory = "raw"
+            raw_files = @($rawFiles)
             aggregate = "aggregate.json"
         }
     }
