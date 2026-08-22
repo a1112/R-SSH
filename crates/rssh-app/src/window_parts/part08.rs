@@ -567,6 +567,7 @@ impl NativeWindowApp {
                 // the SSH GUI entry point overrides this with the requested
                 // hybrid/cpu mode before the event loop starts.
                 renderer_mode: RendererMode::Gpu,
+                diagnostic_gpu_backend: None,
                 presentation_owner: PresentationOwner::Bootstrap,
                 deferred_gpu_generation: 0,
                 startup_mode: NativeStartupMode::Normal,
@@ -7404,13 +7405,24 @@ impl NativeWindowApp {
             self.webgpu_force_fallback_adapter,
             matches!(self.front_end, NativeRenderFrontEnd::Software),
         );
-        pollster::block_on(WindowGpu::new(
-            event_loop.owned_display_handle(),
-            window,
-            size,
-            high_performance,
-            force_fallback_adapter,
-        ))
+        if let Some(backend) = self.diagnostic_gpu_backend {
+            pollster::block_on(WindowGpu::new_with_diagnostic_backend(
+                event_loop.owned_display_handle(),
+                window,
+                size,
+                high_performance,
+                force_fallback_adapter,
+                Some(backend),
+            ))
+        } else {
+            pollster::block_on(WindowGpu::new(
+                event_loop.owned_display_handle(),
+                window,
+                size,
+                high_performance,
+                force_fallback_adapter,
+            ))
+        }
     }
 
     fn initialize_deferred_gpu(&mut self, event_loop: &ActiveEventLoop) {
@@ -7450,13 +7462,24 @@ impl NativeWindowApp {
             self.webgpu_force_fallback_adapter,
             matches!(self.front_end, NativeRenderFrontEnd::Software),
         );
-        let prepared_gpu = match WindowGpu::prepare(
-            display,
-            window,
-            surface_size,
-            high_performance,
-            force_fallback_adapter,
-        ) {
+        let prepared_gpu = match if let Some(backend) = self.diagnostic_gpu_backend {
+            WindowGpu::prepare_with_diagnostic_backend(
+                display,
+                window,
+                surface_size,
+                high_performance,
+                force_fallback_adapter,
+                Some(backend),
+            )
+        } else {
+            WindowGpu::prepare(
+                display,
+                window,
+                surface_size,
+                high_performance,
+                force_fallback_adapter,
+            )
+        } {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.metrics.mark_gpu_finished();

@@ -40,6 +40,7 @@ pub struct DiagnosticGuiOptions {
     pub scenario: rssh_diagnostics::Scenario,
     pub hold_ms: u64,
     pub renderer: RendererMode,
+    pub gpu_backend: Option<rssh_diagnostics::DiagnosticGpuBackend>,
     pub columns: u16,
     pub rows: u16,
     pub ssh_host: Option<IpAddr>,
@@ -514,6 +515,7 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
     let mut scenario = None;
     let mut hold_ms = None;
     let mut renderer = RendererMode::Auto;
+    let mut gpu_backend = None;
     let mut columns = DEFAULT_SSH_COLUMNS;
     let mut rows = DEFAULT_SSH_ROWS;
     let mut ssh_host = None;
@@ -543,6 +545,7 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
                 hold_ms = Some(parse_positive_u64(value, "--hold-ms")?);
             }
             "--renderer" => renderer = RendererMode::parse(value)?,
+            "--gpu-backend" => gpu_backend = Some(value.parse()?),
             "--cols" => columns = parse_dimension(Some(&args[index]), "--cols")?,
             "--rows" => rows = parse_dimension(Some(&args[index]), "--rows")?,
             "--ssh-host" => {
@@ -567,6 +570,9 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
         return Err("--run-id must not be empty".to_owned());
     }
     let scenario = scenario.ok_or_else(|| "diagnostic-gui requires --scenario".to_owned())?;
+    if renderer == RendererMode::Cpu && gpu_backend.is_some() {
+        return Err("--gpu-backend cannot be used with --renderer cpu".to_owned());
+    }
     if scenario == rssh_diagnostics::Scenario::Ssh1 {
         if ssh_host.is_none() || ssh_port.is_none() || ssh_user.as_deref().is_none_or(str::is_empty)
         {
@@ -582,6 +588,7 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
         scenario,
         hold_ms: hold_ms.ok_or_else(|| "diagnostic-gui requires --hold-ms".to_owned())?,
         renderer,
+        gpu_backend,
         columns,
         rows,
         ssh_host,
@@ -5058,6 +5065,77 @@ mod tests {
             options.log.as_deref(),
             Some(std::path::Path::new("fixture.log"))
         );
+    }
+
+    #[test]
+    fn diagnostic_gpu_backend_parses_supported_values() {
+        use rssh_diagnostics::DiagnosticGpuBackend;
+
+        for (value, expected) in [
+            ("dx12", DiagnosticGpuBackend::Dx12),
+            ("vulkan", DiagnosticGpuBackend::Vulkan),
+            ("gl", DiagnosticGpuBackend::Gl),
+        ] {
+            let AppCommand::DiagnosticGui(options) = parse_args([
+                "rssh-app",
+                "diagnostic-gui",
+                "--run-id",
+                "backend-probe",
+                "--scenario",
+                "empty-window",
+                "--hold-ms",
+                "250",
+                "--renderer",
+                "gpu",
+                "--gpu-backend",
+                value,
+            ])
+            .unwrap() else {
+                panic!("expected diagnostic GUI command");
+            };
+
+            assert_eq!(options.gpu_backend, Some(expected));
+        }
+    }
+
+    #[test]
+    fn diagnostic_gpu_backend_rejects_unsupported_value() {
+        let error = parse_args([
+            "rssh-app",
+            "diagnostic-gui",
+            "--run-id",
+            "backend-probe",
+            "--scenario",
+            "empty-window",
+            "--hold-ms",
+            "250",
+            "--gpu-backend",
+            "metal",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("unsupported diagnostic GPU backend"));
+    }
+
+    #[test]
+    fn diagnostic_gpu_backend_rejects_cpu_renderer_combination() {
+        let error = parse_args([
+            "rssh-app",
+            "diagnostic-gui",
+            "--run-id",
+            "backend-probe",
+            "--scenario",
+            "empty-window",
+            "--hold-ms",
+            "250",
+            "--renderer",
+            "cpu",
+            "--gpu-backend",
+            "dx12",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("--gpu-backend cannot be used with --renderer cpu"));
     }
 
     #[test]

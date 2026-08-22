@@ -1,5 +1,6 @@
 use std::{cell::RefCell, error::Error, io, sync::Arc};
 
+use rssh_diagnostics::DiagnosticGpuBackend;
 use rterm_render_core::{DamageRegion, RenderGeometry, TerminalRenderSnapshot};
 use rterm_render_cpu::TextPaintConfig;
 use rterm_render_wgpu::gpu::{
@@ -158,6 +159,19 @@ fn should_abandon_current_adapter_after_native_close(
     os == "windows" && backend.eq_ignore_ascii_case("vulkan") && vendor_id == 0x10de
 }
 
+fn gpu_context_options(
+    high_performance: bool,
+    force_fallback_adapter: bool,
+    diagnostic_backend: Option<DiagnosticGpuBackend>,
+) -> Result<GpuContextOptions, GpuContextError> {
+    let options = GpuContextOptions::default()
+        .with_high_performance(high_performance)
+        .with_force_fallback_adapter(force_fallback_adapter);
+    diagnostic_backend.map_or(Ok(options), |backend| {
+        options.with_only_backend_name(backend.as_str())
+    })
+}
+
 impl WindowGpu {
     pub(crate) async fn new(
         display: OwnedDisplayHandle,
@@ -166,12 +180,32 @@ impl WindowGpu {
         high_performance: bool,
         force_fallback_adapter: bool,
     ) -> Result<Self, Box<dyn Error>> {
-        let prepared = Self::prepare(
+        Self::new_with_diagnostic_backend(
             display,
             window,
             surface_size,
             high_performance,
             force_fallback_adapter,
+            None,
+        )
+        .await
+    }
+
+    pub(crate) async fn new_with_diagnostic_backend(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        surface_size: PhysicalSize<u32>,
+        high_performance: bool,
+        force_fallback_adapter: bool,
+        diagnostic_backend: Option<DiagnosticGpuBackend>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let prepared = Self::prepare_with_diagnostic_backend(
+            display,
+            window,
+            surface_size,
+            high_performance,
+            force_fallback_adapter,
+            diagnostic_backend,
         )?;
         Self::finish_prepared(prepared).await
     }
@@ -183,9 +217,26 @@ impl WindowGpu {
         high_performance: bool,
         force_fallback_adapter: bool,
     ) -> Result<PreparedWindowGpu, Box<dyn Error>> {
-        let options = GpuContextOptions::default()
-            .with_high_performance(high_performance)
-            .with_force_fallback_adapter(force_fallback_adapter);
+        Self::prepare_with_diagnostic_backend(
+            display,
+            window,
+            surface_size,
+            high_performance,
+            force_fallback_adapter,
+            None,
+        )
+    }
+
+    pub(crate) fn prepare_with_diagnostic_backend(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        surface_size: PhysicalSize<u32>,
+        high_performance: bool,
+        force_fallback_adapter: bool,
+        diagnostic_backend: Option<DiagnosticGpuBackend>,
+    ) -> Result<PreparedWindowGpu, Box<dyn Error>> {
+        let options =
+            gpu_context_options(high_performance, force_fallback_adapter, diagnostic_backend)?;
         let context = GpuContext::prepare_windowed(
             display,
             window,
@@ -753,6 +804,7 @@ mod tests {
     };
 
     use rssh_core::TerminalSize;
+    use rssh_diagnostics::DiagnosticGpuBackend;
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     use rssh_fonts::TerminalShaper;
     use rssh_terminal::Terminal;
@@ -773,6 +825,17 @@ mod tests {
         size: PhysicalSize<u32>,
     ) {
         drop(WindowGpu::prepare(display, window, size, false, false));
+    }
+
+    fn prepare_window_gpu_with_diagnostic_backend_from_owned_display(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        size: PhysicalSize<u32>,
+        backend: Option<DiagnosticGpuBackend>,
+    ) {
+        drop(WindowGpu::prepare_with_diagnostic_backend(
+            display, window, size, false, false, backend,
+        ));
     }
 
     fn finish_prepared_window_gpu(prepared: PreparedWindowGpu) {
@@ -797,6 +860,47 @@ mod tests {
                 as fn(OwnedDisplayHandle, Arc<Window>, PhysicalSize<u32>),
         );
         std::hint::black_box(finish_prepared_window_gpu as fn(PreparedWindowGpu));
+    }
+
+    #[test]
+    fn diagnostic_gpu_backend_prepare_accepts_explicit_selection_without_running_hardware() {
+        std::hint::black_box(
+            prepare_window_gpu_with_diagnostic_backend_from_owned_display
+                as fn(
+                    OwnedDisplayHandle,
+                    Arc<Window>,
+                    PhysicalSize<u32>,
+                    Option<DiagnosticGpuBackend>,
+                ),
+        );
+    }
+
+    #[test]
+    fn diagnostic_gpu_backend_builds_hardware_free_context_options() {
+        let native_default = GpuContextOptions::default();
+        let unselected = gpu_context_options(true, true, None).expect("native options");
+        assert_eq!(unselected.backends, native_default.backends);
+        assert_eq!(
+            unselected.power_preference,
+            native_default.with_high_performance(true).power_preference
+        );
+        assert!(unselected.force_fallback_adapter);
+
+        for backend in [
+            DiagnosticGpuBackend::Dx12,
+            DiagnosticGpuBackend::Vulkan,
+            DiagnosticGpuBackend::Gl,
+        ] {
+            let selected = gpu_context_options(false, false, Some(backend))
+                .expect("supported diagnostic backend");
+            let expected = native_default
+                .with_only_backend_name(backend.as_str())
+                .expect("known backend");
+            assert_eq!(selected.backends, expected.backends);
+            assert_eq!(selected.backends.bits().count_ones(), 1);
+            assert_eq!(selected.power_preference, native_default.power_preference);
+            assert!(!selected.force_fallback_adapter);
+        }
     }
 
     #[test]

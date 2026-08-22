@@ -846,6 +846,7 @@ pub fn run_diagnostic_gui(
     configure_diagnostic_gui_initial_size(&mut app, options.columns, options.rows);
     app.metrics.startup_trace = StartupTrace::from_process_started_at(process_started_at);
     app.set_renderer_mode(options.renderer);
+    app.set_diagnostic_gpu_backend(options.gpu_backend);
     app.set_diagnostic_gui(
         markers.clone(),
         options.scenario,
@@ -7896,6 +7897,7 @@ include!("window_parts/functional_observer.rs");
 #[cfg(test)]
 mod ssh_gui_startup_contract_tests {
     use super::*;
+    use rssh_diagnostics::DiagnosticGpuBackend;
 
     fn gui_options_with_size(columns: u16, rows: u16) -> SshOptions {
         let command = crate::cli::parse_args([
@@ -7962,5 +7964,14 @@ mod ssh_gui_startup_contract_tests {
         let expected = TerminalSize::new(101, 37);
         assert_eq!(app.runtime.terminal().grid().size(), expected);
         assert_eq!(app.initial_frame_size(), app.frame_size_for_terminal_size(expected));
+    }
+
+    #[test]
+    fn diagnostic_gpu_backend_defaults_to_none_and_setter_stores_selection() {
+        let mut app = NativeWindowApp::new(None);
+
+        assert_eq!(app.diagnostic_gpu_backend, None);
+        app.set_diagnostic_gpu_backend(Some(DiagnosticGpuBackend::Dx12));
+        assert_eq!(app.diagnostic_gpu_backend, Some(DiagnosticGpuBackend::Dx12));
     }
 }

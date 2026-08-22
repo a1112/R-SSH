@@ -1,4 +1,11 @@
 impl NativeWindowApp {
+    fn set_diagnostic_gpu_backend(
+        &mut self,
+        backend: Option<rssh_diagnostics::DiagnosticGpuBackend>,
+    ) {
+        self.diagnostic_gpu_backend = backend;
+    }
+
     fn is_benchmark_startup(&self) -> bool {
         matches!(self.startup_mode, NativeStartupMode::Benchmark)
     }

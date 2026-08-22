@@ -1451,6 +1451,7 @@ struct NativeWindowApp {
     bootstrap_surface: Option<WindowBootstrapSurface>,
     bootstrap_frame: Vec<u8>,
     renderer_mode: RendererMode,
+    diagnostic_gpu_backend: Option<rssh_diagnostics::DiagnosticGpuBackend>,
     presentation_owner: PresentationOwner,
     deferred_gpu_generation: u64,
     startup_mode: NativeStartupMode,
