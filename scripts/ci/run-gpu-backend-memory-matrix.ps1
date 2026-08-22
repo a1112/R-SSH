@@ -223,13 +223,11 @@ try {
         $p95 = Get-NearestRankPercentile -Values $bytes -Percentile 0.95
         $maximum = [UInt64] ($bytes | Measure-Object -Maximum).Maximum
         $firstRecord = $records[0]
-        $probeReports.Add([ordered]@{
+        $successfulReport = [ordered]@{
             name = $probe
             status = "succeeded"
             requested_renderer = $requestedRenderer
-            requested_gpu_backend = $requestedBackend
             final_renderer = $firstRecord.renderer.final
-            actual_gpu_backend = $firstRecord.renderer.backend
             measured_runs = $Samples
             samples_per_run = 10
             memory_metric = $firstRecord.memory.metric
@@ -241,7 +239,12 @@ try {
             evidence = [ordered]@{
                 raw_pattern = "raw/$probe-NN.json"
             }
-        })
+        }
+        if ($probe -ne "cpu") {
+            $successfulReport["requested_gpu_backend"] = $probe
+            $successfulReport["actual_gpu_backend"] = $firstRecord.renderer.backend
+        }
+        $probeReports.Add($successfulReport)
         if ($p95 -gt $report_only_target_bytes) {
             Write-Warning "Report-only memory observation: $probe p95=$p95 target=$report_only_target_bytes"
         }
