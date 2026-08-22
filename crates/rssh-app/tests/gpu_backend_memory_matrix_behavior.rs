@@ -110,6 +110,86 @@ fn matrix_continues_after_failed_cpu_and_gpu_probes_with_safe_identity_fields() 
     assert_eq!(probe(probes, "gl")["status"], "succeeded");
 }
 
+#[test]
+fn matrix_rejects_numeric_strings_and_object_or_array_adapter_identity() {
+    let numeric_fixture = MatrixFixture::new("numeric-strings", "numeric-strings-dx12");
+    let output = numeric_fixture.run();
+    assert_success(&output);
+    let report = numeric_fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    assert_eq!(probe(probes, "dx12")["status"], "failed");
+    assert!(
+        probe(probes, "dx12")["probe_failure"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("integer scalar"))
+    );
+    assert_eq!(probe(probes, "vulkan")["status"], "succeeded");
+
+    let adapter_fixture = MatrixFixture::new("adapter-types", "object-array-vulkan-adapter");
+    let output = adapter_fixture.run();
+    assert_success(&output);
+    let report = adapter_fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    assert_eq!(probe(probes, "vulkan")["status"], "failed");
+    assert!(
+        probe(probes, "vulkan")["probe_failure"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("actual non-empty string"))
+    );
+    assert_eq!(probe(probes, "gl")["status"], "succeeded");
+}
+
+#[test]
+fn matrix_rejects_adapter_identity_drift_across_measured_runs() {
+    let fixture = MatrixFixture::new("identity-drift", "drift-vulkan-adapter");
+    let output = fixture.run_with_samples(2);
+    assert_success(&output);
+
+    let report = fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    let vulkan = probe(probes, "vulkan");
+    assert_eq!(vulkan["status"], "failed");
+    assert!(
+        vulkan["probe_failure"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("GPU identity drift"))
+    );
+    for field in [
+        "actual_gpu_backend",
+        "adapter_name",
+        "adapter_vendor_id",
+        "adapter_device_id",
+        "adapter_type",
+    ] {
+        assert!(
+            vulkan.get(field).is_none(),
+            "drifted GPU report leaked {field}"
+        );
+    }
+    assert_eq!(probe(probes, "gl")["status"], "succeeded");
+}
+
+#[test]
+fn matrix_redacts_resolved_and_original_override_paths_from_failures() {
+    let fixture = MatrixFixture::new("path-redaction", "path-failure");
+    let output = fixture.run();
+    assert_success(&output);
+
+    let report = fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    let message = probe(probes, "cpu")["probe_failure"]["message"]
+        .as_str()
+        .expect("CPU failure message");
+    for path in fixture.redacted_paths() {
+        assert!(
+            !message.contains(path.to_str().expect("UTF-8 fixture path")),
+            "failure leaked path {}: {message}",
+            path.display()
+        );
+    }
+    assert!(message.contains("[path]"));
+}
+
 fn assert_cpu_identity_omitted(report: &Value) {
     for field in [
         "requested_gpu_backend",
@@ -150,6 +230,8 @@ struct MatrixFixture {
     root: PathBuf,
     app: PathBuf,
     launcher: PathBuf,
+    app_argument: PathBuf,
+    launcher_argument: PathBuf,
     output_directory: PathBuf,
 }
 
@@ -164,15 +246,28 @@ impl MatrixFixture {
             std::process::id()
         ));
         fs::create_dir_all(&root).expect("create fixture root");
+        fs::create_dir_all(root.join("alias")).expect("create alias path component");
         let app = root.join("fake-rssh-app.exe");
         fs::write(&app, b"fixture").expect("write fake app");
         let launcher_script = root.join("fake-launcher.ps1");
-        fs::write(
-            &launcher_script,
-            FAKE_LAUNCHER.replace("__FIXTURE_MODE__", mode),
-        )
-        .expect("write fake launcher script");
         let launcher = root.join("fake-launcher.cmd");
+        let app_argument = root.join("alias/../fake-rssh-app.exe");
+        let launcher_argument = root.join("alias/../fake-launcher.cmd");
+        let fake_launcher = FAKE_LAUNCHER
+            .replace("__FIXTURE_MODE__", mode)
+            .replace(
+                "__RESOLVED_LAUNCHER_PATH__",
+                launcher.to_str().expect("UTF-8 launcher path"),
+            )
+            .replace(
+                "__ORIGINAL_APP_PATH__",
+                app_argument.to_str().expect("UTF-8 app argument"),
+            )
+            .replace(
+                "__ORIGINAL_LAUNCHER_PATH__",
+                launcher_argument.to_str().expect("UTF-8 launcher argument"),
+            );
+        fs::write(&launcher_script, fake_launcher).expect("write fake launcher script");
         fs::write(
             &launcher,
             b"@echo off\r\npwsh.exe -NoProfile -NonInteractive -File \"%~dp0fake-launcher.ps1\" %*\r\nexit /b %errorlevel%\r\n",
@@ -183,11 +278,17 @@ impl MatrixFixture {
             root,
             app,
             launcher,
+            app_argument,
+            launcher_argument,
             output_directory,
         }
     }
 
     fn run(&self) -> Output {
+        self.run_with_samples(1)
+    }
+
+    fn run_with_samples(&self, samples: u32) -> Output {
         Command::new("pwsh.exe")
             .args([
                 "-NoProfile",
@@ -201,14 +302,16 @@ impl MatrixFixture {
                 "-Warmups",
                 "0",
                 "-Samples",
-                "1",
+                &samples.to_string(),
                 "-OutputDirectory",
                 self.output_directory.to_str().expect("UTF-8 output path"),
                 "-SkipBuild",
                 "-AppPath",
-                self.app.to_str().expect("UTF-8 app path"),
+                self.app_argument.to_str().expect("UTF-8 app path"),
                 "-LauncherPath",
-                self.launcher.to_str().expect("UTF-8 launcher path"),
+                self.launcher_argument
+                    .to_str()
+                    .expect("UTF-8 launcher path"),
             ])
             .current_dir(repo_path("."))
             .output()
@@ -220,6 +323,15 @@ impl MatrixFixture {
         let bytes =
             fs::read(&path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
         serde_json::from_slice(&bytes).expect("parse aggregate JSON")
+    }
+
+    fn redacted_paths(&self) -> [&Path; 4] {
+        [
+            &self.app,
+            &self.launcher,
+            &self.app_argument,
+            &self.launcher_argument,
+        ]
     }
 }
 
@@ -247,6 +359,9 @@ for ($index = 0; $index -lt $args.Count; $index++) {
 $renderer = $options["--renderer"]
 $backend = $options["--gpu-backend"]
 $probe = if ($renderer -eq "cpu") { "cpu" } else { $backend }
+$counterPath = Join-Path $PSScriptRoot "invocations-$probe.txt"
+$invocation = if (Test-Path -LiteralPath $counterPath) { [int] (Get-Content -Raw $counterPath) + 1 } else { 1 }
+Set-Content -LiteralPath $counterPath -Value $invocation
 $configuration = [ordered]@{
     stabilization_ms = 5000
     sample_interval_ms = 100
@@ -262,23 +377,34 @@ if ($null -ne $backend) {
 $rendererSummary = if ($probe -eq "cpu") {
     [ordered]@{ first = "cpu"; final = "cpu" }
 } else {
+    $adapterName = if ($mode -eq "drift-vulkan-adapter" -and $probe -eq "vulkan" -and $invocation -gt 1) { "fixture-adapter-drifted" } else { "fixture-adapter" }
+    if ($mode -eq "object-array-vulkan-adapter" -and $probe -eq "vulkan") {
+        $adapterName = [ordered]@{ unexpected = "object" }
+    }
+    $adapterType = if ($mode -eq "object-array-vulkan-adapter" -and $probe -eq "vulkan") { @("discrete-gpu") } else { "discrete-gpu" }
     [ordered]@{
         first = "cpu"
         final = "gpu"
         backend = $backend
-        adapter_name = "fixture-adapter"
-        adapter_vendor_id = 4318
+        adapter_name = $adapterName
+        adapter_vendor_id = if ($mode -eq "numeric-strings-dx12" -and $probe -eq "dx12") { "4318" } else { 4318 }
         adapter_device_id = if ($backend -eq "gl") { 0 } else { 9860 }
-        adapter_type = "discrete-gpu"
+        adapter_type = $adapterType
     }
 }
 $samples = @(
     for ($sequence = 0; $sequence -lt 10; $sequence++) {
-        $bytes = if ($mode -eq "malformed-dx12-bytes" -and $probe -eq "dx12" -and $sequence -eq 4) { $null } else { 1048576 + $sequence }
-        [ordered]@{ sequence = $sequence; elapsed_ms = 5000 + (100 * $sequence); bytes = $bytes }
+        $bytes = if ($mode -eq "malformed-dx12-bytes" -and $probe -eq "dx12" -and $sequence -eq 4) { $null } elseif ($mode -eq "numeric-strings-dx12" -and $probe -eq "dx12") { [string] (1048576 + $sequence) } else { 1048576 + $sequence }
+        $sampleSequence = if ($mode -eq "numeric-strings-dx12" -and $probe -eq "dx12") { [string] $sequence } else { $sequence }
+        [ordered]@{ sequence = $sampleSequence; elapsed_ms = 5000 + (100 * $sequence); bytes = $bytes }
     }
 )
-$failed = $mode -eq "fail-cpu-and-dx12" -and ($probe -eq "cpu" -or $probe -eq "dx12")
+$failed = ($mode -eq "fail-cpu-and-dx12" -and ($probe -eq "cpu" -or $probe -eq "dx12")) -or $mode -eq "path-failure"
+$failureMessage = if ($mode -eq "path-failure") {
+    "$($options['--app'])|__RESOLVED_LAUNCHER_PATH__|__ORIGINAL_APP_PATH__|__ORIGINAL_LAUNCHER_PATH__"
+} else {
+    "requested fixture failure"
+}
 $record = [ordered]@{
     schema = "rssh.diagnostics/v2"
     configuration = $configuration
@@ -289,7 +415,7 @@ $record = [ordered]@{
         unit = "bytes"
         samples = $samples
     }
-    failures = if ($failed) { @([ordered]@{ code = "fixture_failure"; phase = "fixture"; message = "requested fixture failure" }) } else { @() }
+    failures = if ($failed) { @([ordered]@{ code = "fixture_failure"; phase = "fixture"; message = $failureMessage }) } else { @() }
 }
 $record | ConvertTo-Json -Depth 20 -Compress
 "#;

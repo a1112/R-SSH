@@ -101,9 +101,48 @@ function Get-NearestRankPercentile([UInt64[]] $Values, [double] $Percentile) {
     return [UInt64] $ordered[[Math]::Max(0, $rank - 1)]
 }
 
+function Try-GetJsonUInt64Scalar(
+    [AllowNull()]
+    [object] $Value,
+    [ref] $Result
+) {
+    if ($null -eq $Value) {
+        return $false
+    }
+    $isIntegerScalar = $Value.GetType() -in @(
+        [byte],
+        [sbyte],
+        [Int16],
+        [UInt16],
+        [Int32],
+        [UInt32],
+        [Int64],
+        [UInt64]
+    )
+    if (-not $isIntegerScalar) {
+        return $false
+    }
+    try {
+        $Result.Value = [Convert]::ToUInt64($Value)
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
 function Get-SafeFailureMessage([System.Management.Automation.ErrorRecord] $Failure) {
     $message = $Failure.Exception.Message
-    foreach ($path in @($repoRoot, $targetRoot, $OutputDirectory)) {
+    $pathsToRedact = @(
+        $repoRoot,
+        $targetRoot,
+        $OutputDirectory,
+        $AppPath,
+        $LauncherPath,
+        $app,
+        $launcher
+    )
+    foreach ($path in $pathsToRedact) {
         if (-not [string]::IsNullOrWhiteSpace($path)) {
             $message = $message.Replace($path, "[path]")
         }
@@ -150,23 +189,23 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
         if (-not ($sample.PSObject.Properties.Name -contains "bytes")) {
             throw "memory sample $index is missing bytes"
         }
-        [UInt32] $sequence = 0
+        [UInt64] $sequence = 0
         if (
-            -not [UInt32]::TryParse([string] $sample.sequence, [ref] $sequence) -or
-            $sequence -ne [UInt32] $index
+            -not (Try-GetJsonUInt64Scalar -Value $sample.sequence -Result ([ref] $sequence)) -or
+            $sequence -ne [UInt64] $index
         ) {
-            throw "memory sample sequence mismatch at index $index"
+            throw "memory sample sequence must be an unsigned JSON integer scalar equal to index $index"
         }
         [UInt64] $elapsedMs = 0
-        if (-not [UInt64]::TryParse([string] $sample.elapsed_ms, [ref] $elapsedMs)) {
-            throw "memory sample elapsed_ms is invalid at index $index"
+        if (-not (Try-GetJsonUInt64Scalar -Value $sample.elapsed_ms -Result ([ref] $elapsedMs))) {
+            throw "memory sample elapsed_ms must be an unsigned JSON integer scalar at index $index"
         }
         [UInt64] $bytes = 0
         if (
-            -not [UInt64]::TryParse([string] $sample.bytes, [ref] $bytes) -or
+            -not (Try-GetJsonUInt64Scalar -Value $sample.bytes -Result ([ref] $bytes)) -or
             $bytes -eq 0
         ) {
-            throw "memory sample bytes is invalid at index $index"
+            throw "memory sample bytes must be a positive unsigned JSON integer scalar at index $index"
         }
     }
 
@@ -209,21 +248,39 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
     foreach ($identityField in @("adapter_name", "adapter_type")) {
         if (
             -not ($Record.renderer.PSObject.Properties.Name -contains $identityField) -or
-            [string]::IsNullOrWhiteSpace([string] $Record.renderer.$identityField)
+            $Record.renderer.$identityField -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($Record.renderer.$identityField)
         ) {
-            throw "GPU probe '$Probe' is missing valid $identityField"
+            throw "GPU probe '$Probe' $identityField must be an actual non-empty string"
         }
     }
     foreach ($identityField in @("adapter_vendor_id", "adapter_device_id")) {
-        [UInt32] $identityValue = 0
+        [UInt64] $identityValue = 0
         if (
             -not ($Record.renderer.PSObject.Properties.Name -contains $identityField) -or
-            -not [UInt32]::TryParse(
-                [string] $Record.renderer.$identityField,
-                [ref] $identityValue
-            )
+            -not (Try-GetJsonUInt64Scalar -Value $Record.renderer.$identityField -Result ([ref] $identityValue)) -or
+            $identityValue -gt [UInt32]::MaxValue
         ) {
-            throw "GPU probe '$Probe' is missing valid $identityField"
+            throw "GPU probe '$Probe' $identityField must be an unsigned JSON integer scalar within UInt32"
+        }
+    }
+}
+
+function Assert-ConsistentGpuIdentity([string] $Probe, [object[]] $Records) {
+    if ($Probe -eq "cpu" -or $Records.Count -lt 2) {
+        return
+    }
+    $expected = $Records[0].renderer
+    for ($index = 1; $index -lt $Records.Count; $index++) {
+        $actual = $Records[$index].renderer
+        if (
+            $actual.backend -cne $expected.backend -or
+            $actual.adapter_name -cne $expected.adapter_name -or
+            $actual.adapter_vendor_id -ne $expected.adapter_vendor_id -or
+            $actual.adapter_device_id -ne $expected.adapter_device_id -or
+            $actual.adapter_type -cne $expected.adapter_type
+        ) {
+            throw "GPU identity drift for probe '$Probe' between measured runs 1 and $($index + 1)"
         }
     }
 }
@@ -290,6 +347,7 @@ try {
                 $records.Add($record)
                 $completedRuns++
             }
+            Assert-ConsistentGpuIdentity -Probe $probe -Records @($records)
         }
         catch {
             $probeFailure = Get-SafeFailureMessage $_
