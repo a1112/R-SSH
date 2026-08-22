@@ -94,6 +94,26 @@ fn missing_or_malformed_gpu_identity_preserves_gpu_ready_marker_semantics() {
 }
 
 #[test]
+fn unknown_backend_and_overflowing_adapter_ids_are_ignored_independently() {
+    let gpu_ready = concat!(
+        "rssh_diagnostic ",
+        r#"{"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"gpu_ready","elapsed_ms":50,"renderer":"gpu","gpu_backend":"future-backend","gpu_adapter_name":"fixture-adapter","gpu_adapter_vendor_id":4294967296,"gpu_adapter_device_id":4294967296,"gpu_adapter_type":"discrete-gpu"}"#
+    );
+    let mut collector = collector();
+
+    collector.push_line(gpu_ready).unwrap();
+
+    let trace = collector.trace();
+    assert_eq!(trace.milestones.gpu_ready_ms, Some(50));
+    assert_eq!(trace.final_renderer, Some(RendererKind::Gpu));
+    assert_eq!(trace.gpu_backend, None);
+    assert_eq!(trace.gpu_adapter_vendor_id, None);
+    assert_eq!(trace.gpu_adapter_device_id, None);
+    assert_eq!(trace.gpu_adapter_name.as_deref(), Some("fixture-adapter"));
+    assert_eq!(trace.gpu_adapter_type.as_deref(), Some("discrete-gpu"));
+}
+
+#[test]
 fn malformed_prefixed_json_is_not_treated_as_plain_output() {
     let error = collector()
         .push_line("rssh_diagnostic {broken")
