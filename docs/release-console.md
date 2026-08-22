@@ -234,6 +234,13 @@ The command builds with Cargo's locked dependency graph unless `-SkipBuild` is
 passed. Every measured launcher process writes one JSON document beneath
 `raw/<probe>-NN.json`; the deterministic summary is `aggregate.json`.
 
+`-AppPath` and `-LauncherPath` are test-only injection points and require
+`-SkipBuild`. Evidence produced with them records `binary_source = "override"`
+and `certification_eligible = false`; it cannot support Stage 7 or fixed-runner
+certification. Normal runs record `binary_source = "cargo-target"`, but are
+eligible only for the release profile with at least 5 warmups and 30 measured
+runs. Eligibility metadata does not by itself certify a run.
+
 ## Release Indicators
 
 Use these indicators to decide whether a build is ready for a wider console

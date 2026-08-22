@@ -28,6 +28,13 @@ $targetRoot = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
 }
 $hasAppOverride = -not [string]::IsNullOrWhiteSpace($AppPath)
 $hasLauncherOverride = -not [string]::IsNullOrWhiteSpace($LauncherPath)
+$binarySource = if ($hasAppOverride) { "override" } else { "cargo-target" }
+$certificationEligible = (
+    -not $hasAppOverride -and
+    $Profile -ceq "release" -and
+    $Warmups -ge 5 -and
+    $Samples -ge 30
+)
 if (($hasAppOverride -or $hasLauncherOverride) -and -not $SkipBuild) {
     throw "path overrides require -SkipBuild"
 }
@@ -131,6 +138,21 @@ function Try-GetJsonUInt64Scalar(
     }
 }
 
+function Assert-JsonUInt64Equals(
+    [AllowNull()]
+    [object] $Value,
+    [UInt64] $Expected,
+    [string] $Field
+) {
+    [UInt64] $actual = 0
+    if (
+        -not (Try-GetJsonUInt64Scalar -Value $Value -Result ([ref] $actual)) -or
+        $actual -ne $Expected
+    ) {
+        throw "$Field must be the JSON integer $Expected"
+    }
+}
+
 function Get-SafeFailureMessage([System.Management.Automation.ErrorRecord] $Failure) {
     $message = $Failure.Exception.Message
     $pathsToRedact = @(
@@ -151,29 +173,32 @@ function Get-SafeFailureMessage([System.Management.Automation.ErrorRecord] $Fail
 }
 
 function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) {
-    if ($Record.schema -ne "rssh.diagnostics/v2") {
+    if ($Record.schema -isnot [string] -or $Record.schema -cne "rssh.diagnostics/v2") {
         throw "unexpected diagnostics schema '$($Record.schema)'"
     }
-    if ($ExitCode -ne 0 -or $Record.failures.Count -ne 0 -or $Record.readiness.status -ne "ready") {
+    if (
+        $ExitCode -ne 0 -or
+        $Record.failures.Count -ne 0 -or
+        $Record.readiness.status -isnot [string] -or
+        $Record.readiness.status -cne "ready"
+    ) {
         $details = @($Record.failures | ForEach-Object { "$($_.code) [$($_.phase)]: $($_.message)" })
         if ($details.Count -eq 0) {
             $details = @("exit code $ExitCode; readiness=$($Record.readiness.status)")
         }
         throw "probe run failed: $($details -join '; ')"
     }
+    Assert-JsonUInt64Equals -Value $Record.configuration.stabilization_ms -Expected 5000 -Field "configuration.stabilization_ms"
+    Assert-JsonUInt64Equals -Value $Record.configuration.sample_interval_ms -Expected 100 -Field "configuration.sample_interval_ms"
+    Assert-JsonUInt64Equals -Value $Record.configuration.sample_count -Expected 10 -Field "configuration.sample_count"
+    Assert-JsonUInt64Equals -Value $Record.configuration.columns -Expected 80 -Field "configuration.columns"
+    Assert-JsonUInt64Equals -Value $Record.configuration.rows -Expected 24 -Field "configuration.rows"
+    Assert-JsonUInt64Equals -Value $Record.configuration.scale_factor_milli -Expected 1000 -Field "configuration.scale_factor_milli"
     if (
-        $Record.configuration.stabilization_ms -ne 5000 -or
-        $Record.configuration.sample_interval_ms -ne 100 -or
-        $Record.configuration.sample_count -ne 10 -or
-        $Record.configuration.columns -ne 80 -or
-        $Record.configuration.rows -ne 24 -or
-        $Record.configuration.scale_factor_milli -ne 1000
-    ) {
-        throw "launcher configuration mismatch"
-    }
-    if (
-        $Record.memory.metric -ne "windows_private_working_set_bytes" -or
-        $Record.memory.unit -ne "bytes" -or
+        $Record.memory.metric -isnot [string] -or
+        $Record.memory.metric -cne "windows_private_working_set_bytes" -or
+        $Record.memory.unit -isnot [string] -or
+        $Record.memory.unit -cne "bytes" -or
         $Record.memory.samples.Count -ne 10
     ) {
         throw "memory schema/sample count mismatch"
@@ -210,13 +235,16 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
     }
 
     if ($Probe -eq "cpu") {
-        if ($Record.configuration.requested_renderer -ne "cpu") {
+        if (
+            $Record.configuration.requested_renderer -isnot [string] -or
+            $Record.configuration.requested_renderer -cne "cpu"
+        ) {
             throw "requested renderer mismatch for CPU probe"
         }
         if ($Record.configuration.PSObject.Properties.Name -contains "requested_gpu_backend") {
             throw "CPU probe unexpectedly requested a GPU backend"
         }
-        if ($Record.renderer.final -ne "cpu") {
+        if ($Record.renderer.final -isnot [string] -or $Record.renderer.final -cne "cpu") {
             throw "final renderer mismatch: CPU probe observed '$($Record.renderer.final)'"
         }
         foreach ($identityField in @(
@@ -233,16 +261,22 @@ function Assert-ProbeRecord([string] $Probe, [object] $Record, [int] $ExitCode) 
         return
     }
 
-    if ($Record.configuration.requested_renderer -ne "auto") {
+    if (
+        $Record.configuration.requested_renderer -isnot [string] -or
+        $Record.configuration.requested_renderer -cne "auto"
+    ) {
         throw "requested renderer mismatch for GPU probe '$Probe'"
     }
-    if ($Record.configuration.requested_gpu_backend -ne $Probe) {
+    if (
+        $Record.configuration.requested_gpu_backend -isnot [string] -or
+        $Record.configuration.requested_gpu_backend -cne $Probe
+    ) {
         throw "requested GPU backend mismatch: requested '$Probe', recorded '$($Record.configuration.requested_gpu_backend)'"
     }
-    if ($Record.renderer.final -ne "gpu") {
+    if ($Record.renderer.final -isnot [string] -or $Record.renderer.final -cne "gpu") {
         throw "final renderer mismatch: GPU probe '$Probe' observed '$($Record.renderer.final)'"
     }
-    if ($Record.renderer.backend -ne $Probe) {
+    if ($Record.renderer.backend -isnot [string] -or $Record.renderer.backend -cne $Probe) {
         throw "actual GPU backend mismatch: requested '$Probe', observed '$($Record.renderer.backend)'"
     }
     foreach ($identityField in @("adapter_name", "adapter_type")) {
@@ -416,6 +450,8 @@ try {
     $aggregate = [ordered]@{
         schema = "rssh.diagnostics/gpu-backend-memory-matrix-v1"
         profile = $Profile
+        binary_source = $binarySource
+        certification_eligible = $certificationEligible
         warmups = $Warmups
         measured_runs = $Samples
         geometry = [ordered]@{

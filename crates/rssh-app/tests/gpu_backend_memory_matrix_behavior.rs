@@ -16,6 +16,8 @@ fn matrix_accepts_strict_cpu_and_gpu_records_and_emits_exact_current_evidence() 
     assert_success(&output);
 
     let report = fixture.report();
+    assert_eq!(report["binary_source"], "override");
+    assert_eq!(report["certification_eligible"], false);
     let probes = report["probes"].as_array().expect("probe reports");
     assert_eq!(probes.len(), 4);
     assert_cpu_identity_omitted(probe(probes, "cpu"));
@@ -188,6 +190,49 @@ fn matrix_redacts_resolved_and_original_override_paths_from_failures() {
         );
     }
     assert!(message.contains("[path]"));
+}
+
+#[test]
+fn matrix_rejects_case_changed_wire_identity_values() {
+    let first_fixture = MatrixFixture::new("uppercase-wire-a", "uppercase-wire-a");
+    let output = first_fixture.run();
+    assert_success(&output);
+    let report = first_fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    for name in ["cpu", "dx12", "vulkan", "gl"] {
+        assert_eq!(
+            probe(probes, name)["status"],
+            "failed",
+            "case-changed wire value was accepted for {name}"
+        );
+    }
+
+    let second_fixture = MatrixFixture::new("uppercase-wire-b", "uppercase-wire-b");
+    let output = second_fixture.run();
+    assert_success(&output);
+    let report = second_fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    assert_eq!(probe(probes, "dx12")["status"], "failed");
+    assert_eq!(probe(probes, "vulkan")["status"], "failed");
+    assert_eq!(probe(probes, "gl")["status"], "succeeded");
+}
+
+#[test]
+fn matrix_rejects_string_encoded_configuration_numbers() {
+    let fixture = MatrixFixture::new("string-configuration", "string-config-dx12");
+    let output = fixture.run();
+    assert_success(&output);
+
+    let report = fixture.report();
+    let probes = report["probes"].as_array().expect("probe reports");
+    let dx12 = probe(probes, "dx12");
+    assert_eq!(dx12["status"], "failed");
+    assert!(
+        dx12["probe_failure"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("configuration.stabilization_ms"))
+    );
+    assert_eq!(probe(probes, "vulkan")["status"], "succeeded");
 }
 
 fn assert_cpu_identity_omitted(report: &Value) {
@@ -363,7 +408,7 @@ $counterPath = Join-Path $PSScriptRoot "invocations-$probe.txt"
 $invocation = if (Test-Path -LiteralPath $counterPath) { [int] (Get-Content -Raw $counterPath) + 1 } else { 1 }
 Set-Content -LiteralPath $counterPath -Value $invocation
 $configuration = [ordered]@{
-    stabilization_ms = 5000
+    stabilization_ms = if ($mode -eq "string-config-dx12" -and $probe -eq "dx12") { "5000" } else { 5000 }
     sample_interval_ms = 100
     sample_count = 10
     columns = 80
@@ -373,6 +418,13 @@ $configuration = [ordered]@{
 }
 if ($null -ne $backend) {
     $configuration["requested_gpu_backend"] = $backend
+}
+$schema = if ($mode -eq "uppercase-wire-a" -and $probe -eq "cpu") { "RSSH.DIAGNOSTICS/V2" } else { "rssh.diagnostics/v2" }
+if ($mode -eq "uppercase-wire-a" -and $probe -eq "dx12") {
+    $configuration["requested_renderer"] = "AUTO"
+}
+if ($mode -eq "uppercase-wire-a" -and $probe -eq "vulkan") {
+    $configuration["requested_gpu_backend"] = "VULKAN"
 }
 $rendererSummary = if ($probe -eq "cpu") {
     [ordered]@{ first = "cpu"; final = "cpu" }
@@ -384,8 +436,8 @@ $rendererSummary = if ($probe -eq "cpu") {
     $adapterType = if ($mode -eq "object-array-vulkan-adapter" -and $probe -eq "vulkan") { @("discrete-gpu") } else { "discrete-gpu" }
     [ordered]@{
         first = "cpu"
-        final = "gpu"
-        backend = $backend
+        final = if ($mode -eq "uppercase-wire-b" -and $probe -eq "dx12") { "GPU" } else { "gpu" }
+        backend = if ($mode -eq "uppercase-wire-b" -and $probe -eq "vulkan") { "VULKAN" } else { $backend }
         adapter_name = $adapterName
         adapter_vendor_id = if ($mode -eq "numeric-strings-dx12" -and $probe -eq "dx12") { "4318" } else { 4318 }
         adapter_device_id = if ($backend -eq "gl") { 0 } else { 9860 }
@@ -406,12 +458,12 @@ $failureMessage = if ($mode -eq "path-failure") {
     "requested fixture failure"
 }
 $record = [ordered]@{
-    schema = "rssh.diagnostics/v2"
+    schema = $schema
     configuration = $configuration
     readiness = [ordered]@{ status = if ($failed) { "failed" } else { "ready" } }
     renderer = $rendererSummary
     memory = [ordered]@{
-        metric = "windows_private_working_set_bytes"
+        metric = if ($mode -eq "uppercase-wire-a" -and $probe -eq "gl") { "WINDOWS_PRIVATE_WORKING_SET_BYTES" } else { "windows_private_working_set_bytes" }
         unit = "bytes"
         samples = $samples
     }
