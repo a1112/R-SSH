@@ -208,6 +208,32 @@ After extracting the zip:
 .\rssh-app.exe ssh --native --trust-on-first-use --host example.com --user ops --agent
 ```
 
+## GPU backend memory matrix
+
+The Windows GPU backend memory matrix is a report-only diagnostic. It launches
+fresh 80x24 windows at the benchmark-only 100% DPI scale for the CPU, DX12,
+Vulkan, and GL probes. A GPU result is accepted only when the final renderer is
+GPU and the reported backend exactly matches the requested backend; unsupported
+initialization and renderer/backend fallback are retained as explicit probe
+failures in `aggregate.json`. The 45 MiB comparison is evidence for backend
+attribution and is not a shared pull-request gate.
+
+Keep build outputs and evidence off a space-constrained workspace drive. For
+example, from the repository root on Windows:
+
+```powershell
+$env:CARGO_TARGET_DIR = 'L:\rssh-targets\stage7-release-certification'
+./scripts/ci/run-gpu-backend-memory-matrix.ps1 `
+  -Profile release `
+  -Warmups 5 `
+  -Samples 30 `
+  -OutputDirectory 'L:\rssh-evidence\gpu-backend-memory-matrix'
+```
+
+The command builds with Cargo's locked dependency graph unless `-SkipBuild` is
+passed. Every measured launcher process writes one JSON document beneath
+`raw/<probe>-NN.json`; the deterministic summary is `aggregate.json`.
+
 ## Release Indicators
 
 Use these indicators to decide whether a build is ready for a wider console

@@ -526,6 +526,89 @@ fn stage0_fixed_runner_collects_both_scenarios_and_uploads_raw_and_aggregate_jso
 }
 
 #[test]
+fn gpu_backend_memory_matrix_is_report_only_identity_checked_and_not_a_shared_pr_gate() {
+    let runner = read_repo_file("scripts/ci/run-gpu-backend-memory-matrix.ps1");
+    let pull_request_ci = read_repo_file(".github/workflows/ci.yml");
+    let documentation = read_repo_file("docs/release-console.md");
+
+    for contract in [
+        "[ValidateSet(\"debug\", \"release\")]",
+        "[string] $Profile = \"release\"",
+        "[int] $Warmups = 5",
+        "[int] $Samples = 30",
+        "[string] $OutputDirectory",
+        "[switch] $SkipBuild",
+        "[ValidateRange(0, 100)]",
+        "[ValidateRange(1, 1000)]",
+        "@(\"cpu\", \"dx12\", \"vulkan\", \"gl\")",
+        "cargo build --locked -p rssh-app",
+        "cargo build --locked -p rssh-diagnostics --bin rssh-bench-launcher",
+        "$env:CARGO_TARGET_DIR",
+        "--release",
+        "--scenario",
+        "empty-window",
+        "--stabilization-ms",
+        "5000",
+        "--sample-interval-ms",
+        "100",
+        "--sample-count",
+        "10",
+        "--cols",
+        "80",
+        "--rows",
+        "24",
+        "RSSH_BENCHMARK_WINDOW_SCALE_FACTOR",
+        "if ($Probe -eq \"cpu\")",
+        "--renderer",
+        "cpu",
+        "auto",
+        "--gpu-backend",
+        "requested_renderer",
+        "requested_gpu_backend",
+        "$Record.configuration.PSObject.Properties.Name -contains \"requested_gpu_backend\"",
+        "$Record.renderer.PSObject.Properties.Name -contains \"backend\"",
+        "windows_private_working_set_bytes",
+        "final renderer mismatch",
+        "actual GPU backend mismatch",
+        "probe_failure",
+        "Get-NearestRankPercentile",
+        "memory_p50_bytes",
+        "memory_p95_bytes",
+        "memory_max_bytes",
+        "47185920",
+        "report_only_target_met",
+        "raw",
+        "aggregate.json",
+    ] {
+        assert!(
+            runner.contains(contract),
+            "GPU backend memory matrix runner is missing contract: {contract}"
+        );
+    }
+
+    assert!(
+        runner.contains("continue"),
+        "a failed or unsupported probe must not abort the remaining matrix"
+    );
+    assert!(
+        !pull_request_ci.contains("run-gpu-backend-memory-matrix.ps1"),
+        "the report-only hardware matrix must not become a shared PR absolute gate"
+    );
+    for contract in [
+        "GPU backend memory matrix",
+        "report-only",
+        "L:\\rssh-targets",
+        "L:\\rssh-evidence",
+        "run-gpu-backend-memory-matrix.ps1",
+    ] {
+        assert!(
+            documentation.contains(contract),
+            "release documentation is missing GPU matrix contract: {contract}"
+        );
+    }
+}
+
+#[test]
 fn stage0_documentation_freezes_metric_semantics_schema_and_gate_status() {
     let documentation = read_repo_file("docs/benchmarks/stage0-schema-v2.md");
     for contract in [
