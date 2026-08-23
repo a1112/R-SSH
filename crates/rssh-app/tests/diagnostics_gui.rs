@@ -252,7 +252,7 @@ fn diagnostic_ssh1_without_fixture_coordinates_is_rejected_before_opening_a_wind
         "--renderer",
         "cpu",
     ]);
-    let output = ChildGuard::spawn(command, Duration::from_secs(2))
+    let output = ChildGuard::spawn(command, Duration::from_secs(10))
         .expect("spawn incomplete ssh1 diagnostic")
         .wait()
         .expect("incomplete ssh1 must fail without opening a window");

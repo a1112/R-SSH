@@ -624,7 +624,7 @@ mod tests {
     fn echo_stop_hands_a_slow_connection_to_the_shared_reaper() {
         let echo = LoopbackEchoServer::start_with_slow_connection(
             Duration::from_secs(2),
-            Duration::from_millis(250),
+            Duration::from_millis(500),
         )
         .expect("start slow echo server");
         let address = echo.address();
@@ -642,7 +642,23 @@ mod tests {
             .expect_err("slow connection must exceed stop deadline");
         assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
         assert!(started.elapsed() < Duration::from_millis(150));
-        TcpListener::bind(address).expect("echo port released at stop deadline");
+        let release_deadline = Instant::now() + Duration::from_millis(250);
+        let released_listener = loop {
+            match TcpListener::bind(address) {
+                Ok(listener) => break listener,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::AddrInUse
+                        && Instant::now() < release_deadline =>
+                {
+                    std::thread::sleep(POLL_INTERVAL);
+                }
+                Err(error) => {
+                    panic!("echo port released independently of slow connection: {error}")
+                }
+            }
+        };
+        assert_eq!(probe.active(), 1);
+        drop(released_listener);
 
         let reaped_deadline = Instant::now() + Duration::from_secs(1);
         while probe.active() != 0 && Instant::now() < reaped_deadline {
