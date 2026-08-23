@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SchemaVersion {
@@ -135,7 +135,7 @@ impl RunIdentity {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct RunConfiguration {
     pub stabilization_ms: u64,
     pub sample_interval_ms: u64,
@@ -145,8 +145,37 @@ pub struct RunConfiguration {
     pub scale_factor_milli: u16,
     #[serde(default)]
     pub requested_renderer: DiagnosticRendererMode,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub requested_gpu_backend: Option<DiagnosticGpuBackend>,
+}
+
+impl Serialize for RunConfiguration {
+    fn serialize<Serializer>(
+        &self,
+        serializer: Serializer,
+    ) -> Result<Serializer::Ok, Serializer::Error>
+    where
+        Serializer: serde::Serializer,
+    {
+        let serialize_renderer = self.requested_renderer != DiagnosticRendererMode::Auto
+            || self.requested_gpu_backend.is_some();
+        let field_count =
+            6 + usize::from(serialize_renderer) + usize::from(self.requested_gpu_backend.is_some());
+        let mut configuration = serializer.serialize_struct("RunConfiguration", field_count)?;
+        configuration.serialize_field("stabilization_ms", &self.stabilization_ms)?;
+        configuration.serialize_field("sample_interval_ms", &self.sample_interval_ms)?;
+        configuration.serialize_field("sample_count", &self.sample_count)?;
+        configuration.serialize_field("columns", &self.columns)?;
+        configuration.serialize_field("rows", &self.rows)?;
+        configuration.serialize_field("scale_factor_milli", &self.scale_factor_milli)?;
+        if serialize_renderer {
+            configuration.serialize_field("requested_renderer", &self.requested_renderer)?;
+        }
+        if let Some(backend) = self.requested_gpu_backend {
+            configuration.serialize_field("requested_gpu_backend", &backend)?;
+        }
+        configuration.end()
+    }
 }
 
 impl Default for RunConfiguration {

@@ -3,6 +3,7 @@ use rssh_diagnostics::{
     Platform, RendererKind, RunConfiguration, RunIdentity, Scenario, SchemaVersion,
     StartupMilestones,
 };
+use serde_json::json;
 
 #[test]
 fn diagnostic_renderer_mode_exposes_stable_cli_value() {
@@ -40,6 +41,51 @@ fn schema_v2_serializes_stable_discriminators_and_optional_hybrid_milestones() {
     assert!(value["milestones"]["gpu_ready_ms"].is_null());
     assert_eq!(value["renderer"]["first"], "cpu");
     assert_eq!(value["connection"]["final_state"], "not_started");
+}
+
+#[test]
+fn schema_v2_default_configuration_preserves_the_legacy_wire_shape() {
+    let result = DiagnosticsResult::successful_fixture(
+        RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+        MemoryMetric::WindowsPrivateWorkingSetBytes,
+        RunConfiguration::default(),
+    );
+
+    let value = serde_json::to_value(result).unwrap();
+
+    assert_eq!(
+        value["configuration"],
+        json!({
+            "stabilization_ms": 5_000,
+            "sample_interval_ms": 100,
+            "sample_count": 10,
+            "columns": 80,
+            "rows": 24,
+            "scale_factor_milli": 1_000,
+        })
+    );
+}
+
+#[test]
+fn schema_v2_serializes_an_explicit_renderer_without_a_backend() {
+    let configuration = RunConfiguration {
+        requested_renderer: DiagnosticRendererMode::Cpu,
+        ..RunConfiguration::default()
+    };
+    let result = DiagnosticsResult::successful_fixture(
+        RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+        MemoryMetric::WindowsPrivateWorkingSetBytes,
+        configuration,
+    );
+
+    let value = serde_json::to_value(result).unwrap();
+
+    assert_eq!(value["configuration"]["requested_renderer"], "cpu");
+    assert!(
+        value["configuration"]
+            .as_object()
+            .is_some_and(|configuration| !configuration.contains_key("requested_gpu_backend"))
+    );
 }
 
 #[test]
