@@ -319,7 +319,7 @@ git commit -m "test(perf): add GPU backend memory matrix"
 ### Task 6: Run the matrix and make the Stage 7 decision
 
 **Files:**
-- Create after measurement: `docs/plans/2026-08-22-stage7-gpu-memory-evidence.md`
+- Create after measurement: `docs/plans/2026-08-23-stage7-gpu-memory-evidence.md`
 
 **Step 1: Build release artifacts on L:**
 
@@ -363,7 +363,7 @@ Do not physically split repositories in this task.
 **Step 5: Commit the evidence decision**
 
 ```powershell
-git add docs/plans/2026-08-22-stage7-gpu-memory-evidence.md
+git add docs/plans/2026-08-23-stage7-gpu-memory-evidence.md
 git commit -m "docs: record Stage 7 GPU memory evidence"
 ```
 
