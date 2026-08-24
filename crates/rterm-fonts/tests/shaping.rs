@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use rterm_fonts::{
-    DiagnosticKind, FontCatalog, FontConfig, FontSource, ShapeError, TerminalCluster,
+    CatalogError, DiagnosticKind, FontCatalog, FontConfig, FontSource, ShapeError, TerminalCluster,
     TerminalShaper,
 };
 
@@ -101,6 +101,100 @@ fn fixture_config() -> FontConfig {
         .with_font_size(16.0)
         .with_line_height(1.2)
         .with_cell_width(1.0)
+}
+
+#[test]
+fn shared_source_api_debug_and_error_compatibility() {
+    use std::error::Error as _;
+
+    let golden_source = FontSource::new("golden", vec![0, 1, 2, 255]);
+    assert_eq!(golden_source.label, "golden");
+    assert_eq!(golden_source.bytes(), &[0, 1, 2, 255]);
+    assert_eq!(
+        format!("{golden_source:?}"),
+        "FontSource { label: \"golden\", bytes: [0, 1, 2, 255] }"
+    );
+
+    let path = fixture_dir().join(LATIN);
+    let file_source = FontSource::from_file(&path).expect("read fixture through public API");
+    assert_eq!(file_source.label, path.display().to_string());
+    assert_eq!(file_source.bytes(), fixture_bytes(LATIN));
+
+    let mut catalog = FontCatalog::new("en-US");
+    assert_eq!(catalog.load_source(source(LATIN)).expect("load source"), 1);
+    let mut file_catalog = FontCatalog::new("en-US");
+    assert_eq!(file_catalog.load_file(&path).expect("load file"), 1);
+
+    let read = CatalogError::Read {
+        path: "missing/font.ttf".into(),
+        source: std::io::Error::new(std::io::ErrorKind::PermissionDenied, "access denied"),
+    };
+    assert_eq!(
+        read.to_string(),
+        "failed to read font missing/font.ttf: access denied"
+    );
+    assert_eq!(
+        read.source().map(ToString::to_string).as_deref(),
+        Some("access denied")
+    );
+
+    let invalid = CatalogError::InvalidFont {
+        label: "bad font".to_owned(),
+    };
+    assert_eq!(invalid.to_string(), "invalid font source bad font");
+    assert!(invalid.source().is_none());
+}
+
+#[cfg(feature = "diagnostic-tools")]
+#[test]
+fn shared_source_uses_one_allocation_for_catalog_and_fontdb() {
+    let source = source(LATIN);
+    let bytes = source.bytes().len();
+    let catalog = FontCatalog::from_sources_shared_for_diagnostics("en-US", [source.clone()])
+        .expect("load shared source");
+
+    assert!(catalog.diagnostic_fontdb_shares_source_allocation(0));
+    assert_eq!(source.diagnostic_allocation_strong_count(), 3);
+    assert_eq!(catalog.memory_metrics().retained_source_bytes, bytes);
+    assert_eq!(catalog.memory_metrics().active_source_count, 1);
+    assert_eq!(catalog.memory_metrics().catalog_builds, 1);
+}
+
+#[cfg(feature = "diagnostic-tools")]
+#[test]
+fn shared_source_order_changes_the_ordered_fingerprint() {
+    let first =
+        FontCatalog::from_sources_shared_for_diagnostics("en-US", [source(LATIN), source(CJK)])
+            .expect("load first order");
+    let second =
+        FontCatalog::from_sources_shared_for_diagnostics("en-US", [source(CJK), source(LATIN)])
+            .expect("load reverse order");
+
+    assert_ne!(
+        first.diagnostic_ordered_fingerprint(),
+        second.diagnostic_ordered_fingerprint()
+    );
+}
+
+#[cfg(feature = "diagnostic-tools")]
+#[test]
+fn shared_source_production_default_and_diagnostic_copied_modes_retain_old_double_ownership() {
+    let source = source(LATIN);
+    let bytes = source.bytes().len();
+    let production = FontCatalog::from_sources("en-US", [source.clone()])
+        .expect("load production copied source");
+
+    assert!(!production.diagnostic_fontdb_shares_source_allocation(0));
+    assert_eq!(source.diagnostic_allocation_strong_count(), 2);
+    assert_eq!(production.memory_metrics().retained_source_bytes, bytes * 2);
+
+    drop(production);
+    let diagnostic = FontCatalog::from_sources_copied_for_diagnostics("en-US", [source.clone()])
+        .expect("load diagnostic copied source");
+
+    assert!(!diagnostic.diagnostic_fontdb_shares_source_allocation(0));
+    assert_eq!(source.diagnostic_allocation_strong_count(), 2);
+    assert_eq!(diagnostic.memory_metrics().retained_source_bytes, bytes * 2);
 }
 
 #[test]

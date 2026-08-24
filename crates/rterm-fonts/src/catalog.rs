@@ -39,13 +39,32 @@ impl FontId {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct FontBytes(Box<[u8]>);
+
+impl AsRef<[u8]> for FontBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
 /// Caller-provided font bytes and a diagnostic label.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct FontSource {
     /// Human-readable source name or path.
     pub label: String,
     /// Complete font bytes.
-    bytes: Arc<[u8]>,
+    bytes: Arc<FontBytes>,
+}
+
+impl fmt::Debug for FontSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("FontSource")
+            .field("label", &self.label)
+            .field("bytes", &self.bytes())
+            .finish()
+    }
 }
 
 impl FontSource {
@@ -54,14 +73,21 @@ impl FontSource {
     pub fn new(label: impl Into<String>, bytes: Vec<u8>) -> Self {
         Self {
             label: label.into(),
-            bytes: bytes.into(),
+            bytes: Arc::new(FontBytes(bytes.into_boxed_slice())),
         }
     }
 
     /// Returns the immutable font bytes.
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+        self.bytes.as_ref().as_ref()
+    }
+
+    /// Returns the number of owners of the source allocation for diagnostics.
+    #[cfg(feature = "diagnostic-tools")]
+    #[must_use]
+    pub fn diagnostic_allocation_strong_count(&self) -> usize {
+        Arc::strong_count(&self.bytes)
     }
 
     /// Reads a caller-selected font file.
@@ -77,6 +103,24 @@ impl FontSource {
         })?;
         Ok(Self::new(path.display().to_string(), bytes))
     }
+}
+
+/// Memory retained by the active font catalog and its backing database.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CatalogMemoryMetrics {
+    /// Bytes retained for active sources, including database copies when present.
+    pub retained_source_bytes: usize,
+    /// Number of caller-selected active sources.
+    pub active_source_count: usize,
+    /// Number of successful catalog builds committed by this instance.
+    pub catalog_builds: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SourceOwnership {
+    Copied,
+    #[cfg(feature = "diagnostic-tools")]
+    Shared,
 }
 
 /// Error returned while building the isolated catalog.
@@ -155,6 +199,17 @@ pub struct FontCatalog {
     incarnation: u64,
     generation: u64,
     fingerprint: [u8; 32],
+    memory_metrics: CatalogMemoryMetrics,
+    source_ownership: SourceOwnership,
+}
+
+struct CatalogCandidate {
+    sources: Vec<FontSource>,
+    records: Vec<FontRecord>,
+    font_system: FontSystem,
+    generation: u64,
+    fingerprint: [u8; 32],
+    memory_metrics: CatalogMemoryMetrics,
 }
 
 impl fmt::Debug for FontCatalog {
@@ -189,6 +244,8 @@ impl FontCatalog {
             records: Vec::new(),
             incarnation: next_catalog_incarnation(),
             generation: 0,
+            memory_metrics: CatalogMemoryMetrics::default(),
+            source_ownership: SourceOwnership::Copied,
         }
     }
 
@@ -201,19 +258,39 @@ impl FontCatalog {
     where
         I: IntoIterator<Item = FontSource>,
     {
-        let locale = locale.into();
-        let sources: Vec<_> = sources.into_iter().collect();
-        let fingerprint = content_fingerprint(&locale, &sources);
-        let (font_system, records) = Self::build(&locale, &sources)?;
-        Ok(Self {
-            locale,
-            fingerprint,
-            sources,
-            records,
-            font_system,
-            incarnation: next_catalog_incarnation(),
-            generation: 1,
-        })
+        Self::from_sources_with_ownership(locale, sources, SourceOwnership::Copied)
+    }
+
+    /// Creates a shared-allocation catalog for non-production memory diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError::InvalidFont`] when any source has no parseable face.
+    #[cfg(feature = "diagnostic-tools")]
+    pub fn from_sources_shared_for_diagnostics<I>(
+        locale: impl Into<String>,
+        sources: I,
+    ) -> Result<Self, CatalogError>
+    where
+        I: IntoIterator<Item = FontSource>,
+    {
+        Self::from_sources_with_ownership(locale, sources, SourceOwnership::Shared)
+    }
+
+    /// Creates a copied-allocation catalog for non-production memory diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError::InvalidFont`] when any source has no parseable face.
+    #[cfg(feature = "diagnostic-tools")]
+    pub fn from_sources_copied_for_diagnostics<I>(
+        locale: impl Into<String>,
+        sources: I,
+    ) -> Result<Self, CatalogError>
+    where
+        I: IntoIterator<Item = FontSource>,
+    {
+        Self::from_sources_with_ownership(locale, sources, SourceOwnership::Copied)
     }
 
     /// Adds a caller-provided source, rebuilds shaping state, and advances generation.
@@ -223,14 +300,34 @@ impl FontCatalog {
     /// Returns [`CatalogError::InvalidFont`] without changing the catalog when the
     /// prospective source set contains an invalid font.
     pub fn load_source(&mut self, source: FontSource) -> Result<u64, CatalogError> {
-        let mut sources = self.sources.clone();
-        sources.push(source);
-        let (font_system, records) = Self::build(&self.locale, &sources)?;
-        self.sources = sources;
-        self.records = records;
-        self.font_system = font_system;
-        self.generation = self.generation.wrapping_add(1);
-        self.fingerprint = content_fingerprint(&self.locale, &self.sources);
+        self.load_sources([source])
+    }
+
+    /// Adds a batch of caller-provided sources in one transactional rebuild.
+    /// An empty batch is a no-op and returns the current generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CatalogError::InvalidFont`] without changing the catalog when any
+    /// source in the prospective active set has no parseable face.
+    pub fn load_sources<I>(&mut self, sources: I) -> Result<u64, CatalogError>
+    where
+        I: IntoIterator<Item = FontSource>,
+    {
+        let sources: Vec<_> = sources.into_iter().collect();
+        if sources.is_empty() {
+            return Ok(self.generation);
+        }
+        let mut candidate_sources = self.sources.clone();
+        candidate_sources.extend(sources);
+        let candidate = Self::build_candidate(
+            &self.locale,
+            candidate_sources,
+            self.source_ownership,
+            self.generation.wrapping_add(1),
+            self.memory_metrics.catalog_builds.wrapping_add(1),
+        )?;
+        self.commit(candidate);
         Ok(self.generation)
     }
 
@@ -249,6 +346,12 @@ impl FontCatalog {
         self.generation
     }
 
+    /// Current memory and committed-build counters for this catalog.
+    #[must_use]
+    pub const fn memory_metrics(&self) -> CatalogMemoryMetrics {
+        self.memory_metrics
+    }
+
     /// Process-unique identity of this catalog instance.
     #[must_use]
     pub const fn incarnation(&self) -> u64 {
@@ -257,6 +360,37 @@ impl FontCatalog {
 
     pub(crate) const fn fingerprint(&self) -> [u8; 32] {
         self.fingerprint
+    }
+
+    /// Returns the order-sensitive content fingerprint for diagnostics.
+    #[cfg(feature = "diagnostic-tools")]
+    #[must_use]
+    pub const fn diagnostic_ordered_fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    /// Returns a fingerprint of every active face record for diagnostics.
+    #[cfg(feature = "diagnostic-tools")]
+    #[must_use]
+    pub fn diagnostic_face_records_fingerprint(&self) -> [u8; 32] {
+        let mut digest = Sha256::new();
+        digest.update(self.records.len().to_le_bytes());
+        for record in &self.records {
+            let id = record.id.to_string();
+            digest.update(id.len().to_le_bytes());
+            digest.update(id.as_bytes());
+            digest.update(record.family.len().to_le_bytes());
+            digest.update(record.family.as_bytes());
+            digest.update(record.aliases.len().to_le_bytes());
+            for alias in &record.aliases {
+                digest.update(alias.len().to_le_bytes());
+                digest.update(alias.as_bytes());
+            }
+            digest.update(record.source_index.to_le_bytes());
+            digest.update(record.face_index.to_le_bytes());
+            digest.update([u8::from(record.is_color)]);
+        }
+        digest.finalize().into()
     }
 
     pub(crate) const fn font_id(&self, raw: fontdb::ID) -> FontId {
@@ -281,16 +415,93 @@ impl FontCatalog {
         self.records.len()
     }
 
+    fn from_sources_with_ownership<I>(
+        locale: impl Into<String>,
+        sources: I,
+        source_ownership: SourceOwnership,
+    ) -> Result<Self, CatalogError>
+    where
+        I: IntoIterator<Item = FontSource>,
+    {
+        let locale = locale.into();
+        let candidate = Self::build_candidate(
+            &locale,
+            sources.into_iter().collect(),
+            source_ownership,
+            1,
+            1,
+        )?;
+        Ok(Self {
+            locale,
+            sources: candidate.sources,
+            records: candidate.records,
+            font_system: candidate.font_system,
+            incarnation: next_catalog_incarnation(),
+            generation: candidate.generation,
+            fingerprint: candidate.fingerprint,
+            memory_metrics: candidate.memory_metrics,
+            source_ownership,
+        })
+    }
+
+    fn build_candidate(
+        locale: &str,
+        sources: Vec<FontSource>,
+        source_ownership: SourceOwnership,
+        generation: u64,
+        catalog_builds: u64,
+    ) -> Result<CatalogCandidate, CatalogError> {
+        let fingerprint = content_fingerprint(locale, &sources);
+        let (font_system, records) = Self::build(locale, &sources, source_ownership)?;
+        let retained_multiplier = match source_ownership {
+            SourceOwnership::Copied => 2,
+            #[cfg(feature = "diagnostic-tools")]
+            SourceOwnership::Shared => 1,
+        };
+        let retained_source_bytes = sources.iter().fold(0usize, |retained, source| {
+            retained.saturating_add(source.bytes().len().saturating_mul(retained_multiplier))
+        });
+        Ok(CatalogCandidate {
+            memory_metrics: CatalogMemoryMetrics {
+                retained_source_bytes,
+                active_source_count: sources.len(),
+                catalog_builds,
+            },
+            sources,
+            records,
+            font_system,
+            generation,
+            fingerprint,
+        })
+    }
+
+    fn commit(&mut self, candidate: CatalogCandidate) {
+        self.sources = candidate.sources;
+        self.records = candidate.records;
+        self.font_system = candidate.font_system;
+        self.generation = candidate.generation;
+        self.fingerprint = candidate.fingerprint;
+        self.memory_metrics = candidate.memory_metrics;
+    }
+
     fn build(
         locale: &str,
         sources: &[FontSource],
+        source_ownership: SourceOwnership,
     ) -> Result<(FontSystem, Vec<FontRecord>), CatalogError> {
         let mut db = fontdb::Database::new();
         let mut records = Vec::new();
 
         for (source_index, source) in sources.iter().enumerate() {
             let before: std::collections::HashSet<_> = db.faces().map(|face| face.id).collect();
-            db.load_font_data(source.bytes.to_vec());
+            match source_ownership {
+                SourceOwnership::Copied => db.load_font_data(source.bytes().to_vec()),
+                #[cfg(feature = "diagnostic-tools")]
+                SourceOwnership::Shared => {
+                    let bytes: Arc<dyn AsRef<[u8]> + Send + Sync> = source.bytes.clone();
+                    db.load_font_source(fontdb::Source::Binary(bytes));
+                }
+            }
             let new_faces: Vec<_> = db
                 .faces()
                 .filter(|face| !before.contains(&face.id))
@@ -395,6 +606,34 @@ impl FontCatalog {
         &mut self.font_system
     }
 
+    /// Reports whether every database face for a source uses its exact allocation.
+    #[cfg(feature = "diagnostic-tools")]
+    #[must_use]
+    pub fn diagnostic_fontdb_shares_source_allocation(&self, source_index: usize) -> bool {
+        let Some(source) = self.sources.get(source_index) else {
+            return false;
+        };
+        let expected: Arc<dyn AsRef<[u8]> + Send + Sync> = source.bytes.clone();
+        let mut found = false;
+        for record in self
+            .records
+            .iter()
+            .filter(|record| record.source_index == source_index)
+        {
+            found = true;
+            let Some(face) = self.font_system.db().face(record.id) else {
+                return false;
+            };
+            let fontdb::Source::Binary(actual) = &face.source else {
+                return false;
+            };
+            if !Arc::ptr_eq(&expected, actual) {
+                return false;
+            }
+        }
+        found
+    }
+
     pub(crate) fn owns(&self, id: FontId) -> bool {
         id.catalog_incarnation == self.incarnation
             && id.catalog_generation == self.generation
@@ -450,7 +689,7 @@ fn content_fingerprint(locale: &str, sources: &[FontSource]) -> [u8; 32] {
     digest.update(locale.as_bytes());
     digest.update(sources.len().to_le_bytes());
     for source in sources {
-        digest.update(source.bytes.len().to_le_bytes());
+        digest.update(source.bytes().len().to_le_bytes());
         digest.update(source.bytes());
     }
     digest.finalize().into()

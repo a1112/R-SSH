@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use cosmic_text::Family;
 use rterm_fonts::{
     FontCatalog, FontConfig, FontSource, RasterCache, RasterCacheConfig, RasterContent,
     RasterFallback, RasterFlags, RasterRequest, ShapedGlyph, ShapedRow, TerminalShaper,
@@ -27,6 +28,118 @@ fn source(name: &str) -> FontSource {
 fn catalog(names: &[&str]) -> FontCatalog {
     FontCatalog::from_sources("en-US", names.iter().map(|name| source(name)))
         .expect("fixture catalog")
+}
+
+#[test]
+fn transactional_batch_commits_one_build_and_one_generation() {
+    let mut catalog = catalog(&[LATIN]);
+    let before = catalog.memory_metrics();
+    let expected_retained_bytes = [LATIN, CJK, EMOJI]
+        .iter()
+        .map(|name| {
+            usize::try_from(
+                std::fs::metadata(fixture_path(name))
+                    .expect("fixture metadata")
+                    .len(),
+            )
+            .expect("fixture length fits usize")
+        })
+        .sum::<usize>()
+        * 2;
+    let generation = catalog
+        .load_sources([source(CJK), source(EMOJI)])
+        .expect("load valid batch");
+
+    assert_eq!(generation, 2);
+    assert_eq!(catalog.generation(), 2);
+    assert_eq!(catalog.face_count(), 3);
+    assert_eq!(catalog.memory_metrics().active_source_count, 3);
+    assert_eq!(
+        catalog.memory_metrics().retained_source_bytes,
+        expected_retained_bytes
+    );
+    assert_eq!(
+        catalog.memory_metrics().catalog_builds,
+        before.catalog_builds + 1
+    );
+}
+
+#[test]
+fn transactional_batch_rejects_all_sources_without_mutating_catalog() {
+    let mut catalog = catalog(&[LATIN, CJK, EMOJI]);
+    catalog
+        .font_system_mut()
+        .db_mut()
+        .set_monospace_family("transaction-sentinel");
+    let config = FontConfig::new("Noto Sans").with_fallbacks(["Noto Sans SC", "Noto Color Emoji"]);
+    let mut before_shaper = TerminalShaper::new(config.clone());
+    let before_font_ids: Vec<_> = before_shaper
+        .shape_row(&mut catalog, "A界😀")
+        .expect("shape before rejected batch")
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.font_id)
+        .collect();
+    let before_generation = catalog.generation();
+    let before_face_count = catalog.face_count();
+    let before_metrics = catalog.memory_metrics();
+    #[cfg(feature = "diagnostic-tools")]
+    let before_fingerprint = catalog.diagnostic_ordered_fingerprint();
+    #[cfg(feature = "diagnostic-tools")]
+    let before_records = catalog.diagnostic_face_records_fingerprint();
+
+    let error = catalog
+        .load_sources([
+            source(CJK),
+            FontSource::new("invalid batch member", vec![0, 1, 2, 3]),
+        ])
+        .expect_err("invalid source rejects whole batch");
+
+    assert_eq!(
+        error.to_string(),
+        "invalid font source invalid batch member"
+    );
+    assert_eq!(catalog.generation(), before_generation);
+    assert_eq!(catalog.face_count(), before_face_count);
+    assert_eq!(catalog.memory_metrics(), before_metrics);
+    assert_eq!(
+        catalog
+            .font_system_mut()
+            .db()
+            .family_name(&Family::Monospace),
+        "transaction-sentinel"
+    );
+    let mut after_shaper = TerminalShaper::new(config);
+    let after_font_ids: Vec<_> = after_shaper
+        .shape_row(&mut catalog, "A界😀")
+        .expect("shape after rejected batch")
+        .glyphs
+        .iter()
+        .map(|glyph| glyph.font_id)
+        .collect();
+    assert_eq!(after_font_ids, before_font_ids);
+    #[cfg(feature = "diagnostic-tools")]
+    assert_eq!(catalog.diagnostic_ordered_fingerprint(), before_fingerprint);
+    #[cfg(feature = "diagnostic-tools")]
+    assert_eq!(
+        catalog.diagnostic_face_records_fingerprint(),
+        before_records
+    );
+}
+
+#[test]
+fn transactional_batch_treats_an_empty_batch_as_a_no_op() {
+    let mut catalog = catalog(&[LATIN]);
+    let before_generation = catalog.generation();
+    let before_metrics = catalog.memory_metrics();
+
+    let generation = catalog
+        .load_sources(std::iter::empty())
+        .expect("empty batch is valid");
+
+    assert_eq!(generation, before_generation);
+    assert_eq!(catalog.generation(), before_generation);
+    assert_eq!(catalog.memory_metrics(), before_metrics);
 }
 
 #[test]

@@ -11,7 +11,7 @@ mod raster;
 mod shape;
 
 pub use cache::CacheMetrics;
-pub use catalog::{CatalogError, FontCatalog, FontId, FontSource};
+pub use catalog::{CatalogError, CatalogMemoryMetrics, FontCatalog, FontId, FontSource};
 pub use config::{BidiMode, FontConfig, FontStretch, FontStyle};
 pub use diagnostics::{DiagnosticKind, FontDiagnostic};
 pub use raster::{
