@@ -50,7 +50,7 @@ STATES = (
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FROZEN_LKG = "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
-FROZEN_CONTRACT_SHA256 = "fe9fe188036ca114275d7064237c269a8b44d7d874681a422cc7b201f2e9408c"
+FROZEN_CONTRACT_SHA256 = "0c42676a03127221eca6e90a388e8daa9a96b6b13e8ceed0c1b81c16a127b9d7"
 MAX_JSON_BYTES = 768 * 1024 * 1024
 JSON_READ_CHUNK_BYTES = 1024 * 1024
 MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
@@ -754,6 +754,26 @@ def validate_contract(contract_path: Path) -> tuple[dict[str, Any] | None, list[
     font_aggregate_policy = policies.get("font-ownership-aggregate", {})
     if font_aggregate_policy.get("p50_reductions") != expected_font_reductions:
         violations.append("font ownership p50 reduction rules differ from the frozen proof contract")
+    expected_font_raw_policy = {
+        "content_kind": "raw-metric",
+        "sampling_mode": "residence",
+        "metric": "windows_private_working_set_bytes",
+        "platform": "windows-x86_64",
+        "binary_identity": True,
+        "runner_identity": True,
+        "certification_eligible": True,
+        "owner_ready_marker": "font_ownership_ready",
+        "warmup_process_count": 15,
+        "warmups_per_group": 5,
+        "font_resource_evidence": True,
+        "required_groups": [
+            "current-copied/ascii",
+            "shared-all/ascii",
+            "lazy/ascii",
+        ],
+    }
+    if policies.get("font-ownership-raw") != expected_font_raw_policy:
+        violations.append("font ownership raw cohort/content policy differs from the frozen proof contract")
     font_catalog_policy = policies.get("font-catalog-fingerprint", {})
     if font_catalog_policy.get("frame_generation_scope") != "per-specimen-record":
         violations.append("font frame generation scope must be per-specimen-record")
@@ -2612,6 +2632,106 @@ def validate_thresholds(
                 violations.append(f"{label}: p95 threshold violated")
 
 
+def is_font_diagnostic_run_id(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"empty-window-[0-9]+-[0-9]+", value) is not None
+
+
+def validate_font_resource_evidence(
+    value: Any,
+    expected_mode: str | None,
+    expected_specimen: str,
+    label: str,
+    violations: list[str],
+) -> dict[str, Any] | None:
+    resource_label = f"{label} font_resources"
+    if not isinstance(value, dict):
+        violations.append(f"{resource_label}: complete resource evidence is required")
+        return None
+    fields = {
+        "mode",
+        "specimen",
+        "retained_source_bytes",
+        "indexed_source_count",
+        "active_source_count",
+        "initial_catalog_source_count",
+        "catalog_builds",
+        "generation",
+        "recovery_retained_source_bytes",
+        "recovery_generation",
+        "activation_latency_micros",
+        "tofu_count",
+        "frame_catalog_generation",
+        "frame_generation_consistent",
+        "index_fingerprint_sha256",
+        "catalog_fingerprint_sha256",
+        "ordered_catalog_fingerprint_sha256",
+    }
+    reject_unknown_fields(value, fields, resource_label, violations)
+    missing = fields.difference(value)
+    if missing:
+        violations.append(
+            f"{resource_label}: missing fields {', '.join(sorted(missing))}"
+        )
+        return None
+    if value.get("mode") != expected_mode or value.get("specimen") != expected_specimen:
+        violations.append(f"{resource_label}: mode/specimen identity mismatch")
+    integer_fields = (
+        "retained_source_bytes",
+        "indexed_source_count",
+        "active_source_count",
+        "initial_catalog_source_count",
+        "catalog_builds",
+        "generation",
+        "recovery_retained_source_bytes",
+        "recovery_generation",
+        "activation_latency_micros",
+        "tofu_count",
+        "frame_catalog_generation",
+    )
+    if any(
+        not isinstance(value.get(field), int)
+        or isinstance(value.get(field), bool)
+        or value[field] < 0
+        for field in integer_fields
+    ):
+        violations.append(f"{resource_label}: counters must be finite non-negative integers")
+        return None
+    retained = value["retained_source_bytes"]
+    indexed = value["indexed_source_count"]
+    active = value["active_source_count"]
+    initial = value["initial_catalog_source_count"]
+    builds = value["catalog_builds"]
+    generation = value["generation"]
+    if retained <= 0 or not (indexed >= active > 0) or not (1 <= initial <= active):
+        violations.append(f"{resource_label}: retained/indexed/active/initial counters are invalid")
+    if builds != generation or builds != active - initial + 1:
+        violations.append(f"{resource_label}: catalog builds do not match the independently recorded initial batch")
+    if (
+        value["recovery_retained_source_bytes"] != retained
+        or value["recovery_generation"] != generation
+    ):
+        violations.append(f"{resource_label}: recovery epoch is inconsistent")
+    if (
+        value["tofu_count"] != 0
+        or value["frame_catalog_generation"] != generation
+        or value["frame_generation_consistent"] is not True
+    ):
+        violations.append(f"{resource_label}: tofu/frame generation evidence is inconsistent")
+    if expected_mode == "shared" and not (initial == active and builds == 1):
+        violations.append(f"{resource_label}: SharedAll counter shape is invalid")
+    if expected_mode == "lazy" and not (initial == active == builds == 1):
+        violations.append(f"{resource_label}: Lazy ASCII counter shape is invalid")
+    for field in (
+        "index_fingerprint_sha256",
+        "catalog_fingerprint_sha256",
+        "ordered_catalog_fingerprint_sha256",
+    ):
+        if not is_sha256(value.get(field)):
+            violations.append(f"{resource_label}: {field} must be an irreversible SHA-256")
+    recursively_reject_path_keys(value, resource_label, violations)
+    return value
+
+
 def validate_metric_artifact(
     artifact: dict[str, Any],
     policy: dict[str, Any],
@@ -2641,17 +2761,25 @@ def validate_metric_artifact(
         "certification_eligible"
     ) is not True:
         violations.append(f"{label}: certification_eligible must be true")
-    if artifact.get("warmups") != 5 or artifact.get("measured_cold_processes") != 30:
-        violations.append(f"{label}: raw metric must retain exactly 5 warmups and 30 measured processes")
+    font_resource_evidence = policy.get("font_resource_evidence") is True
+    expected_warmups = policy.get("warmup_process_count", 5)
+    if artifact.get("warmups") != expected_warmups or artifact.get("measured_cold_processes") != 30:
+        violations.append(
+            f"{label}: raw metric must retain exactly {expected_warmups} warmups and 30 measured processes"
+        )
     warmup_ids = artifact.get("warmup_process_ids")
     if (
         not isinstance(warmup_ids, list)
-        or len(warmup_ids) != 5
-        or len(set(warmup_ids)) != 5
+        or len(warmup_ids) != expected_warmups
+        or len(set(warmup_ids)) != expected_warmups
         or not all(isinstance(item, str) and item for item in warmup_ids)
     ):
-        violations.append(f"{label}: five distinct warmup process IDs must be retained separately")
+        violations.append(
+            f"{label}: {expected_warmups} distinct warmup process IDs must be retained separately"
+        )
         warmup_ids = []
+    elif font_resource_evidence and not all(is_font_diagnostic_run_id(item) for item in warmup_ids):
+        violations.append(f"{label}: all 15 warmups must retain actual diagnostic run IDs")
     if artifact.get("timeout_seconds") != 60:
         violations.append(f"{label}: timeout must be 60 seconds")
     if artifact.get("protocol") != expected_metric_protocol(policy, contract):
@@ -2661,6 +2789,7 @@ def validate_metric_artifact(
         violations.append(f"{label}: raw metric must contain non-empty groups")
         return []
     raw_groups: list[dict[str, Any]] = []
+    font_group_warmups: list[set[str]] = []
     for index, group_value in enumerate(groups):
         group_label = f"{label} group {index}"
         if not isinstance(group_value, dict):
@@ -2688,6 +2817,7 @@ def validate_metric_artifact(
                 "support_status",
                 "unsupported_reason",
                 "unsupported_at_stage",
+                "warmup_process_ids",
             },
             group_label,
             violations,
@@ -2814,6 +2944,25 @@ def validate_metric_artifact(
             violations.append(f"{group_label}: final renderer mismatch")
         if "connection_state" in policy and group.get("connection_state") != policy["connection_state"]:
             violations.append(f"{group_label}: connection state mismatch")
+        group_warmup_ids = warmup_ids
+        if font_resource_evidence:
+            group_warmup_ids = group.get("warmup_process_ids")
+            expected_group_warmups = policy.get("warmups_per_group")
+            if (
+                not isinstance(group_warmup_ids, list)
+                or len(group_warmup_ids) != expected_group_warmups
+                or len(set(group_warmup_ids)) != expected_group_warmups
+                or not all(
+                    isinstance(item, str) and is_font_diagnostic_run_id(item)
+                    for item in group_warmup_ids
+                )
+            ):
+                violations.append(
+                    f"{group_label}: must retain exactly five actual warmup process IDs"
+                )
+                group_warmup_ids = []
+            else:
+                font_group_warmups.append(set(group_warmup_ids))
         processes = group.get("processes")
         if not isinstance(processes, list) or not 1 <= len(processes) <= 30:
             if mode == "residence" and isinstance(group.get("flattened_samples"), list):
@@ -2824,6 +2973,7 @@ def validate_metric_artifact(
         process_ids: set[str] = set()
         representatives: list[int | float] = []
         raw: list[int | float] = []
+        font_processes: list[dict[str, Any]] = []
         for process_index, process_value in enumerate(processes):
             process_label = f"{group_label} process {process_index}"
             if not isinstance(process_value, dict):
@@ -2834,6 +2984,8 @@ def validate_metric_artifact(
                 if mode == "startup-marker"
                 else {"process_id", "phase", "samples", "representative"}
             )
+            if font_resource_evidence:
+                process_fields.update({"round_index", "font_resources"})
             reject_unknown_fields(
                 process_value, process_fields, process_label, violations
             )
@@ -2842,8 +2994,35 @@ def validate_metric_artifact(
                 violations.append(f"{process_label}: process_id must be non-empty and unique")
             else:
                 process_ids.add(process_id)
+            if font_resource_evidence and not is_font_diagnostic_run_id(process_id):
+                violations.append(f"{process_label}: process_id must be an actual diagnostic run ID")
             if process_value.get("phase") != "measured" or process_id in warmup_ids:
                 violations.append(f"{process_label}: warmup records cannot be mixed into measured samples")
+            if font_resource_evidence:
+                round_index = process_value.get("round_index")
+                if not isinstance(round_index, int) or isinstance(round_index, bool) or not 1 <= round_index <= 30:
+                    violations.append(f"{process_label}: round_index must be an integer from 1 through 30")
+                group_name = group.get("name")
+                expected_font_mode = {
+                    "current-copied/ascii": "current",
+                    "shared-all/ascii": "shared",
+                    "lazy/ascii": "lazy",
+                }.get(group_name)
+                resources = validate_font_resource_evidence(
+                    process_value.get("font_resources"),
+                    expected_font_mode,
+                    "ascii",
+                    process_label,
+                    violations,
+                )
+                if resources is not None and isinstance(round_index, int):
+                    font_processes.append(
+                        {
+                            "round_index": round_index,
+                            "process_id": process_id,
+                            "font_resources": resources,
+                        }
+                    )
             if mode == "startup-marker":
                 if any(field in process_value for field in ("samples", "residence_samples", "representative")):
                     violations.append(f"{process_label}: startup evidence cannot contain residence samples")
@@ -2904,7 +3083,9 @@ def validate_metric_artifact(
                 "reported_statistics": group.get("statistics"),
                 "lkg": group.get("lkg"),
                 "identity": artifact.get("identity"),
-                "warmup_process_ids": tuple(warmup_ids),
+                "warmup_process_ids": tuple(group_warmup_ids),
+                "artifact_warmup_process_ids": tuple(warmup_ids),
+                "font_processes": font_processes,
                 "protocol_fields": (
                     artifact.get("warmups"),
                     artifact.get("measured_cold_processes"),
@@ -2929,7 +3110,81 @@ def validate_metric_artifact(
                 },
             }
         )
+    if font_resource_evidence and warmup_ids:
+        warmup_union = set().union(*font_group_warmups) if font_group_warmups else set()
+        if (
+            len(font_group_warmups) != len(policy.get("required_groups", []))
+            or sum(len(group_ids) for group_ids in font_group_warmups) != len(warmup_union)
+            or warmup_union != set(warmup_ids)
+        ):
+            violations.append(
+                f"{label}: per-mode warmup cohorts must be disjoint and their union must equal the 15 top-level run IDs"
+            )
     return raw_groups
+
+
+def validate_font_ownership_cross_mode_content(
+    artifact_type: str,
+    groups: dict[str, dict[str, Any]],
+    artifact_warmup_process_ids: tuple[str, ...] | None,
+    violations: list[str],
+) -> None:
+    expected_names = (
+        "current-copied/ascii",
+        "shared-all/ascii",
+        "lazy/ascii",
+    )
+    if any(name not in groups for name in expected_names):
+        return
+    group_warmups = [set(groups[name]["warmup_process_ids"]) for name in expected_names]
+    warmup_union = set().union(*group_warmups)
+    if (
+        artifact_warmup_process_ids is None
+        or any(len(group) != 5 for group in group_warmups)
+        or sum(len(group) for group in group_warmups) != len(warmup_union)
+        or warmup_union != set(artifact_warmup_process_ids)
+    ):
+        violations.append(
+            f"artifact_type {artifact_type}: three disjoint five-process warmup cohorts must cover the 15 actual run IDs"
+        )
+    by_mode: dict[str, dict[int, dict[str, Any]]] = {}
+    for name in expected_names:
+        rounds: dict[int, dict[str, Any]] = {}
+        for record in groups[name]["font_processes"]:
+            round_index = record["round_index"]
+            if round_index in rounds:
+                violations.append(
+                    f"artifact_type {artifact_type} group {name}: duplicate font proof round_index"
+                )
+            else:
+                rounds[round_index] = record["font_resources"]
+        if set(rounds) != set(range(1, 31)):
+            violations.append(
+                f"artifact_type {artifact_type} group {name}: font resource evidence must cover rounds 1 through 30 exactly once"
+            )
+        by_mode[name] = rounds
+    current = by_mode["current-copied/ascii"]
+    shared = by_mode["shared-all/ascii"]
+    for round_index in sorted(set(current).intersection(shared)):
+        current_resources = current[round_index]
+        shared_resources = shared[round_index]
+        for field in (
+            "indexed_source_count",
+            "active_source_count",
+            "index_fingerprint_sha256",
+            "catalog_fingerprint_sha256",
+            "ordered_catalog_fingerprint_sha256",
+        ):
+            if current_resources[field] != shared_resources[field]:
+                violations.append(
+                    f"artifact_type {artifact_type} round {round_index}: CurrentCopied/SharedAll {field} differs"
+                )
+        if current_resources["retained_source_bytes"] != 2 * shared_resources[
+            "retained_source_bytes"
+        ]:
+            violations.append(
+                f"artifact_type {artifact_type} round {round_index}: CurrentCopied retained bytes must equal exactly twice SharedAll"
+            )
 
 
 def combine_metric_shards(
@@ -2945,14 +3200,17 @@ def combine_metric_shards(
     artifact_protocol: dict[str, Any] | None = None
     for artifact_id, raw_groups in shards:
         for group in raw_groups:
+            candidate_artifact_warmups = group.get(
+                "artifact_warmup_process_ids", group["warmup_process_ids"]
+            )
             if artifact_warmup_process_ids is None:
-                artifact_warmup_process_ids = group["warmup_process_ids"]
+                artifact_warmup_process_ids = candidate_artifact_warmups
                 artifact_protocol_fields = group["protocol_fields"]
                 artifact_protocol = group["protocol"]
             else:
-                if artifact_warmup_process_ids != group["warmup_process_ids"]:
+                if artifact_warmup_process_ids != candidate_artifact_warmups:
                     violations.append(
-                        f"artifact_type {artifact_type}: every shard and group must share one exact five-warmup cohort"
+                        f"artifact_type {artifact_type}: every shard and group must share one exact top-level warmup cohort"
                     )
                 if artifact_protocol_fields != group["protocol_fields"]:
                     violations.append(
@@ -2977,6 +3235,8 @@ def combine_metric_shards(
                     "lkg": [],
                     "identity": group["identity"],
                     "warmup_process_ids": group["warmup_process_ids"],
+                    "artifact_warmup_process_ids": candidate_artifact_warmups,
+                    "font_processes": [],
                     "protocol_fields": group["protocol_fields"],
                     "protocol": group["protocol"],
                     "status": group["status"],
@@ -3019,6 +3279,7 @@ def combine_metric_shards(
             combined["process_ids"].update(group["process_ids"])
             combined["representatives"].extend(group["representatives"])
             combined["raw"].extend(group["raw"])
+            combined["font_processes"].extend(group.get("font_processes", []))
             if group["reported_statistics"] is not None:
                 combined["reported_statistics"].append(group["reported_statistics"])
             if group["lkg"] is not None:
@@ -3064,6 +3325,10 @@ def combine_metric_shards(
                     violations.append(
                         f"artifact_type {artifact_type}: diagnostic {backend} unsupported suffix identity drift"
                     )
+    if policy.get("font_resource_evidence") is True:
+        validate_font_ownership_cross_mode_content(
+            artifact_type, groups, artifact_warmup_process_ids, violations
+        )
     results: list[dict[str, int | float]] = []
     group_order = required_groups or sorted(groups)
     for name in group_order:
@@ -3400,6 +3665,7 @@ def validate_font_functional_specimens(
         "recovery_retained_source_bytes",
         "indexed_source_count",
         "active_source_count",
+        "initial_catalog_source_count",
         "catalog_builds",
         "generation",
         "recovery_generation",
@@ -3452,6 +3718,8 @@ def validate_font_functional_specimens(
             violations.append(f"{record_label}: tofu count must be zero")
         generation = record.get("generation")
         frame_generation = record.get("frame_catalog_generation")
+        active = record.get("active_source_count")
+        initial = record.get("initial_catalog_source_count")
         if (
             not isinstance(generation, int)
             or isinstance(generation, bool)
@@ -3462,8 +3730,20 @@ def validate_font_functional_specimens(
             or not isinstance(record.get("recovery_generation"), int)
             or isinstance(record.get("recovery_generation"), bool)
             or record.get("recovery_generation") != generation
+            or not isinstance(active, int)
+            or isinstance(active, bool)
+            or not isinstance(initial, int)
+            or isinstance(initial, bool)
+            or not 1 <= initial <= active
+            or generation != active - initial + 1
         ):
-            violations.append(f"{record_label}: catalog builds/generation must be positive and consistent")
+            violations.append(
+                f"{record_label}: catalog builds/generation must match the independently recorded initial batch"
+            )
+        if mode == "shared" and not (initial == active and generation == 1):
+            violations.append(f"{record_label}: SharedAll counter shape is invalid")
+        if mode == "lazy" and not (initial == 1 and active == generation == 2):
+            violations.append(f"{record_label}: Lazy activated specimen counter shape is invalid")
         if (
             not isinstance(frame_generation, int)
             or isinstance(frame_generation, bool)

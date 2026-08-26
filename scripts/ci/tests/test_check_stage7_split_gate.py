@@ -951,9 +951,8 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertEqual(residence["owner_ready_marker_required"], True)
 
     def test_font_ownership_raw_inventory_is_exactly_the_900_ascii_sample_contract(self) -> None:
-        groups = self.contract["artifact_policies"]["font-ownership-raw"][
-            "required_groups"
-        ]
+        policy = self.contract["artifact_policies"]["font-ownership-raw"]
+        groups = policy["required_groups"]
         self.assertEqual(
             groups,
             [
@@ -969,6 +968,113 @@ class Stage7SplitGateTests(unittest.TestCase):
             900,
         )
         self.assertFalse(any(group.endswith(("/cjk", "/emoji")) for group in groups))
+        self.assertEqual(policy["warmup_process_count"], 15)
+        self.assertEqual(policy["warmups_per_group"], 5)
+        self.assertIs(policy["font_resource_evidence"], True)
+
+    def test_font_ownership_raw_rejects_round_digests_and_missing_resource_evidence(self) -> None:
+        policy = self.contract["artifact_policies"]["font-ownership-raw"]
+        raw = self.make_metric_payload(
+            "font-ownership-raw",
+            policy,
+            {
+                "source_sha": SOURCE_SHA,
+                "binary_hashes": {"rssh.exe": BINARY_SHA},
+                "runner_fingerprint_sha256": RUNNER_SHA,
+                "platform": "windows-x86_64",
+                "run_id": "font-cohort-run",
+            },
+        )
+        raw["warmup_process_ids"] = [f"warmup-round-{index}-{'a' * 16}" for index in range(5)]
+        raw["groups"][0]["processes"][0].pop("font_resources")
+        violations: list[str] = []
+        self.checker.validate_metric_artifact(
+            raw, policy, self.contract, "font raw", violations
+        )
+        self.assertTrue(
+            any("warmup" in violation and "15" in violation for violation in violations),
+            violations,
+        )
+        self.assertTrue(
+            any("font_resources" in violation for violation in violations), violations
+        )
+
+    def test_font_ownership_raw_derives_cohort_and_cross_mode_content(self) -> None:
+        policy = self.contract["artifact_policies"]["font-ownership-raw"]
+
+        def valid_payload() -> dict:
+            return self.make_metric_payload(
+                "font-ownership-raw",
+                policy,
+                {
+                    "source_sha": SOURCE_SHA,
+                    "binary_hashes": {"rssh.exe": BINARY_SHA},
+                    "runner_fingerprint_sha256": RUNNER_SHA,
+                    "platform": "windows-x86_64",
+                    "run_id": "font-content-run",
+                },
+            )
+
+        def violations_for(raw: dict) -> list[str]:
+            violations: list[str] = []
+            raw_groups = self.checker.validate_metric_artifact(
+                raw, policy, self.contract, "font raw", violations
+            )
+            self.checker.combine_metric_shards(
+                "font-ownership-raw",
+                [("font-ownership-raw", raw_groups)],
+                policy,
+                self.contract,
+                violations,
+            )
+            return violations
+
+        self.assertEqual(violations_for(valid_payload()), [])
+        cases = [
+            (
+                "group cohort overlap",
+                lambda raw: raw["groups"][1]["warmup_process_ids"].__setitem__(
+                    0, raw["groups"][0]["warmup_process_ids"][0]
+                ),
+                "disjoint",
+            ),
+            (
+                "missing initial batch",
+                lambda raw: raw["groups"][0]["processes"][0][
+                    "font_resources"
+                ].pop("initial_catalog_source_count"),
+                "missing fields",
+            ),
+            (
+                "initial batch relation drift",
+                lambda raw: raw["groups"][0]["processes"][0][
+                    "font_resources"
+                ].__setitem__("initial_catalog_source_count", 1),
+                "initial batch",
+            ),
+            (
+                "current shared catalog mismatch",
+                lambda raw: raw["groups"][1]["processes"][0][
+                    "font_resources"
+                ].__setitem__("catalog_fingerprint_sha256", "9" * 64),
+                "catalog_fingerprint_sha256 differs",
+            ),
+            (
+                "current shared retained mismatch",
+                lambda raw: raw["groups"][0]["processes"][0][
+                    "font_resources"
+                ].__setitem__("retained_source_bytes", 2_000_001),
+                "exactly twice SharedAll",
+            ),
+        ]
+        for name, mutate, expected in cases:
+            with self.subTest(name=name):
+                raw = valid_payload()
+                mutate(raw)
+                violations = violations_for(raw)
+                self.assertTrue(
+                    any(expected in violation for violation in violations), violations
+                )
 
     def test_font_proof_contract_freezes_reductions_and_functional_claims(self) -> None:
         policy = self.contract["artifact_policies"]["font-ownership-aggregate"]
@@ -1095,16 +1201,6 @@ class Stage7SplitGateTests(unittest.TestCase):
 
     def test_font_catalog_functional_specimens_are_derived_not_self_attested(self) -> None:
         specimens = self.font_functional_specimens()
-        for specimen in specimens:
-            generation = {
-                "current": 7,
-                "shared": 1,
-                "lazy": 1 if specimen["requested_font_specimen"] == "ascii" else 2,
-            }[specimen["requested_font_mode"]]
-            specimen["catalog_builds"] = generation
-            specimen["generation"] = generation
-            specimen["recovery_generation"] = generation
-            specimen["frame_catalog_generation"] = generation
         payload = {
             "schema": "rssh.stage7.result/v1",
             "certification_eligible": True,
@@ -4314,6 +4410,7 @@ class Stage7SplitGateTests(unittest.TestCase):
         records = []
         for mode in ("current", "shared", "lazy"):
             for specimen in ("cjk", "emoji"):
+                resources = self.font_resource_summary(mode, specimen)
                 records.append(
                     {
                         "requested_font_mode": mode,
@@ -4324,22 +4421,49 @@ class Stage7SplitGateTests(unittest.TestCase):
                         "actual_backend": "dx12",
                         "activation_latency_ms": 0.009,
                         "activation_latency_gate": "report-only",
-                        "retained_source_bytes": 1_000_000,
-                        "recovery_retained_source_bytes": 1_000_000,
-                        "indexed_source_count": 3,
-                        "active_source_count": 2,
-                        "catalog_builds": 2,
-                        "generation": 2,
-                        "recovery_generation": 2,
-                        "frame_catalog_generation": 2,
-                        "frame_generation_consistent": True,
-                        "tofu_count": 0,
-                        "index_fingerprint_sha256": "1" * 64,
-                        "catalog_fingerprint_sha256": "2" * 64,
-                        "ordered_catalog_fingerprint_sha256": "3" * 64,
+                        **{
+                            key: value
+                            for key, value in resources.items()
+                            if key not in {"mode", "specimen", "activation_latency_micros"}
+                        },
                     }
                 )
         return records
+
+    def font_resource_summary(self, mode: str, specimen: str = "ascii") -> dict:
+        if mode == "current":
+            active, initial, retained = 3, 2, 2_000_000
+            catalog_fingerprint = "2" * 64
+            ordered_fingerprint = "3" * 64
+        elif mode == "shared":
+            active, initial, retained = 3, 3, 1_000_000
+            catalog_fingerprint = "2" * 64
+            ordered_fingerprint = "3" * 64
+        else:
+            active = 1 if specimen == "ascii" else 2
+            initial, retained = 1, 100_000 * active
+            catalog_fingerprint = "4" * 64
+            ordered_fingerprint = "5" * 64
+        generation = active - initial + 1
+        return {
+            "mode": mode,
+            "specimen": specimen,
+            "retained_source_bytes": retained,
+            "indexed_source_count": 3,
+            "active_source_count": active,
+            "initial_catalog_source_count": initial,
+            "catalog_builds": generation,
+            "generation": generation,
+            "recovery_retained_source_bytes": retained,
+            "recovery_generation": generation,
+            "activation_latency_micros": 9,
+            "tofu_count": 0,
+            "frame_catalog_generation": generation,
+            "frame_generation_consistent": True,
+            "index_fingerprint_sha256": "1" * 64,
+            "catalog_fingerprint_sha256": catalog_fingerprint,
+            "ordered_catalog_fingerprint_sha256": ordered_fingerprint,
+        }
 
     def make_metric_payload(self, artifact_type: str, policy: dict, identity: dict) -> dict:
         mode = policy["sampling_mode"]
@@ -4354,7 +4478,7 @@ class Stage7SplitGateTests(unittest.TestCase):
                 for stage in policy["matrix_stages"]
             ]
         groups = []
-        for group_name in group_names:
+        for mode_index, group_name in enumerate(group_names):
             group_value = value
             if artifact_type == "font-ownership-raw":
                 group_value = {
@@ -4401,13 +4525,36 @@ class Stage7SplitGateTests(unittest.TestCase):
                 group["sample_interval_ms"] = 100
                 group["processes"] = [
                     {
-                        "process_id": f"{group_name}-process-{index:02d}",
+                        "process_id": (
+                            f"empty-window-{1000 + mode_index * 100 + index}-{10_000 + mode_index * 100 + index}"
+                            if artifact_type == "font-ownership-raw"
+                            else f"{group_name}-process-{index:02d}"
+                        ),
                         "phase": "measured",
                         "samples": [group_value] * 10,
                         "representative": group_value,
+                        **(
+                            {
+                                "round_index": index + 1,
+                                "font_resources": self.font_resource_summary(
+                                    {
+                                        "current-copied/ascii": "current",
+                                        "shared-all/ascii": "shared",
+                                        "lazy/ascii": "lazy",
+                                    }[group_name]
+                                ),
+                            }
+                            if artifact_type == "font-ownership-raw"
+                            else {}
+                        ),
                     }
                     for index in range(30)
                 ]
+                if artifact_type == "font-ownership-raw":
+                    group["warmup_process_ids"] = [
+                        f"empty-window-{2000 + mode_index * 10 + index}-{20_000 + mode_index * 10 + index}"
+                        for index in range(5)
+                    ]
             if policy.get("connection_state"):
                 group["connection_state"] = policy["connection_state"]
             group["statistics"] = {
@@ -4462,11 +4609,20 @@ class Stage7SplitGateTests(unittest.TestCase):
                     group["lkg"]["actual_backend"] = group["actual_backend"]
                     group["lkg"]["adapter_identity"] = group["adapter_identity"]
             groups.append(group)
+        font_warmup_ids = (
+            [
+                process_id
+                for group in groups
+                for process_id in group.get("warmup_process_ids", [])
+            ]
+            if artifact_type == "font-ownership-raw"
+            else [f"warmup-{index}" for index in range(5)]
+        )
         payload = {
             "schema": "rssh.stage7.metric-raw/v1",
             "identity": identity,
-            "warmups": 5,
-            "warmup_process_ids": [f"warmup-{index}" for index in range(5)],
+            "warmups": len(font_warmup_ids),
+            "warmup_process_ids": font_warmup_ids,
             "measured_cold_processes": 30,
             "timeout_seconds": 60,
             "protocol": protocol,
