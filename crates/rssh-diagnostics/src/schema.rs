@@ -94,6 +94,193 @@ impl FromStr for DiagnosticGpuBackend {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum DiagnosticFontMode {
+    #[serde(rename = "current")]
+    CurrentCopied,
+    #[serde(rename = "shared")]
+    SharedAll,
+    Lazy,
+}
+
+impl DiagnosticFontMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CurrentCopied => "current",
+            Self::SharedAll => "shared",
+            Self::Lazy => "lazy",
+        }
+    }
+}
+
+impl Display for DiagnosticFontMode {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for DiagnosticFontMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "current" => Ok(Self::CurrentCopied),
+            "shared" => Ok(Self::SharedAll),
+            "lazy" => Ok(Self::Lazy),
+            _ => Err(format!("unsupported diagnostic font mode: {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticFontSpecimen {
+    Ascii,
+    Cjk,
+    Emoji,
+}
+
+impl DiagnosticFontSpecimen {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ascii => "ascii",
+            Self::Cjk => "cjk",
+            Self::Emoji => "emoji",
+        }
+    }
+}
+
+impl Display for DiagnosticFontSpecimen {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for DiagnosticFontSpecimen {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "ascii" => Ok(Self::Ascii),
+            "cjk" => Ok(Self::Cjk),
+            "emoji" => Ok(Self::Emoji),
+            _ => Err(format!("unsupported diagnostic font specimen: {value}")),
+        }
+    }
+}
+
+#[cfg(test)]
+mod font_mode_tests {
+    use super::*;
+
+    #[test]
+    fn font_mode_and_specimen_have_stable_private_wire_values() {
+        for (wire, mode) in [
+            ("current", DiagnosticFontMode::CurrentCopied),
+            ("shared", DiagnosticFontMode::SharedAll),
+            ("lazy", DiagnosticFontMode::Lazy),
+        ] {
+            assert_eq!(wire.parse::<DiagnosticFontMode>(), Ok(mode));
+            assert_eq!(mode.to_string(), wire);
+            assert_eq!(serde_json::to_value(mode).unwrap(), wire);
+        }
+        for (wire, specimen) in [
+            ("ascii", DiagnosticFontSpecimen::Ascii),
+            ("cjk", DiagnosticFontSpecimen::Cjk),
+            ("emoji", DiagnosticFontSpecimen::Emoji),
+        ] {
+            assert_eq!(wire.parse::<DiagnosticFontSpecimen>(), Ok(specimen));
+            assert_eq!(specimen.to_string(), wire);
+            assert_eq!(serde_json::to_value(specimen).unwrap(), wire);
+        }
+    }
+
+    #[test]
+    fn font_mode_fields_are_omitted_from_default_configuration_json() {
+        let default_json = serde_json::to_value(RunConfiguration::default()).unwrap();
+        assert!(default_json.get("requested_font_mode").is_none());
+        assert!(default_json.get("requested_font_specimen").is_none());
+
+        let configured = RunConfiguration {
+            requested_font_mode: Some(DiagnosticFontMode::Lazy),
+            requested_font_specimen: Some(DiagnosticFontSpecimen::Emoji),
+            ..RunConfiguration::default()
+        };
+        let configured_json = serde_json::to_value(configured).unwrap();
+        assert_eq!(configured_json["requested_renderer"], "auto");
+        assert_eq!(configured_json["requested_font_mode"], "lazy");
+        assert_eq!(configured_json["requested_font_specimen"], "emoji");
+    }
+
+    #[test]
+    fn absent_font_ownership_milestone_preserves_the_default_wire_shape() {
+        let mut milestones = StartupMilestones::default();
+        let default_json = serde_json::to_value(&milestones).unwrap();
+        assert!(default_json.get("font_ownership_ready_ms").is_none());
+
+        milestones.font_ownership_ready_ms = Some(125);
+        let ready_json = serde_json::to_value(milestones).unwrap();
+        assert_eq!(ready_json["font_ownership_ready_ms"], 125);
+    }
+
+    #[test]
+    fn font_resource_summary_is_optional_and_uses_irreversible_wire_identity() {
+        let mut result = DiagnosticsResult::successful_fixture(
+            RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+            MemoryMetric::WindowsPrivateWorkingSetBytes,
+            RunConfiguration::default(),
+        );
+        assert!(
+            serde_json::to_value(&result)
+                .unwrap()
+                .get("font_resources")
+                .is_none(),
+            "legacy diagnostics JSON must remain byte-shape compatible when no proof is requested"
+        );
+
+        result.font_resources = Some(DiagnosticFontResourceSummary {
+            mode: DiagnosticFontMode::SharedAll,
+            specimen: DiagnosticFontSpecimen::Ascii,
+            retained_source_bytes: 64,
+            indexed_source_count: 3,
+            active_source_count: 2,
+            initial_catalog_source_count: 2,
+            catalog_builds: 2,
+            generation: 2,
+            recovery_retained_source_bytes: 64,
+            recovery_generation: 2,
+            activation_latency_micros: 9,
+            tofu_count: 0,
+            frame_catalog_generation: Some(2),
+            frame_generation_consistent: Some(true),
+            index_fingerprint_sha256: "1".repeat(64),
+            catalog_fingerprint_sha256: "2".repeat(64),
+            ordered_catalog_fingerprint_sha256: "3".repeat(64),
+            font_inventory_fingerprint_sha256: Some("4".repeat(64)),
+            font_index_policy_version: Some(1),
+        });
+        let value = serde_json::to_value(result).unwrap();
+        assert_eq!(value["font_resources"]["mode"], "shared");
+        assert_eq!(value["font_resources"]["specimen"], "ascii");
+        assert_eq!(value["font_resources"]["initial_catalog_source_count"], 2);
+        assert_eq!(value["font_resources"]["frame_generation_consistent"], true);
+        assert_eq!(
+            value["font_resources"]["font_inventory_fingerprint_sha256"],
+            "4".repeat(64)
+        );
+        assert_eq!(value["font_resources"]["font_index_policy_version"], 1);
+        assert!(
+            !value["font_resources"]
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("path")
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Scenario {
     EmptyWindow,
     Ssh1,
@@ -147,6 +334,10 @@ pub struct RunConfiguration {
     pub requested_renderer: DiagnosticRendererMode,
     #[serde(default)]
     pub requested_gpu_backend: Option<DiagnosticGpuBackend>,
+    #[serde(default)]
+    pub requested_font_mode: Option<DiagnosticFontMode>,
+    #[serde(default)]
+    pub requested_font_specimen: Option<DiagnosticFontSpecimen>,
 }
 
 impl Serialize for RunConfiguration {
@@ -157,10 +348,16 @@ impl Serialize for RunConfiguration {
     where
         Serializer: serde::Serializer,
     {
+        let font_proof =
+            self.requested_font_mode.is_some() && self.requested_font_specimen.is_some();
         let serialize_renderer = self.requested_renderer != DiagnosticRendererMode::Auto
-            || self.requested_gpu_backend.is_some();
-        let field_count =
-            6 + usize::from(serialize_renderer) + usize::from(self.requested_gpu_backend.is_some());
+            || self.requested_gpu_backend.is_some()
+            || font_proof;
+        let field_count = 6
+            + usize::from(serialize_renderer)
+            + usize::from(self.requested_gpu_backend.is_some())
+            + usize::from(self.requested_font_mode.is_some())
+            + usize::from(self.requested_font_specimen.is_some());
         let mut configuration = serializer.serialize_struct("RunConfiguration", field_count)?;
         configuration.serialize_field("stabilization_ms", &self.stabilization_ms)?;
         configuration.serialize_field("sample_interval_ms", &self.sample_interval_ms)?;
@@ -173,6 +370,12 @@ impl Serialize for RunConfiguration {
         }
         if let Some(backend) = self.requested_gpu_backend {
             configuration.serialize_field("requested_gpu_backend", &backend)?;
+        }
+        if let Some(mode) = self.requested_font_mode {
+            configuration.serialize_field("requested_font_mode", &mode)?;
+        }
+        if let Some(specimen) = self.requested_font_specimen {
+            configuration.serialize_field("requested_font_specimen", &specimen)?;
         }
         configuration.end()
     }
@@ -189,6 +392,8 @@ impl Default for RunConfiguration {
             scale_factor_milli: 1_000,
             requested_renderer: DiagnosticRendererMode::Auto,
             requested_gpu_backend: None,
+            requested_font_mode: None,
+            requested_font_specimen: None,
         }
     }
 }
@@ -202,6 +407,8 @@ pub struct StartupMilestones {
     pub transport_started_ms: Option<u64>,
     pub transport_ready_ms: Option<u64>,
     pub gpu_ready_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_ownership_ready_ms: Option<u64>,
     pub scenario_ready_ms: Option<u64>,
     pub sampling_started_ms: Option<u64>,
     pub sampling_finished_ms: Option<u64>,
@@ -326,6 +533,32 @@ pub struct DiagnosticFailure {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticFontResourceSummary {
+    pub mode: DiagnosticFontMode,
+    pub specimen: DiagnosticFontSpecimen,
+    pub retained_source_bytes: usize,
+    pub indexed_source_count: usize,
+    pub active_source_count: usize,
+    pub initial_catalog_source_count: usize,
+    pub catalog_builds: u64,
+    pub generation: u64,
+    pub recovery_retained_source_bytes: usize,
+    pub recovery_generation: u64,
+    pub activation_latency_micros: u64,
+    pub tofu_count: usize,
+    pub frame_catalog_generation: Option<u64>,
+    pub frame_generation_consistent: Option<bool>,
+    pub index_fingerprint_sha256: String,
+    pub catalog_fingerprint_sha256: String,
+    pub ordered_catalog_fingerprint_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_inventory_fingerprint_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_index_policy_version: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticsResult {
     pub schema: SchemaVersion,
     pub run: RunIdentity,
@@ -336,6 +569,8 @@ pub struct DiagnosticsResult {
     pub connection: ConnectionSummary,
     pub memory: MemorySummary,
     pub process: ProcessSummary,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_resources: Option<DiagnosticFontResourceSummary>,
     pub failures: Vec<DiagnosticFailure>,
 }
 
@@ -391,6 +626,7 @@ impl DiagnosticsResult {
                 exit_code: Some(0),
                 teardown_ms: Some(0),
             },
+            font_resources: None,
             failures: Vec::new(),
         }
     }

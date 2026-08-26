@@ -272,6 +272,35 @@ def canonical_sha256(value: Any) -> str:
     return digest.hexdigest()
 
 
+def runner_canonical_sha256(value: Any) -> str:
+    """Hash the cross-language runner cohort protocol without ASCII escaping."""
+
+    def validate(item: Any, label: str) -> None:
+        if isinstance(item, dict):
+            for key, child in item.items():
+                if not isinstance(key, str):
+                    raise TypeError(f"{label} contains a non-string object key")
+                validate(child, f"{label}.{key}")
+        elif isinstance(item, list):
+            for index, child in enumerate(item):
+                validate(child, f"{label}[{index}]")
+        elif not isinstance(item, (str, int, bool)) or isinstance(item, float):
+            raise TypeError(
+                f"{label} contains a value outside integer/bool/string runner protocol"
+            )
+
+    validate(value, "runner fields")
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    )
+    for chunk in encoder.iterencode(value):
+        digest.update(chunk.encode("utf-8"))
+    return digest.hexdigest()
+
+
 def certification_epoch_id(
     state: str, certified_commit: str, rssh_epoch: Any, rterm_epoch: Any
 ) -> str:
@@ -2399,7 +2428,7 @@ def retain_post_cross_repository_artifacts(
     retained_ids: set[Any] = set()
     for artifact_type, entries in entries_by_type.items():
         policy = policies.get(artifact_type, {})
-        if artifact_type == "runner-fingerprint" or policy.get("content_kind") == "aggregate":
+        if artifact_type in {"runner-fingerprint", "font-catalog-fingerprint"} or policy.get("content_kind") == "aggregate":
             retained_ids.update(entry.get("artifact_id") for entry in entries)
     return {
         artifact_id: payload
@@ -2414,7 +2443,7 @@ def artifact_payload_needed_after_individual_validation(
 ) -> bool:
     return (
         artifact_type in CROSS_REPOSITORY_ARTIFACT_TYPES
-        or artifact_type == "runner-fingerprint"
+        or artifact_type in {"runner-fingerprint", "font-catalog-fingerprint"}
         or policy.get("content_kind") == "aggregate"
     )
 
@@ -2665,9 +2694,17 @@ def validate_font_resource_evidence(
         "index_fingerprint_sha256",
         "catalog_fingerprint_sha256",
         "ordered_catalog_fingerprint_sha256",
+        "font_inventory_fingerprint_sha256",
+        "font_index_policy_version",
     }
+    inventory_fields = {
+        "font_inventory_fingerprint_sha256",
+        "font_index_policy_version",
+    }
+    fields.update(inventory_fields)
     reject_unknown_fields(value, fields, resource_label, violations)
-    missing = fields.difference(value)
+    required = fields.difference(inventory_fields)
+    missing = required.difference(value)
     if missing:
         violations.append(
             f"{resource_label}: missing fields {', '.join(sorted(missing))}"
@@ -2728,6 +2765,22 @@ def validate_font_resource_evidence(
     ):
         if not is_sha256(value.get(field)):
             violations.append(f"{resource_label}: {field} must be an irreversible SHA-256")
+    if expected_mode in {"current", "shared"}:
+        if not is_sha256(value.get("font_inventory_fingerprint_sha256")):
+            violations.append(
+                f"{resource_label}: full inventory fingerprint must be an irreversible SHA-256"
+            )
+        policy_version = value.get("font_index_policy_version")
+        if (
+            not isinstance(policy_version, int)
+            or isinstance(policy_version, bool)
+            or policy_version <= 0
+        ):
+            violations.append(f"{resource_label}: font index policy version must be positive")
+    elif any(field in value for field in inventory_fields):
+        violations.append(
+            f"{resource_label}: Lazy evidence must not pretend to materialize the full font inventory"
+        )
     recursively_reject_path_keys(value, resource_label, violations)
     return value
 
@@ -3174,14 +3227,36 @@ def validate_font_ownership_cross_mode_content(
             "index_fingerprint_sha256",
             "catalog_fingerprint_sha256",
             "ordered_catalog_fingerprint_sha256",
+            "font_inventory_fingerprint_sha256",
+            "font_index_policy_version",
         ):
-            if current_resources[field] != shared_resources[field]:
+            missing_modes = [
+                mode
+                for mode, resources in (
+                    ("CurrentCopied", current_resources),
+                    ("SharedAll", shared_resources),
+                )
+                if field not in resources
+            ]
+            if missing_modes:
+                violations.append(
+                    f"artifact_type {artifact_type} round {round_index}: "
+                    f"{'/'.join(missing_modes)} missing required {field}"
+                )
+                continue
+            if current_resources.get(field) != shared_resources.get(field):
                 violations.append(
                     f"artifact_type {artifact_type} round {round_index}: CurrentCopied/SharedAll {field} differs"
                 )
-        if current_resources["retained_source_bytes"] != 2 * shared_resources[
-            "retained_source_bytes"
-        ]:
+        current_retained = current_resources.get("retained_source_bytes")
+        shared_retained = shared_resources.get("retained_source_bytes")
+        if (
+            isinstance(current_retained, int)
+            and not isinstance(current_retained, bool)
+            and isinstance(shared_retained, int)
+            and not isinstance(shared_retained, bool)
+            and current_retained != 2 * shared_retained
+        ):
             violations.append(
                 f"artifact_type {artifact_type} round {round_index}: CurrentCopied retained bytes must equal exactly twice SharedAll"
             )
@@ -3427,6 +3502,186 @@ def validate_claim_rule(
         violations.append(f"{label}: claim {name} does not satisfy {kind}")
 
 
+def validate_runner_fingerprint(
+    artifact: dict[str, Any], label: str, violations: list[str]
+) -> None:
+    source = artifact.get("source")
+    if source not in {"host-probe", "fixture"}:
+        violations.append(f"{label}: runner source must be host-probe or fixture")
+    if artifact.get("certification_eligible") is True and source != "host-probe":
+        violations.append(f"{label}: certification requires host-probe runner evidence")
+    if artifact.get("complete") is not True:
+        violations.append(f"{label}: runner fingerprint must be complete")
+    for field in ("producer_script_sha256", "collector_script_sha256"):
+        if not is_sha256(artifact.get(field)):
+            violations.append(f"{label}: {field} must be a SHA-256")
+    if artifact.get("collector_timeout_seconds") != 60:
+        violations.append(
+            f"{label}: collector timeout must be the 60-second process contract"
+        )
+
+    fields = artifact.get("fields")
+    if not isinstance(fields, dict):
+        violations.append(f"{label}: complete normalized runner fields are required")
+        return
+    top_fields = {
+        "os",
+        "gpu",
+        "memory",
+        "displays",
+        "power_plan",
+        "session",
+        "locale",
+        "fonts",
+        "cold_cache_policy",
+    }
+    reject_unknown_fields(fields, top_fields, f"{label} fields", violations)
+    if set(fields) != top_fields:
+        violations.append(f"{label}: runner fields are incomplete")
+
+    def exact_object(name: str, expected: set[str]) -> dict[str, Any]:
+        value = fields.get(name)
+        if not isinstance(value, dict):
+            violations.append(f"{label}: fields.{name} must be an object")
+            return {}
+        reject_unknown_fields(value, expected, f"{label} fields.{name}", violations)
+        if set(value) != expected:
+            violations.append(f"{label}: fields.{name} is incomplete")
+        return value
+
+    os_fields = exact_object(
+        "os", {"version", "build_number", "build_revision", "architecture"}
+    )
+    if any(
+        not isinstance(os_fields.get(name), str) or not os_fields[name].strip()
+        for name in ("version", "build_number", "architecture")
+    ) or (
+        not isinstance(os_fields.get("build_revision"), int)
+        or isinstance(os_fields.get("build_revision"), bool)
+        or os_fields.get("build_revision", -1) < 0
+    ):
+        violations.append(f"{label}: fields.os contains invalid normalized values")
+    if os_fields.get("architecture") not in {"x86", "x86_64", "arm", "arm64"}:
+        violations.append(f"{label}: fields.os architecture must be a stable ASCII enum")
+
+    gpu = exact_object(
+        "gpu", {"vendor_id", "device_id", "driver_version", "wddm_version"}
+    )
+    if any(
+        not isinstance(gpu.get(name), int)
+        or isinstance(gpu.get(name), bool)
+        or gpu.get(name, 0) <= 0
+        for name in ("vendor_id", "device_id")
+    ) or any(
+        not isinstance(gpu.get(name), str) or not gpu[name].strip()
+        for name in ("driver_version", "wddm_version")
+    ):
+        violations.append(f"{label}: fields.gpu contains invalid selected-adapter values")
+    if not isinstance(gpu.get("driver_version"), str) or re.fullmatch(
+        r"[0-9]+(?:\.[0-9]+){1,3}", gpu.get("driver_version", "")
+    ) is None:
+        violations.append(f"{label}: fields.gpu driver version is not normalized")
+    if not isinstance(gpu.get("wddm_version"), str) or re.fullmatch(
+        r"WDDM [0-9]+\.[0-9]+", gpu.get("wddm_version", "")
+    ) is None:
+        violations.append(f"{label}: fields.gpu WDDM version is not normalized")
+
+    memory = exact_object("memory", {"physical_bytes", "pagefile_mode"})
+    if (
+        not isinstance(memory.get("physical_bytes"), int)
+        or isinstance(memory.get("physical_bytes"), bool)
+        or memory.get("physical_bytes", 0) <= 0
+        or memory.get("pagefile_mode")
+        not in {"automatic-managed", "manual", "disabled"}
+    ):
+        violations.append(f"{label}: fields.memory contains invalid values")
+
+    displays = fields.get("displays")
+    normalized_displays: list[dict[str, Any]] = []
+    display_keys = {"width_px", "height_px", "dpi_x", "dpi_y", "primary"}
+    if not isinstance(displays, list) or not displays:
+        violations.append(f"{label}: fields.displays must cover every active display")
+    else:
+        for index, display in enumerate(displays):
+            if not isinstance(display, dict):
+                violations.append(f"{label}: fields.displays[{index}] must be an object")
+                continue
+            reject_unknown_fields(
+                display, display_keys, f"{label} fields.displays[{index}]", violations
+            )
+            if set(display) != display_keys or any(
+                not isinstance(display.get(name), int)
+                or isinstance(display.get(name), bool)
+                or display.get(name, 0) <= 0
+                for name in ("width_px", "height_px", "dpi_x", "dpi_y")
+            ) or not isinstance(display.get("primary"), bool):
+                violations.append(f"{label}: fields.displays[{index}] is invalid")
+                continue
+            normalized_displays.append(display)
+        expected_order = sorted(
+            normalized_displays,
+            key=lambda item: (
+                not item["primary"],
+                item["width_px"],
+                item["height_px"],
+                item["dpi_x"],
+                item["dpi_y"],
+            ),
+        )
+        if normalized_displays != expected_order:
+            violations.append(f"{label}: fields.displays must be canonically sorted")
+        if sum(1 for display in normalized_displays if display["primary"]) != 1:
+            violations.append(f"{label}: fields.displays must contain exactly one primary")
+
+    power = exact_object("power_plan", {"guid"})
+    if not isinstance(power.get("guid"), str) or re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        power.get("guid", ""),
+    ) is None:
+        violations.append(f"{label}: fields.power_plan.guid must be a normalized GUID")
+    session = exact_object("session", {"kind"})
+    if session.get("kind") not in {"local", "remote"}:
+        violations.append(f"{label}: fields.session.kind must be local or remote")
+    locale = exact_object("locale", {"culture", "ui_culture", "system_locale"})
+    if any(
+        not isinstance(locale.get(name), str) or not locale[name].strip()
+        for name in ("culture", "ui_culture", "system_locale")
+    ):
+        violations.append(f"{label}: fields.locale must be complete")
+    fonts = exact_object(
+        "fonts", {"inventory_fingerprint_sha256", "index_policy_version"}
+    )
+    if not is_sha256(fonts.get("inventory_fingerprint_sha256")) or (
+        not isinstance(fonts.get("index_policy_version"), int)
+        or isinstance(fonts.get("index_policy_version"), bool)
+        or fonts.get("index_policy_version", 0) <= 0
+    ):
+        violations.append(f"{label}: fields.fonts must bind inventory and policy")
+    cache = exact_object(
+        "cold_cache_policy", {"process_cold_start", "os_file_cache"}
+    )
+    if cache != {
+        "process_cold_start": True,
+        "os_file_cache": "unmodified-no-explicit-flush",
+    }:
+        violations.append(f"{label}: fields.cold_cache_policy overstates cache handling")
+
+    fingerprint = artifact.get("fingerprint_sha256")
+    try:
+        expected_fingerprint = runner_canonical_sha256(fields)
+    except TypeError as error:
+        expected_fingerprint = None
+        violations.append(f"{label}: {error}")
+    if not is_sha256(fingerprint) or fingerprint != expected_fingerprint:
+        violations.append(f"{label}: canonical runner fingerprint does not match fields")
+    identity = artifact.get("identity")
+    if isinstance(identity, dict) and "runner_fingerprint_sha256" in identity:
+        if identity.get("runner_fingerprint_sha256") != fingerprint:
+            violations.append(
+                f"{label}: optional embedded runner identity does not match canonical fingerprint"
+            )
+
+
 def validate_result_artifact(
     artifact_type: str,
     artifact: dict[str, Any],
@@ -3442,7 +3697,15 @@ def validate_result_artifact(
         allowed.add("certification_eligible")
     allowed.update(
         {
-            "runner-fingerprint": {"fingerprint_sha256"},
+            "runner-fingerprint": {
+                "source",
+                "complete",
+                "fields",
+                "fingerprint_sha256",
+                "producer_script_sha256",
+                "collector_script_sha256",
+                "collector_timeout_seconds",
+            },
             "font-catalog-fingerprint": {
                 "catalog_fingerprint_sha256",
                 "functional_specimens",
@@ -3487,8 +3750,8 @@ def validate_result_artifact(
     else:
         for name, rule in rules.items():
             validate_claim_rule(name, claims.get(name), rule, manifest, label, violations)
-    if artifact_type == "runner-fingerprint" and not is_sha256(artifact.get("fingerprint_sha256")):
-        violations.append(f"{label}: runner fingerprint hash is missing")
+    if artifact_type == "runner-fingerprint":
+        validate_runner_fingerprint(artifact, label, violations)
     elif artifact_type == "font-catalog-fingerprint":
         validate_font_functional_specimens(artifact, contract, label, violations)
     elif artifact_type == "local-two-bare-git-source-proof":
@@ -3675,6 +3938,8 @@ def validate_font_functional_specimens(
         "index_fingerprint_sha256",
         "catalog_fingerprint_sha256",
         "ordered_catalog_fingerprint_sha256",
+        "font_inventory_fingerprint_sha256",
+        "font_index_policy_version",
     }
     valid_backends = set(contract.get("windows_backends", {}).get("diagnostic_only", []))
     actual_backends: set[Any] = set()
@@ -3780,6 +4045,30 @@ def validate_font_functional_specimens(
         ):
             if not is_sha256(record.get(fingerprint)):
                 violations.append(f"{record_label}: {fingerprint} must be a SHA-256")
+        if mode in {"current", "shared"}:
+            if not is_sha256(record.get("font_inventory_fingerprint_sha256")):
+                violations.append(
+                    f"{record_label}: full font inventory fingerprint must be a SHA-256"
+                )
+            policy_version = record.get("font_index_policy_version")
+            if (
+                not isinstance(policy_version, int)
+                or isinstance(policy_version, bool)
+                or policy_version <= 0
+            ):
+                violations.append(
+                    f"{record_label}: font index policy version must be positive"
+                )
+        elif any(
+            field in record
+            for field in (
+                "font_inventory_fingerprint_sha256",
+                "font_index_policy_version",
+            )
+        ):
+            violations.append(
+                f"{record_label}: Lazy evidence must not claim a full font inventory"
+            )
     if len(actual_backends) != 1:
         derived["same_actual_backend"] = False
         violations.append(f"{label}: functional specimens must use one actual backend")
@@ -3792,6 +4081,87 @@ def validate_font_functional_specimens(
     expected_fingerprint = canonical_sha256(specimens)
     if fingerprint != expected_fingerprint:
         violations.append(f"{label}: canonical functional specimen digest mismatch")
+
+    full_inventory_records = [
+        record
+        for record in specimens
+        if isinstance(record, dict)
+        and record.get("actual_font_mode") in {"current", "shared"}
+    ]
+    inventory_pairs = {
+        (
+            record.get("font_inventory_fingerprint_sha256"),
+            record.get("font_index_policy_version"),
+        )
+        for record in full_inventory_records
+    }
+    if len(full_inventory_records) != 4 or len(inventory_pairs) != 1:
+        violations.append(
+            f"{label}: CurrentCopied/SharedAll functional evidence must bind one full font inventory"
+        )
+
+
+def validate_font_runner_inventory_binding(
+    runner: dict[str, Any],
+    raw_groups: list[dict[str, Any]],
+    catalog: dict[str, Any],
+    label: str,
+    violations: list[str],
+) -> None:
+    runner_fields = runner.get("fields")
+    if not isinstance(runner_fields, dict):
+        violations.append(f"{label}: complete runner fields are required for inventory binding")
+        return
+    runner_fonts = runner_fields.get("fonts")
+    if not isinstance(runner_fonts, dict):
+        violations.append(f"{label}: runner fields.fonts is required for inventory binding")
+        return
+    expected_fingerprint = runner_fonts.get("inventory_fingerprint_sha256")
+    expected_policy = runner_fonts.get("index_policy_version")
+    if not is_sha256(expected_fingerprint) or (
+        not isinstance(expected_policy, int)
+        or isinstance(expected_policy, bool)
+        or expected_policy <= 0
+    ):
+        violations.append(
+            f"{label}: runner font inventory digest and policy are required for binding"
+        )
+        return
+    evidence: list[tuple[str, Any]] = []
+    for group in raw_groups:
+        if not isinstance(group, dict):
+            continue
+        processes = group.get("font_processes")
+        if not isinstance(processes, list):
+            continue
+        for process in processes:
+            if not isinstance(process, dict):
+                continue
+            resources = process.get("font_resources")
+            if not isinstance(resources, dict):
+                continue
+            if resources.get("mode") in {"current", "shared"}:
+                evidence.append(("raw", resources))
+    specimens = catalog.get("functional_specimens")
+    if isinstance(specimens, list):
+        for record in specimens:
+            if isinstance(record, dict) and record.get("actual_font_mode") in {
+                "current",
+                "shared",
+            }:
+                evidence.append(("functional", record))
+    if not evidence:
+        violations.append(f"{label}: no CurrentCopied/SharedAll inventory evidence is available")
+        return
+    for evidence_kind, resources in evidence:
+        if (
+            resources.get("font_inventory_fingerprint_sha256")
+            != expected_fingerprint
+            or resources.get("font_index_policy_version") != expected_policy
+        ):
+            violations.append(
+                f"{label}: {evidence_kind} font inventory does not match runner fingerprint fields"
+            )
 
 
 def validate_font_ownership_reductions(
@@ -4635,6 +5005,29 @@ def validate_manifest_recursive(
         ]
         combined_statistics_by_type[artifact_type] = combine_metric_shards(
             artifact_type, shards, policy, contract, violations
+        )
+
+    if all(
+        artifact_type in entries_by_type
+        for artifact_type in (
+            "runner-fingerprint",
+            "font-ownership-raw",
+            "font-catalog-fingerprint",
+        )
+    ):
+        runner_id = entries_by_type["runner-fingerprint"][0]["artifact_id"]
+        catalog_id = entries_by_type["font-catalog-fingerprint"][0]["artifact_id"]
+        font_raw_groups = [
+            group
+            for entry in entries_by_type["font-ownership-raw"]
+            for group in raw_statistics.get(entry["artifact_id"], [])
+        ]
+        validate_font_runner_inventory_binding(
+            artifacts.get(runner_id, {}),
+            font_raw_groups,
+            artifacts.get(catalog_id, {}),
+            "font proof runner cohort",
+            violations,
         )
 
     for artifact_type, policy in contract["artifact_policies"].items():

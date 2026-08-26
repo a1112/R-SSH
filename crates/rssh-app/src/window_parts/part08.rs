@@ -7405,14 +7405,17 @@ impl NativeWindowApp {
             self.webgpu_force_fallback_adapter,
             matches!(self.front_end, NativeRenderFrontEnd::Software),
         );
-        if let Some(backend) = self.diagnostic_gpu_backend {
-            pollster::block_on(WindowGpu::new_with_diagnostic_backend(
+        let (font_mode, font_specimen) = self.diagnostic_font_options();
+        if self.diagnostic_gpu_backend.is_some() || font_mode.is_some() {
+            pollster::block_on(WindowGpu::new_with_diagnostic_options(
                 event_loop.owned_display_handle(),
                 window,
                 size,
                 high_performance,
                 force_fallback_adapter,
-                Some(backend),
+                self.diagnostic_gpu_backend,
+                font_mode,
+                font_specimen,
             ))
         } else {
             pollster::block_on(WindowGpu::new(
@@ -7462,14 +7465,17 @@ impl NativeWindowApp {
             self.webgpu_force_fallback_adapter,
             matches!(self.front_end, NativeRenderFrontEnd::Software),
         );
-        let prepared_gpu = match if let Some(backend) = self.diagnostic_gpu_backend {
-            WindowGpu::prepare_with_diagnostic_backend(
+        let (font_mode, font_specimen) = self.diagnostic_font_options();
+        let prepared_gpu = match if self.diagnostic_gpu_backend.is_some() || font_mode.is_some() {
+            WindowGpu::prepare_with_diagnostic_options(
                 display,
                 window,
                 surface_size,
                 high_performance,
                 force_fallback_adapter,
-                Some(backend),
+                self.diagnostic_gpu_backend,
+                font_mode,
+                font_specimen,
             )
         } else {
             WindowGpu::prepare(
@@ -7606,7 +7612,7 @@ impl NativeWindowApp {
         let surface_geometry = self.render_geometry();
         let placement = self.frame_content_placement();
         let geometry = self.frame_render_geometry(surface_geometry, placement);
-        let snapshot = self.render_snapshot();
+        let snapshot = self.with_diagnostic_font_specimen(self.render_snapshot());
         self.metrics.record_terminal_linkage_snapshot(&snapshot);
         if self.final_linkage_frame_is_reserved() {
             return;

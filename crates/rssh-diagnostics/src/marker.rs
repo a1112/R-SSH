@@ -39,6 +39,7 @@ pub enum MarkerKind {
     TransportStarted,
     TransportReady,
     GpuReady,
+    FontOwnershipReady,
     ScenarioReady,
     SamplingStarted,
     SamplingFinished,
@@ -262,6 +263,9 @@ impl MarkerCollector {
                     .and_then(Value::as_str)
                     .map(str::to_owned);
             }
+            MarkerKind::FontOwnershipReady => {
+                self.trace.milestones.font_ownership_ready_ms = Some(record.elapsed_ms);
+            }
             MarkerKind::ScenarioReady => {
                 self.trace.milestones.scenario_ready_ms = Some(record.elapsed_ms);
             }
@@ -293,5 +297,35 @@ fn identity_mismatch(field: &'static str, expected: String, observed: String) ->
         field,
         expected,
         observed,
+    }
+}
+
+#[cfg(test)]
+mod font_ownership_tests {
+    use super::*;
+
+    #[test]
+    fn font_ownership_ready_is_a_singleton_marker_with_a_typed_milestone() {
+        let mut collector =
+            MarkerCollector::new(MarkerIdentity::new("font-ready", 42, Scenario::EmptyWindow));
+        let line = format!(
+            "{MARKER_PREFIX}{}",
+            r#"{"schema":"rssh.diagnostics/v2","run_id":"font-ready","pid":42,"scenario":"empty_window","kind":"font_ownership_ready","elapsed_ms":125,"renderer":"gpu"}"#
+        );
+
+        let disposition = collector.push_line(&line).expect("font ownership marker");
+        assert!(matches!(
+            disposition,
+            MarkerDisposition::Accepted(record)
+                if record.kind == MarkerKind::FontOwnershipReady
+        ));
+        assert_eq!(
+            collector.trace().milestones.font_ownership_ready_ms,
+            Some(125)
+        );
+        assert_eq!(
+            collector.push_line(&line).unwrap_err(),
+            MarkerError::Duplicate(MarkerKind::FontOwnershipReady)
+        );
     }
 }

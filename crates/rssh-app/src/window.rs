@@ -852,6 +852,8 @@ pub fn run_diagnostic_gui(
         options.scenario,
         Duration::from_millis(options.hold_ms),
         pending_secret,
+        options.font_mode,
+        options.font_specimen,
     );
     if let Some(path) = &options.log {
         app.session_log = Some(Box::new(File::create(path)?) as Box<dyn Write + Send>);

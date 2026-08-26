@@ -63,7 +63,6 @@ PARENT_TREE_SHA = subprocess.run(
 ).stdout.strip()
 LKG_SHA = "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
 BINARY_SHA = "b" * 64
-RUNNER_SHA = "c" * 64
 _BARE_PROOF_ROOT = tempfile.TemporaryDirectory(prefix="rssh-stage7-bare-proof-")
 _BARE_PROOF_CACHE: dict[tuple[str, tuple[tuple[str, str], ...], tuple[str, ...]], dict] = {}
 _COMPLETE_BARE_PROOF_CACHE: dict[str, dict] = {}
@@ -77,6 +76,46 @@ def sha256(path: Path) -> str:
 def canonical_sha256(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def runner_canonical_sha256(value: object) -> str:
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+FIXTURE_RUNNER_FIELDS = {
+    "os": {
+        "version": "10.0.26100",
+        "build_number": "26100",
+        "build_revision": 4946,
+        "architecture": "x86_64",
+    },
+    "gpu": {
+        "vendor_id": 4318,
+        "device_id": 11524,
+        "driver_version": "32.0.16.2002",
+        "wddm_version": "WDDM 3.2",
+    },
+    "memory": {"physical_bytes": 68_719_476_736, "pagefile_mode": "automatic-managed"},
+    "displays": [
+        {"width_px": 2560, "height_px": 1440, "dpi_x": 120, "dpi_y": 120, "primary": True},
+        {"width_px": 1920, "height_px": 1080, "dpi_x": 96, "dpi_y": 96, "primary": False},
+    ],
+    "power_plan": {"guid": "381b4222-f694-41f0-9685-ff5bb260df2e"},
+    "session": {"kind": "local"},
+    "locale": {"culture": "en-US", "ui_culture": "en-US", "system_locale": "en-US"},
+    "fonts": {"inventory_fingerprint_sha256": "8" * 64, "index_policy_version": 1},
+    "cold_cache_policy": {
+        "process_cold_start": True,
+        "os_file_cache": "unmodified-no-explicit-flush",
+    },
+}
+RUNNER_SHA = runner_canonical_sha256(FIXTURE_RUNNER_FIELDS)
 
 
 def git_commit_object(ref: str, raw: bytes | None = None) -> dict:
@@ -1066,6 +1105,20 @@ class Stage7SplitGateTests(unittest.TestCase):
                 ].__setitem__("retained_source_bytes", 2_000_001),
                 "exactly twice SharedAll",
             ),
+            (
+                "current shared inventory mismatch",
+                lambda raw: raw["groups"][1]["processes"][0][
+                    "font_resources"
+                ].__setitem__("font_inventory_fingerprint_sha256", "9" * 64),
+                "font_inventory_fingerprint_sha256 differs",
+            ),
+            (
+                "lazy pretends full inventory",
+                lambda raw: raw["groups"][2]["processes"][0][
+                    "font_resources"
+                ].__setitem__("font_inventory_fingerprint_sha256", "8" * 64),
+                "must not pretend",
+            ),
         ]
         for name, mutate, expected in cases:
             with self.subTest(name=name):
@@ -1075,6 +1128,87 @@ class Stage7SplitGateTests(unittest.TestCase):
                 self.assertTrue(
                     any(expected in violation for violation in violations), violations
                 )
+
+    def test_runner_font_inventory_is_bound_to_raw_and_functional_evidence(self) -> None:
+        policy = self.contract["artifact_policies"]["font-ownership-raw"]
+        raw = self.make_metric_payload(
+            "font-ownership-raw",
+            policy,
+            {
+                "source_sha": SOURCE_SHA,
+                "binary_hashes": {"rssh.exe": BINARY_SHA},
+                "runner_fingerprint_sha256": RUNNER_SHA,
+                "platform": "windows-x86_64",
+                "run_id": "font-inventory-binding",
+            },
+        )
+        violations: list[str] = []
+        raw_groups = self.checker.validate_metric_artifact(
+            raw, policy, self.contract, "font raw", violations
+        )
+        runner = {"fields": copy.deepcopy(FIXTURE_RUNNER_FIELDS)}
+        catalog = {"functional_specimens": self.font_functional_specimens()}
+        self.checker.validate_font_runner_inventory_binding(
+            runner, raw_groups, catalog, "font cohort", violations
+        )
+        self.assertEqual(violations, [])
+
+        for name, mutate in (
+            (
+                "runner",
+                lambda runner_value, _catalog: runner_value["fields"]["fonts"].__setitem__(
+                    "inventory_fingerprint_sha256", "9" * 64
+                ),
+            ),
+            (
+                "functional",
+                lambda _runner, catalog_value: catalog_value[
+                    "functional_specimens"
+                ][0].__setitem__("font_index_policy_version", 2),
+            ),
+        ):
+            with self.subTest(name=name):
+                candidate_runner = copy.deepcopy(runner)
+                candidate_catalog = copy.deepcopy(catalog)
+                mutate(candidate_runner, candidate_catalog)
+                observed: list[str] = []
+                self.checker.validate_font_runner_inventory_binding(
+                    candidate_runner,
+                    raw_groups,
+                    candidate_catalog,
+                    "font cohort",
+                    observed,
+                )
+                self.assertTrue(any("does not match" in item for item in observed), observed)
+
+        for name, mutate in (
+            (
+                "missing fonts object",
+                lambda value: value["fields"].pop("fonts"),
+            ),
+            (
+                "non-object fields",
+                lambda value: value.__setitem__("fields", None),
+            ),
+            (
+                "missing inventory digest",
+                lambda value: value["fields"]["fonts"].pop(
+                    "inventory_fingerprint_sha256"
+                ),
+            ),
+        ):
+            with self.subTest(name=name):
+                candidate_runner = copy.deepcopy(runner)
+                mutate(candidate_runner)
+                observed = []
+                self.checker.validate_font_runner_inventory_binding(
+                    candidate_runner,
+                    raw_groups,
+                    catalog,
+                    "font cohort",
+                    observed,
+                )
+                self.assertTrue(observed, "missing runner inventory must fail closed")
 
     def test_font_proof_contract_freezes_reductions_and_functional_claims(self) -> None:
         policy = self.contract["artifact_policies"]["font-ownership-aggregate"]
@@ -1198,6 +1332,151 @@ class Stage7SplitGateTests(unittest.TestCase):
                             root / "manifest.json",
                         )
                     self.assertIn("certification_eligible", str(error.exception))
+
+    def test_runner_fingerprint_is_complete_canonical_host_evidence(self) -> None:
+        def payload() -> dict:
+            fields = copy.deepcopy(FIXTURE_RUNNER_FIELDS)
+            return {
+                "schema": "rssh.stage7.result/v1",
+                "certification_eligible": True,
+                "identity": {
+                    "source_sha": SOURCE_SHA,
+                    "binary_hashes": {"rssh.exe": BINARY_SHA},
+                    "runner_fingerprint_sha256": runner_canonical_sha256(fields),
+                    "platform": "windows-x86_64",
+                    "run_id": "runner-fingerprint-host",
+                },
+                "ok": True,
+                "proof": "runner-fingerprint",
+                "claims": {"fingerprint_fields_complete": True},
+                "source": "host-probe",
+                "complete": True,
+                "fields": fields,
+                "fingerprint_sha256": runner_canonical_sha256(fields),
+                "producer_script_sha256": "6" * 64,
+                "collector_script_sha256": "7" * 64,
+                "collector_timeout_seconds": 60,
+            }
+
+        def violations_for(value: dict) -> list[str]:
+            violations: list[str] = []
+            self.checker.validate_result_artifact(
+                "runner-fingerprint",
+                value,
+                self.contract,
+                {},
+                REPO,
+                "runner fingerprint",
+                violations,
+            )
+            return violations
+
+        self.assertEqual(violations_for(payload()), [])
+        anchor = payload()
+        anchor["identity"].pop("binary_hashes")
+        anchor["identity"].pop("runner_fingerprint_sha256")
+        self.assertEqual(
+            violations_for(anchor), [], "the cohort anchor must avoid circular identity"
+        )
+        cases = (
+            (
+                "missing field",
+                lambda value: value["fields"]["gpu"].pop("driver_version"),
+                "fields",
+            ),
+            (
+                "fixture cannot certify",
+                lambda value: value.__setitem__("source", "fixture"),
+                "host-probe",
+            ),
+            (
+                "incomplete",
+                lambda value: value.__setitem__("complete", False),
+                "complete",
+            ),
+            (
+                "bad producer hash",
+                lambda value: value.__setitem__("producer_script_sha256", "bad"),
+                "producer",
+            ),
+            (
+                "canonical mismatch",
+                lambda value: value.__setitem__("fingerprint_sha256", "f" * 64),
+                "canonical",
+            ),
+            (
+                "optional embedded identity mismatch",
+                lambda value: value["identity"].__setitem__(
+                    "runner_fingerprint_sha256", "f" * 64
+                ),
+                "optional embedded runner identity",
+            ),
+        )
+        for name, mutate, expected in cases:
+            with self.subTest(name=name):
+                value = payload()
+                mutate(value)
+                violations = violations_for(value)
+                self.assertTrue(
+                    any(expected in violation for violation in violations), violations
+                )
+
+    def test_runner_fingerprint_uses_the_cross_language_golden_protocol(self) -> None:
+        cases = []
+        for displays in (
+            [copy.deepcopy(FIXTURE_RUNNER_FIELDS["displays"][0])],
+            copy.deepcopy(FIXTURE_RUNNER_FIELDS["displays"]),
+        ):
+            for system_locale in ("en-US", "中文-测试"):
+                fields = copy.deepcopy(FIXTURE_RUNNER_FIELDS)
+                fields["displays"] = displays
+                fields["locale"]["system_locale"] = system_locale
+                cases.append(fields)
+
+        for fields in cases:
+            with self.subTest(
+                displays=len(fields["displays"]),
+                locale=fields["locale"]["system_locale"],
+            ):
+                expected = runner_canonical_sha256(fields)
+                self.assertEqual(self.checker.runner_canonical_sha256(fields), expected)
+                artifact = {
+                    "schema": "rssh.stage7.result/v1",
+                    "certification_eligible": True,
+                    "identity": {
+                        "source_sha": SOURCE_SHA,
+                        "platform": "windows-x86_64",
+                        "run_id": "runner-canonical-golden",
+                    },
+                    "ok": True,
+                    "proof": "runner-fingerprint",
+                    "claims": {"fingerprint_fields_complete": True},
+                    "source": "host-probe",
+                    "complete": True,
+                    "fields": fields,
+                    "fingerprint_sha256": expected,
+                    "producer_script_sha256": "6" * 64,
+                    "collector_script_sha256": "7" * 64,
+                    "collector_timeout_seconds": 60,
+                }
+                violations: list[str] = []
+                self.checker.validate_result_artifact(
+                    "runner-fingerprint",
+                    artifact,
+                    self.contract,
+                    {},
+                    REPO,
+                    "runner canonical golden",
+                    violations,
+                )
+                self.assertEqual(violations, [])
+
+        unicode_fields = cases[-1]
+        self.assertNotEqual(
+            canonical_sha256(unicode_fields),
+            runner_canonical_sha256(unicode_fields),
+            "runner protocol must encode non-ASCII directly instead of using the global escaped encoder",
+        )
 
     def test_font_catalog_functional_specimens_are_derived_not_self_attested(self) -> None:
         specimens = self.font_functional_specimens()
@@ -3204,6 +3483,115 @@ class Stage7SplitGateTests(unittest.TestCase):
             self.assertEqual(decision["decision"], "NO-GO")
             self.assertFalse(decision["go"])
 
+    def test_missing_runner_inventory_cli_is_one_json_no_go_without_traceback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = self.build_chain(root, "attribution-ready")["attribution-ready"]
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            entry = next(
+                item
+                for item in data["entries"]
+                if item["artifact_type"] == "runner-fingerprint"
+            )
+            artifact = manifest.parent / entry["path"]
+            payload = json.loads(artifact.read_text(encoding="utf-8"))
+            payload["fields"].pop("fonts")
+            write_json(artifact, payload)
+            entry["sha256"] = sha256(artifact)
+            entry["size_bytes"] = artifact.stat().st_size
+            write_json(manifest, data)
+            result = subprocess.run(
+                [
+                    str(PYTHON),
+                    str(CHECKER_PATH),
+                    "--contract",
+                    str(CONTRACT_PATH),
+                    "--requested-state",
+                    "attribution-ready",
+                    "--evidence-manifest",
+                    str(manifest),
+                ],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(result.stderr, "")
+            self.assertEqual(len(result.stdout.splitlines()), 1, result.stdout)
+            decision = json.loads(result.stdout)
+            self.assertEqual(decision["decision"], "NO-GO")
+            self.assertFalse(decision["go"])
+            self.assertTrue(
+                any("fonts" in item for item in decision["violations"]), decision
+            )
+
+    def test_cross_mode_missing_inventory_is_a_field_level_core_and_cli_no_go(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = self.build_chain(root, "attribution-ready")["attribution-ready"]
+            original_manifest = json.loads(manifest.read_text(encoding="utf-8"))
+            raw_entry = next(
+                item
+                for item in original_manifest["entries"]
+                if item["artifact_type"] == "font-ownership-raw"
+            )
+            raw_path = manifest.parent / raw_entry["path"]
+            original_raw = json.loads(raw_path.read_text(encoding="utf-8"))
+
+            for field in (
+                "font_inventory_fingerprint_sha256",
+                "font_index_policy_version",
+            ):
+                with self.subTest(field=field):
+                    manifest_data = copy.deepcopy(original_manifest)
+                    entry = next(
+                        item
+                        for item in manifest_data["entries"]
+                        if item["artifact_type"] == "font-ownership-raw"
+                    )
+                    raw = copy.deepcopy(original_raw)
+                    current = next(
+                        group
+                        for group in raw["groups"]
+                        if group["name"] == "current-copied/ascii"
+                    )
+                    current["processes"][0]["font_resources"].pop(field)
+                    write_json(raw_path, raw)
+                    entry["sha256"] = sha256(raw_path)
+                    entry["size_bytes"] = raw_path.stat().st_size
+                    write_json(manifest, manifest_data)
+
+                    decision = self.checker.validate_gate(
+                        CONTRACT_PATH, "attribution-ready", manifest
+                    )
+                    self.assertFalse(decision["ok"])
+                    self.assertTrue(
+                        any(field in item for item in decision["violations"]), decision
+                    )
+                    result = subprocess.run(
+                        [
+                            str(PYTHON),
+                            str(CHECKER_PATH),
+                            "--contract",
+                            str(CONTRACT_PATH),
+                            "--requested-state",
+                            "attribution-ready",
+                            "--evidence-manifest",
+                            str(manifest),
+                        ],
+                        cwd=REPO,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(result.stderr, "")
+                    self.assertEqual(len(result.stdout.splitlines()), 1, result.stdout)
+                    cli_decision = json.loads(result.stdout)
+                    self.assertTrue(
+                        any(field in item for item in cli_decision["violations"]),
+                        cli_decision,
+                    )
+
     def test_owned_inventory_count_digest_and_projection_must_recompute_together(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -4328,7 +4716,18 @@ class Stage7SplitGateTests(unittest.TestCase):
         if policy.get("certification_eligible") is True:
             payload["certification_eligible"] = True
         if artifact_type == "runner-fingerprint":
-            payload["fingerprint_sha256"] = RUNNER_SHA
+            fields = copy.deepcopy(FIXTURE_RUNNER_FIELDS)
+            payload.update(
+                {
+                    "source": "host-probe",
+                    "complete": True,
+                    "fields": fields,
+                    "fingerprint_sha256": canonical_sha256(fields),
+                    "producer_script_sha256": "6" * 64,
+                    "collector_script_sha256": "7" * 64,
+                    "collector_timeout_seconds": 60,
+                }
+            )
         elif artifact_type == "font-catalog-fingerprint":
             specimens = self.font_functional_specimens()
             payload["functional_specimens"] = specimens
@@ -4445,7 +4844,7 @@ class Stage7SplitGateTests(unittest.TestCase):
             catalog_fingerprint = "4" * 64
             ordered_fingerprint = "5" * 64
         generation = active - initial + 1
-        return {
+        summary = {
             "mode": mode,
             "specimen": specimen,
             "retained_source_bytes": retained,
@@ -4464,6 +4863,10 @@ class Stage7SplitGateTests(unittest.TestCase):
             "catalog_fingerprint_sha256": catalog_fingerprint,
             "ordered_catalog_fingerprint_sha256": ordered_fingerprint,
         }
+        if mode in {"current", "shared"}:
+            summary["font_inventory_fingerprint_sha256"] = "8" * 64
+            summary["font_index_policy_version"] = 1
+        return summary
 
     def make_metric_payload(self, artifact_type: str, policy: dict, identity: dict) -> dict:
         mode = policy["sampling_mode"]

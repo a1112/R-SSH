@@ -23,7 +23,7 @@ image-basic = ["rterm-render-cpu/image-basic", "rterm-render-wgpu/image-basic"]
 image-gif = ["rterm-render-cpu/image-gif", "rterm-render-wgpu/image-gif"]
 image-legacy = ["rterm-render-cpu/image-legacy", "rterm-render-wgpu/image-legacy"]
 transfer-tools = []
-diagnostic-tools = []
+diagnostic-tools = ["rssh-fonts/diagnostic-tools"]
 functional-test-observer = ["dep:rssh-functional-tests"]
 
 [dependencies]

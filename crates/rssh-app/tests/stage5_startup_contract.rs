@@ -1,4 +1,9 @@
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::{Command, Output},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 fn repository_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -33,7 +38,7 @@ fn packaged_gui_feature_excludes_diagnostics_transfers_and_optional_images() {
         manifest
             .contains("production-gui = [\"native-gui\", \"ssh\", \"local-pty\", \"image-basic\"]")
     );
-    assert!(manifest.contains("diagnostic-tools = []"));
+    assert!(manifest.contains("diagnostic-tools = [\"rssh-fonts/diagnostic-tools\"]"));
     assert!(manifest.contains("transfer-tools = []"));
     assert!(
         !manifest
@@ -49,6 +54,101 @@ fn packaged_gui_feature_excludes_diagnostics_transfers_and_optional_images() {
             .expect("production GUI feature")
             .contains("transfer-tools")
     );
+}
+
+#[test]
+fn packaged_font_dependency_cannot_name_private_proof_constructors() {
+    let packaged = compile_font_proof_consumer("packaged", false);
+    assert!(
+        !packaged.status.success(),
+        "packaged dependency unexpectedly named proof constructors"
+    );
+    let packaged_stderr = String::from_utf8_lossy(&packaged.stderr);
+    for constructor in [
+        "from_sources_shared_for_diagnostics",
+        "from_sources_copied_for_diagnostics",
+    ] {
+        assert!(
+            packaged_stderr.contains(constructor),
+            "packaged compile failure omitted {constructor}: {packaged_stderr}"
+        );
+    }
+
+    let diagnostic = compile_font_proof_consumer("diagnostic", true);
+    assert!(
+        diagnostic.status.success(),
+        "diagnostic feature did not expose proof constructors: stdout={} stderr={}",
+        String::from_utf8_lossy(&diagnostic.stdout),
+        String::from_utf8_lossy(&diagnostic.stderr)
+    );
+}
+
+fn compile_font_proof_consumer(label: &str, diagnostic_tools: bool) -> Output {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "rssh-font-feature-contract-{label}-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(root.join("src")).expect("create compile contract fixture");
+    let font_path = repository_root()
+        .join("crates/rterm-fonts")
+        .to_string_lossy()
+        .replace('\\', "/");
+    let features = if diagnostic_tools {
+        ", features = [\"diagnostic-tools\"]"
+    } else {
+        ""
+    };
+    fs::write(
+        root.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"font-feature-contract-{label}\"\nversion = \"0.0.0\"\nedition = \"2024\"\n\n[dependencies]\nrterm-fonts = {{ path = \"{font_path}\", default-features = false{features} }}\n"
+        ),
+    )
+    .expect("write compile contract manifest");
+    fs::write(
+        root.join("src/main.rs"),
+        r#"use rterm_fonts::{FontCatalog, FontSource};
+
+fn main() {
+    let _ = FontCatalog::from_sources_shared_for_diagnostics(
+        "en-US",
+        std::iter::empty::<FontSource>(),
+    );
+    let _ = FontCatalog::from_sources_copied_for_diagnostics(
+        "en-US",
+        std::iter::empty::<FontSource>(),
+    );
+}
+"#,
+    )
+    .expect("write compile contract source");
+    let target = root.join("target");
+    let temporary = root.join("tmp");
+    fs::create_dir_all(&temporary).expect("create compile contract temp");
+    let output = Command::new("cargo")
+        .args(["check", "--offline", "--quiet", "--manifest-path"])
+        .arg(root.join("Cargo.toml"))
+        .env("CARGO_TARGET_DIR", &target)
+        .env("TEMP", &temporary)
+        .env("TMP", &temporary)
+        .env("TMPDIR", &temporary)
+        .output()
+        .expect("execute compile feature contract");
+    remove_fixture(&root);
+    output
+}
+
+fn remove_fixture(root: &Path) {
+    fs::remove_dir_all(root).unwrap_or_else(|error| {
+        panic!(
+            "remove compile contract fixture {}: {error}",
+            root.display()
+        )
+    });
 }
 
 #[test]

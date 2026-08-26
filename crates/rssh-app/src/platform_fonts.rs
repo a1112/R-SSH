@@ -191,11 +191,13 @@ pub(crate) struct PlatformFontDiagnostics {
     pub(crate) policy_version: u32,
     pub(crate) indexed_source_count: usize,
     pub(crate) active_source_count: usize,
+    pub(crate) initial_catalog_source_count: usize,
     pub(crate) retained_source_bytes: usize,
     pub(crate) catalog_builds: u64,
     pub(crate) generation: u64,
     pub(crate) index_fingerprint: [u8; 32],
     pub(crate) catalog_fingerprint: [u8; 32],
+    pub(crate) inventory_fingerprint: [u8; 32],
 }
 
 pub(crate) struct PlatformFontRepository {
@@ -203,6 +205,7 @@ pub(crate) struct PlatformFontRepository {
     indexed: Vec<IndexedFont>,
     active: BTreeMap<FontKey, FontSource>,
     activation_order: Vec<FontKey>,
+    initial_catalog_source_count: usize,
     #[allow(
         dead_code,
         reason = "the index digest is consumed by the next diagnostic wiring task"
@@ -222,6 +225,7 @@ impl PlatformFontRepository {
             indexed,
             active: BTreeMap::new(),
             activation_order: Vec::new(),
+            initial_catalog_source_count: 0,
             index_fingerprint,
             catalog_fingerprint,
             catalog_builds: 0,
@@ -368,24 +372,39 @@ impl PlatformFontRepository {
         }
         let mut catalog =
             FontCatalog::from_sources("en-US", emergency.iter().map(|(_, source)| source.clone()))?;
+        let initial_catalog_source_count = emergency.len();
         let mut committed = emergency;
         for (key, source) in platform {
             if catalog.load_source(source.clone()).is_ok() {
                 committed.push((key, source));
             }
         }
-        self.commit_initial_catalog(&catalog, committed);
+        self.commit_initial_catalog(&catalog, committed, initial_catalog_source_count);
         Ok(catalog)
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     fn build_all_once(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
         let sources = self.materialize_all_in_catalog_order()?;
-        let catalog =
-            FontCatalog::from_sources("en-US", sources.iter().map(|(_, source)| source.clone()))?;
-        self.commit_initial_catalog(&catalog, sources);
+        let catalog = FontCatalog::from_sources_shared_for_diagnostics(
+            "en-US",
+            sources.iter().map(|(_, source)| source.clone()),
+        )?;
+        let initial_catalog_source_count = sources.len();
+        self.commit_initial_catalog(&catalog, sources, initial_catalog_source_count);
         Ok(catalog)
     }
 
+    #[cfg(not(feature = "diagnostic-tools"))]
+    fn build_all_once(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "shared platform-font catalog requires diagnostic-tools",
+        )
+        .into())
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
     fn build_lazy(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
         let indexed = self
             .indexed
@@ -393,10 +412,22 @@ impl PlatformFontRepository {
             .find(|source| source.coverage == FontCoverage::Primary && source.is_available())
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no primary font source"))?;
         let sources = vec![(indexed.key, indexed.materialize()?)];
-        let catalog =
-            FontCatalog::from_sources("en-US", sources.iter().map(|(_, source)| source.clone()))?;
-        self.commit_initial_catalog(&catalog, sources);
+        let catalog = FontCatalog::from_sources_shared_for_diagnostics(
+            "en-US",
+            sources.iter().map(|(_, source)| source.clone()),
+        )?;
+        let initial_catalog_source_count = sources.len();
+        self.commit_initial_catalog(&catalog, sources, initial_catalog_source_count);
         Ok(catalog)
+    }
+
+    #[cfg(not(feature = "diagnostic-tools"))]
+    fn build_lazy(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "lazy platform-font catalog requires diagnostic-tools",
+        )
+        .into())
     }
 
     fn materialize_all_in_catalog_order(
@@ -419,9 +450,11 @@ impl PlatformFontRepository {
         &mut self,
         catalog: &FontCatalog,
         sources: Vec<(FontKey, FontSource)>,
+        initial_catalog_source_count: usize,
     ) {
         self.active = sources.iter().cloned().collect();
         self.activation_order = sources.into_iter().map(|(key, _)| key).collect();
+        self.initial_catalog_source_count = initial_catalog_source_count;
         self.catalog_fingerprint =
             active_fingerprint(self.policy_version, &self.activation_order, &self.active);
         self.catalog_builds = catalog.memory_metrics().catalog_builds;
@@ -597,6 +630,7 @@ impl PlatformFontRepository {
         }
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     fn rebuild_ordered_catalog_at_current_epoch(
         &self,
         ordered: &[FontSource],
@@ -613,7 +647,10 @@ impl PlatformFontRepository {
         let build_count = usize::try_from(self.generation)
             .map_err(|_| io::Error::other("platform-font generation exceeds usize"))?;
         let initial_count = ordered.len().saturating_sub(build_count.saturating_sub(1));
-        let mut catalog = FontCatalog::from_sources("en-US", ordered[..initial_count].to_vec())?;
+        let mut catalog = FontCatalog::from_sources_shared_for_diagnostics(
+            "en-US",
+            ordered[..initial_count].to_vec(),
+        )?;
         for source in &ordered[initial_count..] {
             catalog.load_source(source.clone())?;
         }
@@ -628,6 +665,18 @@ impl PlatformFontRepository {
         Ok(catalog)
     }
 
+    #[cfg(not(feature = "diagnostic-tools"))]
+    fn rebuild_ordered_catalog_at_current_epoch(
+        &self,
+        _ordered: &[FontSource],
+    ) -> Result<FontCatalog, Box<dyn Error>> {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "shared or lazy platform-font recovery requires diagnostic-tools",
+        )
+        .into())
+    }
+
     #[allow(
         dead_code,
         reason = "the safe resource summary is consumed by the next diagnostic wiring task"
@@ -637,6 +686,7 @@ impl PlatformFontRepository {
             policy_version: self.policy_version,
             indexed_source_count: self.indexed.len(),
             active_source_count: self.active.len(),
+            initial_catalog_source_count: self.initial_catalog_source_count,
             retained_source_bytes: self.active.values().fold(0usize, |total, source| {
                 total.saturating_add(source.bytes().len())
             }),
@@ -644,6 +694,11 @@ impl PlatformFontRepository {
             generation: self.generation,
             index_fingerprint: self.index_fingerprint,
             catalog_fingerprint: self.catalog_fingerprint,
+            inventory_fingerprint: font_inventory_fingerprint(
+                self.active
+                    .values()
+                    .map(|source| (source.label.as_str(), source.bytes())),
+            ),
         }
     }
 
@@ -719,6 +774,33 @@ fn active_fingerprint(
     terminal_bytes_content_digest(&bytes)
 }
 
+fn font_inventory_fingerprint<'a>(
+    sources: impl IntoIterator<Item = (&'a str, &'a [u8])>,
+) -> [u8; 32] {
+    let mut records = sources
+        .into_iter()
+        .map(|(label, bytes)| {
+            let mut record = Vec::new();
+            push_fingerprint_field(&mut record, label.as_bytes());
+            push_fingerprint_field(&mut record, &terminal_bytes_content_digest(bytes));
+            record
+        })
+        .collect::<Vec<_>>();
+    records.sort_unstable();
+
+    let mut envelope = Vec::new();
+    envelope.extend_from_slice(b"rssh-platform-font-inventory-v1\0");
+    envelope.extend_from_slice(
+        &u64::try_from(records.len())
+            .expect("platform font inventory count fits u64")
+            .to_le_bytes(),
+    );
+    for record in records {
+        push_fingerprint_field(&mut envelope, &record);
+    }
+    terminal_bytes_content_digest(&envelope)
+}
+
 fn push_fingerprint_field(envelope: &mut Vec<u8>, field: &[u8]) {
     envelope.extend_from_slice(
         &u64::try_from(field.len())
@@ -754,7 +836,7 @@ fn coverage_for_character(character: char) -> Option<FontCoverage> {
     None
 }
 
-fn is_ignorable_character(character: char) -> bool {
+pub(crate) fn is_ignorable_character(character: char) -> bool {
     character.is_whitespace()
         || matches!(u32::from(character), 0x0300..=0x036f | 0x200b..=0x200f | 0xfe00..=0xfe0f | 0xe0100..=0xe01ef)
 }
@@ -1413,6 +1495,30 @@ mod tests {
     }
 
     #[test]
+    fn platform_font_inventory_fingerprint_is_order_independent_and_binds_identity_and_content() {
+        let first = [("latin", LATIN), ("cjk", CJK), ("emoji", EMOJI)];
+        let reordered = [("emoji", EMOJI), ("latin", LATIN), ("cjk", CJK)];
+        let changed_label = [("latin-renamed", LATIN), ("cjk", CJK), ("emoji", EMOJI)];
+        let changed_content = [("latin", ARABIC), ("cjk", CJK), ("emoji", EMOJI)];
+
+        assert_eq!(
+            font_inventory_fingerprint(first),
+            font_inventory_fingerprint(reordered),
+            "candidate order must not affect the inventory cohort"
+        );
+        assert_ne!(
+            font_inventory_fingerprint(first),
+            font_inventory_fingerprint(changed_label),
+            "stable source identity must be bound"
+        );
+        assert_ne!(
+            font_inventory_fingerprint(first),
+            font_inventory_fingerprint(changed_content),
+            "source content must be bound"
+        );
+    }
+
+    #[test]
     fn platform_fonts_plans_probe_each_required_coverage_only_once() {
         let mut repository = fixture_repository();
         let mut catalog = repository
@@ -1608,6 +1714,66 @@ mod tests {
         assert_eq!(recovered.memory_metrics(), initial.memory_metrics());
     }
 
+    #[cfg(feature = "diagnostic-tools")]
+    #[test]
+    fn platform_fonts_record_the_actual_initial_catalog_batch_independently() {
+        fn mixed_repository() -> PlatformFontRepository {
+            PlatformFontRepository::new(
+                7,
+                vec![
+                    IndexedFont::embedded_loader(
+                        FontKey(1),
+                        "latin",
+                        FontCoverage::Primary,
+                        true,
+                        LATIN,
+                    ),
+                    IndexedFont::embedded_loader(FontKey(2), "cjk", FontCoverage::Cjk, false, CJK),
+                    IndexedFont::embedded_loader(
+                        FontKey(3),
+                        "emoji",
+                        FontCoverage::Emoji,
+                        false,
+                        EMOJI,
+                    ),
+                ],
+            )
+        }
+
+        let mut copied = mixed_repository();
+        copied
+            .build_catalog(FontCatalogMode::CurrentCopied)
+            .expect("build copied catalog");
+        let copied_diagnostics = copied.diagnostics();
+        assert_eq!(copied_diagnostics.initial_catalog_source_count, 1);
+        assert_eq!(copied_diagnostics.active_source_count, 3);
+        assert_eq!(copied_diagnostics.catalog_builds, 3);
+
+        let mut shared = mixed_repository();
+        shared
+            .build_catalog(FontCatalogMode::SharedAll)
+            .expect("build shared catalog");
+        let shared_diagnostics = shared.diagnostics();
+        assert_eq!(shared_diagnostics.initial_catalog_source_count, 3);
+        assert_eq!(shared_diagnostics.active_source_count, 3);
+        assert_eq!(shared_diagnostics.catalog_builds, 1);
+
+        let mut lazy = mixed_repository();
+        let mut lazy_catalog = lazy
+            .build_catalog(FontCatalogMode::Lazy)
+            .expect("build lazy catalog");
+        assert_eq!(lazy.diagnostics().initial_catalog_source_count, 1);
+        lazy.preflight_text("中文", &mut lazy_catalog)
+            .expect("activate one lazy source");
+        let activated = lazy.diagnostics();
+        assert_eq!(activated.initial_catalog_source_count, 1);
+        assert_eq!(activated.active_source_count, 2);
+        assert_eq!(activated.catalog_builds, 2);
+        lazy.rebuild_catalog_from_active(FontCatalogMode::Lazy)
+            .expect("rebuild repository epoch");
+        assert_eq!(lazy.diagnostics().initial_catalog_source_count, 1);
+    }
+
     #[test]
     fn platform_fonts_diagnostics_expose_only_counts_and_irreversible_digests() {
         let repository = PlatformFontRepository::production_index_for_os("windows");
@@ -1627,5 +1793,72 @@ mod tests {
         );
         assert_ne!(production_font_catalog_mode(), FontCatalogMode::Lazy);
         assert_ne!(production_font_catalog_mode(), FontCatalogMode::SharedAll);
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
+    #[test]
+    fn platform_fonts_font_mode_shared_all_uses_one_catalog_allocation_per_source() {
+        let mut copied_repository = fixture_repository();
+        let copied = copied_repository
+            .build_catalog(FontCatalogMode::CurrentCopied)
+            .expect("build copied diagnostic baseline");
+        let mut shared_repository = fixture_repository();
+        let shared = shared_repository
+            .build_catalog(FontCatalogMode::SharedAll)
+            .expect("build shared diagnostic catalog");
+
+        assert_eq!(
+            copied.memory_metrics().retained_source_bytes,
+            shared
+                .memory_metrics()
+                .retained_source_bytes
+                .saturating_mul(2)
+        );
+        assert_eq!(
+            shared.memory_metrics().retained_source_bytes,
+            shared_repository.diagnostics().retained_source_bytes
+        );
+        for source_index in 0..shared.memory_metrics().active_source_count {
+            assert!(shared.diagnostic_fontdb_shares_source_allocation(source_index));
+        }
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
+    #[test]
+    fn platform_fonts_font_mode_lazy_keeps_only_primary_in_one_shared_allocation() {
+        let mut repository = fixture_repository();
+        let lazy = repository
+            .build_catalog(FontCatalogMode::Lazy)
+            .expect("build lazy diagnostic catalog");
+        let diagnostics = repository.diagnostics();
+
+        assert_eq!(lazy.memory_metrics().active_source_count, 1);
+        assert_eq!(diagnostics.active_source_count, 1);
+        assert!(diagnostics.indexed_source_count > diagnostics.active_source_count);
+        assert_eq!(
+            lazy.memory_metrics().retained_source_bytes,
+            diagnostics.retained_source_bytes
+        );
+        assert!(lazy.diagnostic_fontdb_shares_source_allocation(0));
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
+    #[test]
+    fn platform_fonts_font_mode_recovery_preserves_shared_ownership_without_duplication() {
+        for mode in [FontCatalogMode::SharedAll, FontCatalogMode::Lazy] {
+            let mut repository = fixture_repository();
+            let initial = repository.build_catalog(mode).expect("build proof catalog");
+            let recovered = repository
+                .rebuild_catalog_from_active(mode)
+                .expect("recover proof catalog");
+            assert_eq!(recovered.memory_metrics(), initial.memory_metrics());
+            assert_eq!(
+                recovered.memory_metrics().retained_source_bytes,
+                repository.diagnostics().retained_source_bytes
+            );
+            for source_index in 0..recovered.memory_metrics().active_source_count {
+                assert!(recovered.diagnostic_fontdb_shares_source_allocation(source_index));
+            }
+        }
     }
 }

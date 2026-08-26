@@ -320,6 +320,7 @@ git commit -m "feat(app): load platform fallback fonts on demand"
 - Modify: `crates/rssh-app/src/window_gpu.rs`
 - Modify: `crates/rssh-app/src/window_parts/diagnostics.rs`
 - Create: `scripts/ci/run-stage7-font-proof.ps1`
+- Create: `scripts/ci/collect-stage7-runner-fingerprint.ps1`
 - Modify: `crates/rssh-app/tests/gpu_backend_memory_matrix_behavior.rs`
 - Modify: `crates/rssh-app/tests/fixtures/task23_app_test_manifest.txt`
 - Modify: `scripts/ci/tests/test_check_stage7_split_gate.py`
@@ -511,7 +512,7 @@ git commit -m "feat(diagnostics): report exact GPU attribution stages"
 
 **Files:**
 - Create: `scripts/ci/run-stage7-attribution-matrix.ps1`
-- Create: `scripts/ci/collect-stage7-runner-fingerprint.ps1`
+- Modify: `scripts/ci/collect-stage7-runner-fingerprint.ps1`
 - Modify: `scripts/ci/run-gpu-backend-memory-matrix.ps1`
 - Modify: `crates/rssh-app/tests/gpu_backend_memory_matrix_behavior.rs`
 - Modify: `scripts/ci/tests/test_check_stage7_split_gate.py`
@@ -537,6 +538,8 @@ Expected: FAIL because the stage matrix is absent and the old runner flattens 30
 Build once with `--locked --release`, hash the source and both executables, then run every stage/backend pair from fresh processes. After the ready marker, stabilize 5,000 ms and take ten 100 ms samples. Write one raw file per process and an aggregate containing representatives, raw maxima, identities, failure classifications, and report-only adjacent-stage deltas.
 
 Write an atomic `artifact-manifest-fragment.json` that binds all raw stage records, the aggregate, source/binary hashes, runner fingerprint, resource-summary schema, and actual backend/adapter identities.
+
+Reuse the machine cohort identity produced by Task 4. The font fragment remains the sole owner of the singleton artifact; the stage fragment references the same fingerprint identity and must not emit a second `runner-fingerprint` singleton.
 
 **Step 4: Wire a protected manual/default-branch job**
 
@@ -608,7 +611,7 @@ git commit -m "test(release): prove immutable R-Term Git consumption"
 **Files:**
 - Create: `docs/performance/stage7-gate0-evidence.md`
 
-**Step 1: Build the exact release artifacts once**
+**Step 1: Prewarm the shared release artifacts used by the other proofs**
 
 ```powershell
 $env:CARGO_TARGET_DIR='L:\rssh-targets\stage7-split-readiness'
@@ -620,12 +623,13 @@ cargo build --locked --release -p rssh-diagnostics --bin rssh-bench-launcher
 ```
 
 Record the source and executable hashes before running proofs.
+The font proof runner performs its own locked release provenance-bound build in Step 2; this prewarm is not the font proof's exact-once build authority.
 
 **Step 2: Run the three Gate 0 proofs**
 
 ```powershell
 $gate0Root = 'L:\rssh-evidence\stage7-gate0'
-pwsh -NoProfile -File scripts/ci/run-stage7-font-proof.ps1 -Profile release -Warmups 5 -Samples 30 -OutputDirectory "$gate0Root\font" -SkipBuild
+pwsh -NoProfile -File scripts/ci/run-stage7-font-proof.ps1 -Profile release -Warmups 5 -MeasuredRounds 30 -OutputDirectory "$gate0Root\font"
 pwsh -NoProfile -File scripts/ci/run-stage7-attribution-matrix.ps1 -Profile release -Warmups 5 -Samples 30 -OutputDirectory "$gate0Root\stages" -SkipBuild
 python scripts/ci/prove-rterm-external-source.py --contract scripts/ci/rterm-external-source-proof.json --synthesize --output "$gate0Root\external" --keep-on-failure
 ```

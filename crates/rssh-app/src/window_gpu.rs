@@ -1,6 +1,9 @@
 use std::{cell::RefCell, error::Error, io, sync::Arc};
 
-use rssh_diagnostics::DiagnosticGpuBackend;
+#[cfg(feature = "diagnostic-tools")]
+use std::time::Instant;
+
+use rssh_diagnostics::{DiagnosticFontResourceSummary, DiagnosticGpuBackend};
 use rterm_render_core::{DamageRegion, RenderGeometry, TerminalRenderSnapshot};
 use rterm_render_cpu::TextPaintConfig;
 use rterm_render_wgpu::gpu::{
@@ -26,6 +29,7 @@ pub(crate) struct WindowGpu {
     rendered_frames: u64,
     replaced_device: bool,
     final_metrics: Option<GpuPresentationMetrics>,
+    diagnostic_font_resources: Option<DiagnosticFontResourceSummary>,
     #[cfg(test)]
     abandonment_workaround_adapter_match_override: Option<bool>,
     #[cfg(test)]
@@ -38,6 +42,8 @@ pub(crate) struct WindowGpu {
 
 pub(crate) struct PreparedWindowGpu {
     context: WindowedGpuContextBootstrap,
+    diagnostic_font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+    diagnostic_font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
 }
 
 struct WindowGpuFrame<'a> {
@@ -301,6 +307,212 @@ fn gpu_context_options(
     })
 }
 
+const fn diagnostic_font_catalog_mode(
+    mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+) -> FontCatalogMode {
+    match mode {
+        None => production_font_catalog_mode(),
+        Some(rssh_diagnostics::DiagnosticFontMode::CurrentCopied) => FontCatalogMode::CurrentCopied,
+        Some(rssh_diagnostics::DiagnosticFontMode::SharedAll) => FontCatalogMode::SharedAll,
+        Some(rssh_diagnostics::DiagnosticFontMode::Lazy) => FontCatalogMode::Lazy,
+    }
+}
+
+pub(crate) const fn diagnostic_font_specimen_text(
+    specimen: rssh_diagnostics::DiagnosticFontSpecimen,
+) -> &'static str {
+    match specimen {
+        rssh_diagnostics::DiagnosticFontSpecimen::Ascii => "R-SSH Stage 7",
+        rssh_diagnostics::DiagnosticFontSpecimen::Cjk => "中文",
+        rssh_diagnostics::DiagnosticFontSpecimen::Emoji => "😀",
+    }
+}
+
+fn sha256_hex(digest: [u8; 32]) -> String {
+    use std::fmt::Write as _;
+
+    let mut output = String::with_capacity(64);
+    for byte in digest {
+        write!(&mut output, "{byte:02x}").expect("writing to String cannot fail");
+    }
+    output
+}
+
+#[cfg(feature = "diagnostic-tools")]
+fn prepare_diagnostic_font_catalog(
+    mut repository: PlatformFontRepository,
+    mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+    specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+) -> Result<
+    (
+        PlatformFontRepository,
+        rssh_fonts::FontCatalog,
+        Option<DiagnosticFontResourceSummary>,
+    ),
+    Box<dyn Error>,
+> {
+    if mode.is_some() != specimen.is_some() {
+        return Err(io::Error::other(
+            "diagnostic font mode and specimen must be provided together",
+        )
+        .into());
+    }
+    let catalog_mode = diagnostic_font_catalog_mode(mode);
+    let mut catalog = repository.build_catalog(catalog_mode)?;
+    let Some((mode, specimen)) = mode.zip(specimen) else {
+        return Ok((repository, catalog, None));
+    };
+
+    let activation_started = Instant::now();
+    repository.preflight_text(diagnostic_font_specimen_text(specimen), &mut catalog)?;
+    let activation_latency_micros =
+        u64::try_from(activation_started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    let recovered = repository.rebuild_catalog_from_active(catalog_mode)?;
+    let diagnostics = repository.diagnostics();
+    let catalog_metrics = catalog.memory_metrics();
+    let recovery_metrics = recovered.memory_metrics();
+    let exposes_full_inventory = matches!(
+        mode,
+        rssh_diagnostics::DiagnosticFontMode::CurrentCopied
+            | rssh_diagnostics::DiagnosticFontMode::SharedAll
+    );
+    let summary = DiagnosticFontResourceSummary {
+        mode,
+        specimen,
+        retained_source_bytes: catalog_metrics.retained_source_bytes,
+        indexed_source_count: diagnostics.indexed_source_count,
+        active_source_count: diagnostics.active_source_count,
+        initial_catalog_source_count: diagnostics.initial_catalog_source_count,
+        catalog_builds: diagnostics.catalog_builds,
+        generation: diagnostics.generation,
+        recovery_retained_source_bytes: recovery_metrics.retained_source_bytes,
+        recovery_generation: recovered.generation(),
+        activation_latency_micros,
+        // The proof marker is not emitted until a complete GPU present has
+        // replaced this placeholder with evidence from that exact frame.
+        tofu_count: 0,
+        frame_catalog_generation: None,
+        frame_generation_consistent: None,
+        index_fingerprint_sha256: sha256_hex(diagnostics.index_fingerprint),
+        catalog_fingerprint_sha256: sha256_hex(diagnostics.catalog_fingerprint),
+        ordered_catalog_fingerprint_sha256: sha256_hex(catalog.diagnostic_ordered_fingerprint()),
+        font_inventory_fingerprint_sha256: exposes_full_inventory
+            .then(|| sha256_hex(diagnostics.inventory_fingerprint)),
+        font_index_policy_version: exposes_full_inventory.then_some(diagnostics.policy_version),
+    };
+    Ok((repository, catalog, Some(summary)))
+}
+
+fn record_diagnostic_font_frame_evidence(
+    summary: &mut DiagnosticFontResourceSummary,
+    frame_catalog_generation: u64,
+    missing_glyphs: &[char],
+) {
+    summary.frame_catalog_generation = Some(frame_catalog_generation);
+    summary.frame_generation_consistent = Some(frame_catalog_generation == summary.generation);
+    let specimen = diagnostic_font_specimen_text(summary.specimen);
+    summary.tofu_count = missing_glyphs
+        .iter()
+        .filter(|codepoint| {
+            specimen.contains(**codepoint)
+                && !codepoint.is_whitespace()
+                && **codepoint != '\u{fe0f}'
+        })
+        .count();
+}
+
+#[cfg(feature = "diagnostic-tools")]
+fn finalize_diagnostic_font_resource_summary(
+    repository: &PlatformFontRepository,
+    catalog_mode: FontCatalogMode,
+    renderer: &mut GpuLayerRenderer,
+    report: &GpuTextPrepareReport,
+    summary: &mut DiagnosticFontResourceSummary,
+) -> Result<(), Box<dyn Error>> {
+    let diagnostics = repository.diagnostics();
+    let catalog = renderer
+        .text_catalog_mut()
+        .ok_or_else(|| io::Error::other("window GPU text catalog is not enabled"))?;
+    let catalog_metrics = catalog.memory_metrics();
+    let catalog_generation = catalog.generation();
+    let ordered_catalog_fingerprint = catalog.diagnostic_ordered_fingerprint();
+    if diagnostics.active_source_count != catalog_metrics.active_source_count
+        || diagnostics.catalog_builds != catalog_metrics.catalog_builds
+        || diagnostics.generation != catalog_generation
+    {
+        return Err(io::Error::other(
+            "platform font repository and presented GPU catalog epochs diverged",
+        )
+        .into());
+    }
+    let recovered = repository.rebuild_catalog_from_active(catalog_mode)?;
+    let recovery_metrics = recovered.memory_metrics();
+
+    summary.retained_source_bytes = catalog_metrics.retained_source_bytes;
+    summary.indexed_source_count = diagnostics.indexed_source_count;
+    summary.active_source_count = catalog_metrics.active_source_count;
+    summary.initial_catalog_source_count = diagnostics.initial_catalog_source_count;
+    summary.catalog_builds = catalog_metrics.catalog_builds;
+    summary.generation = catalog_generation;
+    summary.recovery_retained_source_bytes = recovery_metrics.retained_source_bytes;
+    summary.recovery_generation = recovered.generation();
+    summary.index_fingerprint_sha256 = sha256_hex(diagnostics.index_fingerprint);
+    summary.catalog_fingerprint_sha256 = sha256_hex(diagnostics.catalog_fingerprint);
+    summary.ordered_catalog_fingerprint_sha256 = sha256_hex(ordered_catalog_fingerprint);
+    let exposes_full_inventory = matches!(
+        catalog_mode,
+        FontCatalogMode::CurrentCopied | FontCatalogMode::SharedAll
+    );
+    summary.font_inventory_fingerprint_sha256 =
+        exposes_full_inventory.then(|| sha256_hex(diagnostics.inventory_fingerprint));
+    summary.font_index_policy_version =
+        exposes_full_inventory.then_some(diagnostics.policy_version);
+    record_diagnostic_font_frame_evidence(
+        summary,
+        report.catalog_generation,
+        &report.missing_glyphs,
+    );
+    Ok(())
+}
+
+#[cfg(feature = "diagnostic-tools")]
+fn finalize_diagnostic_font_resource_summary_once(
+    summary: &mut Option<DiagnosticFontResourceSummary>,
+    finalize: impl FnOnce(&mut DiagnosticFontResourceSummary) -> Result<(), Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(summary) = summary.as_mut() else {
+        return Ok(());
+    };
+    if summary.frame_catalog_generation.is_some() {
+        return Ok(());
+    }
+    finalize(summary)
+}
+
+#[cfg(not(feature = "diagnostic-tools"))]
+fn prepare_diagnostic_font_catalog(
+    mut repository: PlatformFontRepository,
+    mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+    specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+) -> Result<
+    (
+        PlatformFontRepository,
+        rssh_fonts::FontCatalog,
+        Option<DiagnosticFontResourceSummary>,
+    ),
+    Box<dyn Error>,
+> {
+    if mode.is_some() || specimen.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "font proof requires diagnostic-tools",
+        )
+        .into());
+    }
+    let catalog = repository.build_catalog(production_font_catalog_mode())?;
+    Ok((repository, catalog, None))
+}
+
 impl WindowGpu {
     pub(crate) async fn new(
         display: OwnedDisplayHandle,
@@ -328,13 +540,42 @@ impl WindowGpu {
         force_fallback_adapter: bool,
         diagnostic_backend: Option<DiagnosticGpuBackend>,
     ) -> Result<Self, Box<dyn Error>> {
-        let prepared = Self::prepare_with_diagnostic_backend(
+        Self::new_with_diagnostic_options(
             display,
             window,
             surface_size,
             high_performance,
             force_fallback_adapter,
             diagnostic_backend,
+            None,
+            None,
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "private diagnostics forward independent backend, font mode, and specimen selections"
+    )]
+    pub(crate) async fn new_with_diagnostic_options(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        surface_size: PhysicalSize<u32>,
+        high_performance: bool,
+        force_fallback_adapter: bool,
+        diagnostic_backend: Option<DiagnosticGpuBackend>,
+        diagnostic_font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+        diagnostic_font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+    ) -> Result<Self, Box<dyn Error>> {
+        let prepared = Self::prepare_with_diagnostic_options(
+            display,
+            window,
+            surface_size,
+            high_performance,
+            force_fallback_adapter,
+            diagnostic_backend,
+            diagnostic_font_mode,
+            diagnostic_font_specimen,
         )?;
         Self::finish_prepared(prepared).await
     }
@@ -364,6 +605,32 @@ impl WindowGpu {
         force_fallback_adapter: bool,
         diagnostic_backend: Option<DiagnosticGpuBackend>,
     ) -> Result<PreparedWindowGpu, Box<dyn Error>> {
+        Self::prepare_with_diagnostic_options(
+            display,
+            window,
+            surface_size,
+            high_performance,
+            force_fallback_adapter,
+            diagnostic_backend,
+            None,
+            None,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "private diagnostics forward independent backend, font mode, and specimen selections"
+    )]
+    pub(crate) fn prepare_with_diagnostic_options(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        surface_size: PhysicalSize<u32>,
+        high_performance: bool,
+        force_fallback_adapter: bool,
+        diagnostic_backend: Option<DiagnosticGpuBackend>,
+        diagnostic_font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+        diagnostic_font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+    ) -> Result<PreparedWindowGpu, Box<dyn Error>> {
         let options =
             gpu_context_options(high_performance, force_fallback_adapter, diagnostic_backend)?;
         let context = GpuContext::prepare_windowed(
@@ -373,16 +640,24 @@ impl WindowGpu {
             surface_size.height,
             options,
         )?;
-        Ok(PreparedWindowGpu { context })
+        Ok(PreparedWindowGpu {
+            context,
+            diagnostic_font_mode,
+            diagnostic_font_specimen,
+        })
     }
 
     pub(crate) async fn finish_prepared(
         prepared: PreparedWindowGpu,
     ) -> Result<Self, Box<dyn Error>> {
+        let font_catalog_mode = diagnostic_font_catalog_mode(prepared.diagnostic_font_mode);
         let context = GpuContext::finish_windowed(prepared.context).await?;
-        let font_catalog_mode = production_font_catalog_mode();
-        let mut font_repository = PlatformFontRepository::production_index();
-        let catalog = font_repository.build_catalog(font_catalog_mode)?;
+        let (font_repository, catalog, diagnostic_font_resources) =
+            prepare_diagnostic_font_catalog(
+                PlatformFontRepository::production_index(),
+                prepared.diagnostic_font_mode,
+                prepared.diagnostic_font_specimen,
+            )?;
         let renderer = bundled_emergency_text_backend(&context, catalog)?;
         Ok(Self {
             context: Some(context),
@@ -395,6 +670,7 @@ impl WindowGpu {
             rendered_frames: 0,
             replaced_device: false,
             final_metrics: None,
+            diagnostic_font_resources,
             #[cfg(test)]
             abandonment_workaround_adapter_match_override: None,
             #[cfg(test)]
@@ -474,6 +750,23 @@ impl WindowGpu {
         this.recovery = recovery;
         let (status, report) = outcome?;
         if status == GpuFrameStatus::Presented {
+            #[cfg(feature = "diagnostic-tools")]
+            finalize_diagnostic_font_resource_summary_once(
+                &mut this.diagnostic_font_resources,
+                |resources| {
+                    finalize_diagnostic_font_resource_summary(
+                        &this.font_repository,
+                        this.font_catalog_mode,
+                        this.renderer
+                            .as_mut()
+                            .expect("window GPU renderer is available before shutdown"),
+                        &report,
+                        resources,
+                    )
+                },
+            )?;
+            #[cfg(not(feature = "diagnostic-tools"))]
+            debug_assert!(this.diagnostic_font_resources.is_none());
             this.report = Some(report);
             this.rendered_frames = this.rendered_frames.saturating_add(1);
         }
@@ -663,6 +956,7 @@ impl WindowGpu {
             rendered_frames: 0,
             replaced_device,
             final_metrics: None,
+            diagnostic_font_resources: None,
             abandonment_workaround_adapter_match_override: Some(
                 abandonment_workaround_adapter_match,
             ),
@@ -681,6 +975,10 @@ impl WindowGpu {
                 .as_ref()
                 .expect("final GPU metrics are retained after window-close abandonment")
         }
+    }
+
+    pub(crate) fn diagnostic_font_resources(&self) -> Option<&DiagnosticFontResourceSummary> {
+        self.diagnostic_font_resources.as_ref()
     }
 
     pub(crate) fn direct_text_metrics(&self) -> Option<(&GpuTextPrepareReport, u64)> {
@@ -851,6 +1149,26 @@ mod tests {
         ));
     }
 
+    fn prepare_window_gpu_with_diagnostic_font_options_from_owned_display(
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        size: PhysicalSize<u32>,
+        backend: Option<DiagnosticGpuBackend>,
+        font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+        font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+    ) {
+        drop(WindowGpu::prepare_with_diagnostic_options(
+            display,
+            window,
+            size,
+            false,
+            false,
+            backend,
+            font_mode,
+            font_specimen,
+        ));
+    }
+
     fn finish_prepared_window_gpu(prepared: PreparedWindowGpu) {
         drop(WindowGpu::finish_prepared(prepared));
     }
@@ -914,6 +1232,236 @@ mod tests {
             assert_eq!(selected.power_preference, native_default.power_preference);
             assert!(!selected.force_fallback_adapter);
         }
+    }
+
+    #[test]
+    fn diagnostic_font_mode_maps_exactly_without_changing_production_default() {
+        use rssh_diagnostics::DiagnosticFontMode;
+
+        assert_eq!(
+            diagnostic_font_catalog_mode(None),
+            production_font_catalog_mode()
+        );
+        assert_eq!(
+            diagnostic_font_catalog_mode(Some(DiagnosticFontMode::CurrentCopied)),
+            FontCatalogMode::CurrentCopied
+        );
+        assert_eq!(
+            diagnostic_font_catalog_mode(Some(DiagnosticFontMode::SharedAll)),
+            FontCatalogMode::SharedAll
+        );
+        assert_eq!(
+            diagnostic_font_catalog_mode(Some(DiagnosticFontMode::Lazy)),
+            FontCatalogMode::Lazy
+        );
+    }
+
+    #[test]
+    fn diagnostic_font_mode_prepare_accepts_typed_options_without_running_hardware() {
+        std::hint::black_box(
+            prepare_window_gpu_with_diagnostic_font_options_from_owned_display
+                as fn(
+                    OwnedDisplayHandle,
+                    Arc<Window>,
+                    PhysicalSize<u32>,
+                    Option<DiagnosticGpuBackend>,
+                    Option<rssh_diagnostics::DiagnosticFontMode>,
+                    Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+                ),
+        );
+    }
+
+    #[test]
+    fn diagnostic_font_specimens_activate_one_bounded_batch_without_tofu() {
+        use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
+
+        for specimen in [DiagnosticFontSpecimen::Cjk, DiagnosticFontSpecimen::Emoji] {
+            let repository = PlatformFontRepository::production_index_for_os("test");
+            let (_repository, _catalog, summary) = prepare_diagnostic_font_catalog(
+                repository,
+                Some(DiagnosticFontMode::Lazy),
+                Some(specimen),
+            )
+            .expect("prepare bounded specimen");
+            let summary = summary.expect("diagnostic resource summary");
+            assert_eq!(summary.mode, DiagnosticFontMode::Lazy);
+            assert_eq!(summary.specimen, specimen);
+            assert_eq!(summary.catalog_builds, 2);
+            assert_eq!(summary.generation, 2);
+            assert_eq!(summary.tofu_count, 0, "specimen {specimen:?}");
+            assert_eq!(
+                summary.recovery_retained_source_bytes,
+                summary.retained_source_bytes
+            );
+            assert_eq!(summary.recovery_generation, summary.generation);
+        }
+        assert_eq!(
+            diagnostic_font_specimen_text(DiagnosticFontSpecimen::Emoji),
+            "😀"
+        );
+    }
+
+    #[test]
+    fn diagnostic_font_resource_summary_serializes_irreversible_identity_without_paths() {
+        use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
+
+        let repository = PlatformFontRepository::production_index_for_os("test");
+        let (_, _, summary) = prepare_diagnostic_font_catalog(
+            repository,
+            Some(DiagnosticFontMode::SharedAll),
+            Some(DiagnosticFontSpecimen::Ascii),
+        )
+        .expect("prepare shared proof catalog");
+        let value = serde_json::to_value(summary.expect("resource summary")).unwrap();
+        let rendered = value.to_string();
+
+        assert_eq!(value["mode"], "shared");
+        assert_eq!(value["specimen"], "ascii");
+        for key in ["index_fingerprint_sha256", "catalog_fingerprint_sha256"] {
+            assert_eq!(value[key].as_str().expect("digest").len(), 64);
+        }
+        assert!(!rendered.contains(r"C:\Windows\Fonts"));
+        assert!(!rendered.to_ascii_lowercase().contains("path"));
+    }
+
+    #[test]
+    fn diagnostic_font_frame_evidence_is_derived_from_the_presented_specimen_frame() {
+        use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
+
+        let repository = PlatformFontRepository::production_index_for_os("test");
+        let (_, _, summary) = prepare_diagnostic_font_catalog(
+            repository,
+            Some(DiagnosticFontMode::Lazy),
+            Some(DiagnosticFontSpecimen::Cjk),
+        )
+        .expect("prepare summary");
+        let mut summary = summary.expect("font summary");
+
+        let generation = summary.generation;
+        record_diagnostic_font_frame_evidence(&mut summary, generation, &['中']);
+        assert_eq!(summary.frame_catalog_generation, Some(summary.generation));
+        assert_eq!(summary.frame_generation_consistent, Some(true));
+        assert_eq!(summary.tofu_count, 1);
+        record_diagnostic_font_frame_evidence(&mut summary, generation, &[]);
+        assert_eq!(summary.tofu_count, 0);
+        let mixed_generation = summary.generation.saturating_add(1);
+        record_diagnostic_font_frame_evidence(&mut summary, mixed_generation, &[]);
+        assert_eq!(summary.frame_generation_consistent, Some(false));
+    }
+
+    #[test]
+    fn diagnostic_font_summary_finalizes_only_the_first_presented_proof_frame() {
+        use std::cell::Cell;
+
+        use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
+
+        let (_, _, summary) = prepare_diagnostic_font_catalog(
+            PlatformFontRepository::production_index_for_os("test"),
+            Some(DiagnosticFontMode::Lazy),
+            Some(DiagnosticFontSpecimen::Ascii),
+        )
+        .expect("prepare diagnostic catalog");
+        let mut summary = summary;
+        let finalizations = Cell::new(0_u32);
+
+        for generation in [1_u64, 2] {
+            finalize_diagnostic_font_resource_summary_once(&mut summary, |resources| {
+                finalizations.set(finalizations.get() + 1);
+                resources.frame_catalog_generation = Some(generation);
+                Ok(())
+            })
+            .expect("finalize proof summary");
+        }
+
+        assert_eq!(finalizations.get(), 1);
+        assert_eq!(
+            summary
+                .as_ref()
+                .and_then(|resources| resources.frame_catalog_generation),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn diagnostic_font_summary_is_rederived_from_the_actual_presented_catalog_epoch() {
+        use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
+
+        let mode = DiagnosticFontMode::Lazy;
+        let specimen = DiagnosticFontSpecimen::Emoji;
+        let (mut repository, catalog, summary) = prepare_diagnostic_font_catalog(
+            PlatformFontRepository::production_index_for_os("test"),
+            Some(mode),
+            Some(specimen),
+        )
+        .expect("prepare diagnostic catalog");
+        let mut summary = summary.expect("diagnostic resource summary");
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut renderer =
+            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        renderer
+            .enable_text(
+                catalog,
+                bundled_emergency_font_config(),
+                GpuTextConfig::new(
+                    4 * 1024 * 1024,
+                    rssh_fonts::RasterCacheConfig::new(4 * 1024 * 1024),
+                ),
+            )
+            .expect("GPU text");
+        let mut terminal = Terminal::new(TerminalSize::new(16, 1));
+        terminal.feed(diagnostic_font_specimen_text(specimen).as_bytes());
+        let report = prepare_gpu_text_frame(
+            &mut repository,
+            &mut renderer,
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            RenderGeometry::new(16 * 16, 24, 16, 24),
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("prepare actual specimen frame");
+
+        summary.retained_source_bytes = 0;
+        summary.active_source_count = 0;
+        summary.catalog_builds = 0;
+        summary.generation = 0;
+        summary.recovery_retained_source_bytes = 0;
+        summary.recovery_generation = 0;
+        summary.catalog_fingerprint_sha256.clear();
+        summary.ordered_catalog_fingerprint_sha256.clear();
+        finalize_diagnostic_font_resource_summary(
+            &repository,
+            FontCatalogMode::Lazy,
+            &mut renderer,
+            &report,
+            &mut summary,
+        )
+        .expect("derive final evidence from the presented catalog epoch");
+
+        let diagnostics = repository.diagnostics();
+        let catalog = renderer.text_catalog_mut().expect("actual catalog");
+        let metrics = catalog.memory_metrics();
+        assert_eq!(summary.retained_source_bytes, metrics.retained_source_bytes);
+        assert_eq!(summary.active_source_count, metrics.active_source_count);
+        assert_eq!(summary.initial_catalog_source_count, 1);
+        assert_eq!(summary.catalog_builds, metrics.catalog_builds);
+        assert_eq!(summary.generation, catalog.generation());
+        assert_eq!(
+            summary.indexed_source_count,
+            diagnostics.indexed_source_count
+        );
+        assert_eq!(summary.frame_catalog_generation, Some(catalog.generation()));
+        assert_eq!(summary.frame_generation_consistent, Some(true));
+        assert_eq!(summary.tofu_count, 0);
+        assert_eq!(
+            summary.recovery_retained_source_bytes,
+            summary.retained_source_bytes
+        );
+        assert_eq!(summary.recovery_generation, summary.generation);
+        assert_eq!(summary.catalog_fingerprint_sha256.len(), 64);
+        assert_eq!(summary.ordered_catalog_fingerprint_sha256.len(), 64);
     }
 
     #[test]
@@ -1402,6 +1950,7 @@ mod tests {
             rendered_frames: 0,
             replaced_device: true,
             final_metrics: None,
+            diagnostic_font_resources: None,
             abandonment_workaround_adapter_match_override: Some(true),
             current_adapter_metrics_override: None,
             abandonment_workaround_os_override: None,
@@ -1431,6 +1980,7 @@ mod tests {
             rendered_frames: 0,
             replaced_device: true,
             final_metrics: None,
+            diagnostic_font_resources: None,
             abandonment_workaround_adapter_match_override: Some(false),
             current_adapter_metrics_override: None,
             abandonment_workaround_os_override: None,
@@ -1461,6 +2011,7 @@ mod tests {
             rendered_frames: 0,
             replaced_device: true,
             final_metrics: None,
+            diagnostic_font_resources: None,
             abandonment_workaround_adapter_match_override: None,
             current_adapter_metrics_override: Some(recovered_metrics),
             abandonment_workaround_os_override: Some("windows"),

@@ -23,6 +23,54 @@ fn gpu_ready_extra(metrics: &GpuPresentationMetrics) -> HashMap<String, serde_js
     ])
 }
 
+const FONT_PROOF_GPU_READY_FOLLOWUPS: [DiagnosticMarkerKind; 2] = [
+    DiagnosticMarkerKind::FontOwnershipReady,
+    DiagnosticMarkerKind::ScenarioReady,
+];
+
+const fn diagnostic_first_present_is_scenario_ready(
+    font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+    scenario: DiagnosticScenario,
+) -> bool {
+    font_mode.is_none() && matches!(scenario, DiagnosticScenario::EmptyWindow)
+}
+
+fn validate_font_resource_marker_value(value: &serde_json::Value) -> Result<(), String> {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (key, value) in fields {
+                let normalized = key.to_ascii_lowercase();
+                if normalized.contains("path") || normalized.starts_with("env_") {
+                    return Err(format!(
+                        "font resource marker contains forbidden raw host key '{key}'"
+                    ));
+                }
+                validate_font_resource_marker_value(value)?;
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                validate_font_resource_marker_value(value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn gpu_ready_extra_with_font_resources(
+    gpu: &WindowGpu,
+) -> Result<HashMap<String, serde_json::Value>, String> {
+    let mut extra = gpu_ready_extra(gpu.metrics());
+    if let Some(resources) = gpu.diagnostic_font_resources() {
+        let value = serde_json::to_value(resources)
+            .map_err(|error| format!("serialize font resource summary: {error}"))?;
+        validate_font_resource_marker_value(&value)?;
+        extra.insert("font_resources".to_owned(), value);
+    }
+    Ok(extra)
+}
+
 impl NativeWindowApp {
     fn set_diagnostic_gpu_backend(
         &mut self,
@@ -64,6 +112,8 @@ impl NativeWindowApp {
         scenario: DiagnosticScenario,
         hold_duration: Duration,
         pending_secret: Option<String>,
+        font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+        font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
     ) {
         self.startup_mode = NativeStartupMode::Diagnostic(NativeDiagnosticGuiState {
             markers,
@@ -74,11 +124,60 @@ impl NativeWindowApp {
                 + Duration::from_secs(10).saturating_add(hold_duration),
             pending_secret,
             secret_prompt_presented: false,
+            font_mode,
+            font_specimen,
         });
+    }
+
+    fn diagnostic_font_options(
+        &self,
+    ) -> (
+        Option<rssh_diagnostics::DiagnosticFontMode>,
+        Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+    ) {
+        self.diagnostic_gui()
+            .map_or((None, None), |diagnostic| {
+                (diagnostic.font_mode, diagnostic.font_specimen)
+            })
     }
 
     fn diagnostic_scale_override_enabled(&self) -> bool {
         self.is_benchmark_startup() || self.has_diagnostic_gui()
+    }
+
+    fn with_diagnostic_font_specimen(
+        &self,
+        snapshot: TerminalRenderSnapshot,
+    ) -> TerminalRenderSnapshot {
+        let Some(specimen) = self
+            .diagnostic_gui()
+            .and_then(|diagnostic| diagnostic.font_specimen)
+        else {
+            return snapshot;
+        };
+        let size = self.runtime.terminal().grid().size();
+        let snapshot = TerminalRenderSnapshot::from_grid(&rssh_terminal::TerminalGrid::new(size));
+        let row = self.terminal_frame_row_offset();
+        let mut column = 0_u16;
+        let mut cells = Vec::new();
+        for grapheme in crate::window_gpu::diagnostic_font_specimen_text(specimen).graphemes(true) {
+            let columns = UnicodeWidthStr::width(grapheme).max(1);
+            let mut leader = RenderCell::new(row, column, grapheme);
+            leader.columns = u8::try_from(columns).unwrap_or(u8::MAX);
+            cells.push(leader);
+            for continuation_offset in 1..columns {
+                let mut continuation = RenderCell::new(
+                    row,
+                    column.saturating_add(u16::try_from(continuation_offset).unwrap_or(u16::MAX)),
+                    "",
+                );
+                continuation.columns = 0;
+                continuation.continuation = true;
+                cells.push(continuation);
+            }
+            column = column.saturating_add(u16::try_from(columns).unwrap_or(u16::MAX));
+        }
+        snapshot.with_overlay_cells(cells)
     }
 
     fn diagnostic_hold_deadline(&self) -> Option<Instant> {
@@ -219,7 +318,10 @@ impl NativeWindowApp {
             self.mark_diagnostic_gpu_ready();
         }
         if let Some(diagnostic) = self.diagnostic_gui_mut()
-            && diagnostic.scenario == DiagnosticScenario::EmptyWindow
+            && diagnostic_first_present_is_scenario_ready(
+                diagnostic.font_mode,
+                diagnostic.scenario,
+            )
             && diagnostic.hold_deadline.is_none()
         {
             if let Err(error) = diagnostic.markers.emit(
@@ -233,21 +335,56 @@ impl NativeWindowApp {
         }
     }
 
-    fn mark_diagnostic_gpu_ready(&self) {
-        let Some(diagnostic) = self.diagnostic_gui() else {
+    fn mark_diagnostic_gpu_ready(&mut self) {
+        let Some((markers, scenario, font_mode, hold_deadline, hold_duration)) = self
+            .diagnostic_gui()
+            .map(|diagnostic| {
+                (
+                    diagnostic.markers.clone(),
+                    diagnostic.scenario,
+                    diagnostic.font_mode,
+                    diagnostic.hold_deadline,
+                    diagnostic.hold_duration,
+                )
+            })
+        else {
             return;
         };
-        let extra = self
-            .gpu
-            .as_ref()
-            .map_or_else(HashMap::new, |gpu| gpu_ready_extra(gpu.metrics()));
-        if let Err(error) = diagnostic.markers.emit_with_extra(
+        let extra = match self.gpu.as_ref() {
+            Some(gpu) => match gpu_ready_extra_with_font_resources(gpu) {
+                Ok(extra) => extra,
+                Err(error) => {
+                    eprintln!("failed to build diagnostic GPU resource marker: {error}");
+                    return;
+                }
+            },
+            None => HashMap::new(),
+        };
+        if let Err(error) = markers.emit_with_extra(
             DiagnosticMarkerKind::GpuReady,
             Some(DiagnosticRendererKind::Gpu),
             None,
             extra,
         ) {
             eprintln!("failed to emit diagnostic GPU readiness: {error}");
+        }
+        if font_mode.is_none()
+            || scenario != DiagnosticScenario::EmptyWindow
+            || hold_deadline.is_some()
+        {
+            return;
+        }
+        for kind in FONT_PROOF_GPU_READY_FOLLOWUPS {
+            if let Err(error) = markers.emit(
+                kind,
+                Some(DiagnosticRendererKind::Gpu),
+                Some(DiagnosticConnectionState::NotStarted),
+            ) {
+                eprintln!("failed to emit diagnostic font proof readiness: {error}");
+            }
+        }
+        if let Some(diagnostic) = self.diagnostic_gui_mut() {
+            diagnostic.hold_deadline = Some(Instant::now() + hold_duration);
         }
     }
 
@@ -325,5 +462,113 @@ impl NativeWindowApp {
             self.last_redraw_request_at
                 .map_or(now, |last| last + self.redraw_request_interval())
         })
+    }
+}
+
+#[cfg(test)]
+mod font_mode_tests {
+    use super::*;
+    use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
+
+    #[test]
+    fn diagnostic_font_mode_is_stored_as_typed_app_state() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_diagnostic_gui(
+            DiagnosticMarkerHandle::new(
+                "font-proof".to_owned(),
+                DiagnosticScenario::EmptyWindow,
+                Instant::now(),
+            ),
+            DiagnosticScenario::EmptyWindow,
+            Duration::from_millis(250),
+            None,
+            Some(DiagnosticFontMode::Lazy),
+            Some(DiagnosticFontSpecimen::Emoji),
+        );
+
+        assert_eq!(
+            app.diagnostic_font_options(),
+            (
+                Some(DiagnosticFontMode::Lazy),
+                Some(DiagnosticFontSpecimen::Emoji)
+            )
+        );
+    }
+
+    #[test]
+    fn diagnostic_font_marker_rejects_raw_path_keys_recursively() {
+        let unsafe_value = serde_json::json!({
+            "retained_source_bytes": 1,
+            "nested": {"source_path": r"C:\\Windows\\Fonts\\private.ttf"}
+        });
+        assert!(validate_font_resource_marker_value(&unsafe_value).is_err());
+
+        let safe_value = serde_json::json!({
+            "retained_source_bytes": 1,
+            "catalog_fingerprint_sha256": "a".repeat(64),
+            "nested": [{"generation": 2}]
+        });
+        validate_font_resource_marker_value(&safe_value).expect("safe resource summary");
+    }
+
+    #[test]
+    fn diagnostic_font_specimen_is_injected_into_the_gpu_snapshot() {
+        for (specimen, expected) in [
+            (DiagnosticFontSpecimen::Ascii, "R-SSH Stage 7"),
+            (DiagnosticFontSpecimen::Cjk, "中文"),
+            (DiagnosticFontSpecimen::Emoji, "😀"),
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            app.set_diagnostic_gui(
+                DiagnosticMarkerHandle::new(
+                    "font-proof-snapshot".to_owned(),
+                    DiagnosticScenario::EmptyWindow,
+                    Instant::now(),
+                ),
+                DiagnosticScenario::EmptyWindow,
+                Duration::from_millis(250),
+                None,
+                Some(DiagnosticFontMode::Lazy),
+                Some(specimen),
+            );
+
+            let production_snapshot = app.render_snapshot().with_overlay_cells([
+                RenderCell::new(0, 40, "PRODUCTION UI MUST NOT REACH FONT PROOF"),
+            ]);
+            let snapshot = app.with_diagnostic_font_specimen(production_snapshot);
+            let rendered = snapshot
+                .cells()
+                .iter()
+                .filter(|cell| !cell.continuation)
+                .map(|cell| cell.text.as_ref())
+                .collect::<String>();
+            assert!(
+                rendered.contains(expected),
+                "{specimen:?} specimen must reach the actual GPU snapshot: {rendered:?}"
+            );
+            assert!(
+                !rendered.contains("PRODUCTION UI"),
+                "font proof must use a controlled specimen-only snapshot: {rendered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn font_proof_gpu_readiness_followups_are_owner_then_scenario() {
+        assert_eq!(
+            FONT_PROOF_GPU_READY_FOLLOWUPS,
+            [
+                DiagnosticMarkerKind::FontOwnershipReady,
+                DiagnosticMarkerKind::ScenarioReady,
+            ]
+        );
+        assert!(!diagnostic_first_present_is_scenario_ready(
+            Some(DiagnosticFontMode::CurrentCopied),
+            DiagnosticScenario::EmptyWindow,
+        ));
+        assert!(diagnostic_first_present_is_scenario_ready(
+            None,
+            DiagnosticScenario::EmptyWindow,
+        ));
     }
 }

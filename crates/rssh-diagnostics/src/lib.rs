@@ -22,7 +22,8 @@ pub use sampler::{
     WindowsProcessSnapshot, parse_linux_smaps_rollup,
 };
 pub use schema::{
-    ConnectionState, ConnectionSummary, DiagnosticFailure, DiagnosticGpuBackend,
+    ConnectionState, ConnectionSummary, DiagnosticFailure, DiagnosticFontMode,
+    DiagnosticFontResourceSummary, DiagnosticFontSpecimen, DiagnosticGpuBackend,
     DiagnosticRendererMode, DiagnosticsResult, MemoryMetric, MemorySample, MemoryStatistics,
     MemorySummary, Platform, ProcessExitKind, ProcessSummary, Readiness, ReadinessStatus,
     RendererKind, RendererSummary, RunConfiguration, RunIdentity, Scenario, SchemaValidationError,

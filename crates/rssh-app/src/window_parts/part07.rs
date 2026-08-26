@@ -1414,6 +1414,8 @@ struct NativeDiagnosticGuiState {
     absolute_deadline: Instant,
     pending_secret: Option<String>,
     secret_prompt_presented: bool,
+    font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+    font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
 }
 
 enum NativeStartupMode {

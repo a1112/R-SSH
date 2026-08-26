@@ -3,9 +3,12 @@ use std::fmt::{self, Display, Formatter};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::{DiagnosticGpuBackend, DiagnosticRendererMode, MarkerKind, RunConfiguration, Scenario};
+use crate::{
+    DiagnosticFontMode, DiagnosticFontSpecimen, DiagnosticGpuBackend, DiagnosticRendererMode,
+    MarkerKind, RunConfiguration, Scenario,
+};
 
-pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--renderer auto|cpu|gpu] [--gpu-backend dx12|vulkan|gl] [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
+pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--renderer auto|cpu|gpu] [--gpu-backend dx12|vulkan|gl] [--font-mode current|shared|lazy --font-specimen ascii|cjk|emoji] [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LauncherOptions {
@@ -19,6 +22,8 @@ pub struct LauncherOptions {
     pub rows: u16,
     pub renderer: DiagnosticRendererMode,
     pub gpu_backend: Option<DiagnosticGpuBackend>,
+    pub font_mode: Option<DiagnosticFontMode>,
+    pub font_specimen: Option<DiagnosticFontSpecimen>,
     pub json: bool,
 }
 
@@ -43,6 +48,8 @@ impl LauncherOptions {
         let mut rows = 24_u16;
         let mut renderer = None;
         let mut gpu_backend = None;
+        let mut font_mode = None;
+        let mut font_specimen = None;
         let mut json = false;
 
         while let Some(argument) = arguments.next() {
@@ -102,22 +109,23 @@ impl LauncherOptions {
                     let value = next_value(&mut arguments, "--gpu-backend")?;
                     assign_once(&mut gpu_backend, parse_gpu_backend(value)?, "--gpu-backend")?;
                 }
+                "--font-mode" => {
+                    parse_font_mode_option(&mut arguments, &mut font_mode)?;
+                }
+                "--font-specimen" => {
+                    parse_font_specimen_option(&mut arguments, &mut font_specimen)?;
+                }
                 "--json" => json = true,
                 _ => return Err(LauncherCliError::UnknownArgument(argument)),
             }
         }
 
-        let app = app.ok_or(LauncherCliError::MissingArgument("--app"))?;
-        if !app.is_file() {
-            return Err(LauncherCliError::AppDoesNotExist(app));
-        }
-        let renderer = renderer.unwrap_or_default();
-        if renderer == DiagnosticRendererMode::Cpu && gpu_backend.is_some() {
-            return Err(LauncherCliError::CpuRendererWithGpuBackend);
-        }
+        let app = validate_app(app)?;
+        let scenario = scenario.ok_or(LauncherCliError::MissingArgument("--scenario"))?;
+        let renderer = validate_options(scenario, renderer, gpu_backend, font_mode, font_specimen)?;
         Ok(Self {
             app,
-            scenario: scenario.ok_or(LauncherCliError::MissingArgument("--scenario"))?,
+            scenario,
             stabilization: Duration::from_millis(stabilization_ms),
             sample_interval: Duration::from_millis(sample_interval_ms),
             sample_count,
@@ -126,6 +134,8 @@ impl LauncherOptions {
             rows,
             renderer,
             gpu_backend,
+            font_mode,
+            font_specimen,
             json,
         })
     }
@@ -140,6 +150,8 @@ impl LauncherOptions {
             rows: self.rows,
             requested_renderer: self.renderer,
             requested_gpu_backend: self.gpu_backend,
+            requested_font_mode: self.font_mode,
+            requested_font_specimen: self.font_specimen,
             ..RunConfiguration::default()
         }
     }
@@ -159,6 +171,59 @@ fn parse_gpu_backend(value: String) -> Result<DiagnosticGpuBackend, LauncherCliE
     value
         .parse()
         .map_err(|_| LauncherCliError::InvalidGpuBackend(value))
+}
+
+fn parse_font_mode_option(
+    arguments: &mut impl Iterator<Item = String>,
+    font_mode: &mut Option<DiagnosticFontMode>,
+) -> Result<(), LauncherCliError> {
+    let value = next_value(arguments, "--font-mode")?;
+    let parsed = value
+        .parse()
+        .map_err(|_| LauncherCliError::InvalidFontMode(value))?;
+    assign_once(font_mode, parsed, "--font-mode")
+}
+
+fn parse_font_specimen_option(
+    arguments: &mut impl Iterator<Item = String>,
+    font_specimen: &mut Option<DiagnosticFontSpecimen>,
+) -> Result<(), LauncherCliError> {
+    let value = next_value(arguments, "--font-specimen")?;
+    let parsed = value
+        .parse()
+        .map_err(|_| LauncherCliError::InvalidFontSpecimen(value))?;
+    assign_once(font_specimen, parsed, "--font-specimen")
+}
+
+fn validate_app(app: Option<PathBuf>) -> Result<PathBuf, LauncherCliError> {
+    let app = app.ok_or(LauncherCliError::MissingArgument("--app"))?;
+    if !app.is_file() {
+        return Err(LauncherCliError::AppDoesNotExist(app));
+    }
+    Ok(app)
+}
+
+fn validate_options(
+    scenario: Scenario,
+    renderer: Option<DiagnosticRendererMode>,
+    gpu_backend: Option<DiagnosticGpuBackend>,
+    font_mode: Option<DiagnosticFontMode>,
+    font_specimen: Option<DiagnosticFontSpecimen>,
+) -> Result<DiagnosticRendererMode, LauncherCliError> {
+    let renderer = renderer.unwrap_or_default();
+    if renderer == DiagnosticRendererMode::Cpu && gpu_backend.is_some() {
+        return Err(LauncherCliError::CpuRendererWithGpuBackend);
+    }
+    if font_mode.is_some() != font_specimen.is_some() {
+        return Err(LauncherCliError::IncompleteFontProofOptions);
+    }
+    if renderer == DiagnosticRendererMode::Cpu && font_mode.is_some() {
+        return Err(LauncherCliError::CpuRendererWithFontProof);
+    }
+    if font_mode.is_some() && scenario != Scenario::EmptyWindow {
+        return Err(LauncherCliError::FontProofRequiresEmptyWindow);
+    }
+    Ok(renderer)
 }
 
 fn next_value(
@@ -213,7 +278,12 @@ pub enum LauncherCliError {
     InvalidScenario(String),
     InvalidRenderer(String),
     InvalidGpuBackend(String),
+    InvalidFontMode(String),
+    InvalidFontSpecimen(String),
     CpuRendererWithGpuBackend,
+    IncompleteFontProofOptions,
+    CpuRendererWithFontProof,
+    FontProofRequiresEmptyWindow,
     InvalidPositiveValue { option: &'static str, value: String },
     AppDoesNotExist(PathBuf),
 }
@@ -240,8 +310,24 @@ impl Display for LauncherCliError {
                 formatter,
                 "invalid value '{value}' for --gpu-backend; expected dx12, vulkan, or gl"
             ),
+            Self::InvalidFontMode(value) => write!(
+                formatter,
+                "invalid value '{value}' for --font-mode; expected current, shared, or lazy"
+            ),
+            Self::InvalidFontSpecimen(value) => write!(
+                formatter,
+                "invalid value '{value}' for --font-specimen; expected ascii, cjk, or emoji"
+            ),
             Self::CpuRendererWithGpuBackend => {
                 formatter.write_str("--gpu-backend cannot be used with --renderer cpu")
+            }
+            Self::IncompleteFontProofOptions => {
+                formatter.write_str("--font-mode and --font-specimen must be provided together")
+            }
+            Self::CpuRendererWithFontProof => formatter
+                .write_str("--font-mode and --font-specimen require --renderer auto or gpu"),
+            Self::FontProofRequiresEmptyWindow => {
+                formatter.write_str("font proof requires the empty-window scenario")
             }
             Self::InvalidPositiveValue { option, value } => {
                 write!(
@@ -257,6 +343,122 @@ impl Display for LauncherCliError {
 }
 
 impl Error for LauncherCliError {}
+
+#[cfg(test)]
+mod font_mode_tests {
+    use super::*;
+
+    fn fixture_app() -> PathBuf {
+        std::env::current_exe().expect("current test executable")
+    }
+
+    fn parse(extra: &[&str]) -> Result<LauncherOptions, LauncherCliError> {
+        let mut args = vec![
+            "rssh-bench-launcher".to_owned(),
+            "--app".to_owned(),
+            fixture_app().to_string_lossy().into_owned(),
+            "--scenario".to_owned(),
+            "empty-window".to_owned(),
+        ];
+        args.extend(extra.iter().map(|value| (*value).to_owned()));
+        LauncherOptions::parse(args)
+    }
+
+    #[test]
+    fn font_mode_launcher_requires_and_forwards_a_complete_pair() {
+        let options = parse(&[
+            "--renderer",
+            "auto",
+            "--font-mode",
+            "shared",
+            "--font-specimen",
+            "cjk",
+        ])
+        .expect("private font proof options");
+        assert_eq!(
+            options.font_mode,
+            Some(crate::DiagnosticFontMode::SharedAll)
+        );
+        assert_eq!(
+            options.font_specimen,
+            Some(crate::DiagnosticFontSpecimen::Cjk)
+        );
+        assert_eq!(
+            options.configuration().requested_font_mode,
+            Some(crate::DiagnosticFontMode::SharedAll)
+        );
+
+        assert!(matches!(
+            parse(&["--font-mode", "lazy"]),
+            Err(LauncherCliError::IncompleteFontProofOptions)
+        ));
+        assert!(matches!(
+            parse(&["--font-specimen", "emoji"]),
+            Err(LauncherCliError::IncompleteFontProofOptions)
+        ));
+    }
+
+    #[test]
+    fn font_mode_launcher_rejects_cpu_renderer() {
+        assert!(matches!(
+            parse(&[
+                "--renderer",
+                "cpu",
+                "--font-mode",
+                "current",
+                "--font-specimen",
+                "ascii",
+            ]),
+            Err(LauncherCliError::CpuRendererWithFontProof)
+        ));
+    }
+
+    #[test]
+    fn font_mode_launcher_rejects_ssh1_before_starting_the_app() {
+        let app = fixture_app().to_string_lossy().into_owned();
+        let error = LauncherOptions::parse([
+            "rssh-bench-launcher".to_owned(),
+            "--app".to_owned(),
+            app,
+            "--scenario".to_owned(),
+            "ssh1".to_owned(),
+            "--font-mode".to_owned(),
+            "lazy".to_owned(),
+            "--font-specimen".to_owned(),
+            "ascii".to_owned(),
+        ])
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            LauncherCliError::FontProofRequiresEmptyWindow
+        ));
+    }
+
+    #[test]
+    fn font_proof_stabilization_starts_only_at_font_ownership_ready() {
+        let configuration = RunConfiguration {
+            stabilization_ms: 5_000,
+            requested_font_mode: Some(crate::DiagnosticFontMode::Lazy),
+            requested_font_specimen: Some(crate::DiagnosticFontSpecimen::Cjk),
+            ..RunConfiguration::default()
+        };
+        let mut state = LauncherStateMachine::new(configuration);
+        state.child_started(42).unwrap();
+        state.observe_marker(MarkerKind::FirstPresent, 10).unwrap();
+        state.observe_marker(MarkerKind::GpuReady, 100).unwrap();
+        assert_eq!(state.phase(), LauncherPhase::AwaitScenarioReady);
+
+        state
+            .observe_marker(MarkerKind::FontOwnershipReady, 120)
+            .unwrap();
+        assert_eq!(state.phase(), LauncherPhase::Stabilize);
+        assert_eq!(state.next_deadline_ms(), Some(5_120));
+        state
+            .observe_marker(MarkerKind::ScenarioReady, 121)
+            .unwrap();
+        assert_eq!(state.next_deadline_ms(), Some(5_120));
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LauncherPhase {
@@ -341,6 +543,17 @@ impl LauncherStateMachine {
         self.forced_shutdown
     }
 
+    #[must_use]
+    pub const fn readiness_marker(&self) -> MarkerKind {
+        if self.configuration.requested_font_mode.is_some()
+            && self.configuration.requested_font_specimen.is_some()
+        {
+            MarkerKind::FontOwnershipReady
+        } else {
+            MarkerKind::ScenarioReady
+        }
+    }
+
     /// Records successful child creation.
     ///
     /// # Errors
@@ -379,11 +592,10 @@ impl LauncherStateMachine {
             {
                 self.phase = LauncherPhase::AwaitScenarioReady;
             }
-            MarkerKind::ScenarioReady
-                if matches!(
-                    self.phase,
-                    LauncherPhase::AwaitMarkers | LauncherPhase::AwaitScenarioReady
-                ) =>
+            kind if matches!(
+                self.phase,
+                LauncherPhase::AwaitMarkers | LauncherPhase::AwaitScenarioReady
+            ) && kind == self.readiness_marker() =>
             {
                 self.phase = LauncherPhase::Stabilize;
                 self.next_deadline_ms =
