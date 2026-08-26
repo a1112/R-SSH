@@ -582,6 +582,164 @@ fn scale_and_font_generation_rebuild_the_complete_atlas_scope() {
 }
 
 #[test]
+fn catalog_generation_expansion_restarts_one_whole_frame_without_mixed_rows() {
+    let _gpu = gpu_test_guard();
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096)
+        .expect("layer renderer");
+    renderer
+        .enable_text(
+            FontCatalog::from_sources("en-US", [source("NotoSans-Latin.fixture.ttf")])
+                .expect("Latin catalog"),
+            font_config(),
+            config(4 * 1024 * 1024),
+        )
+        .expect("enable GPU text");
+    renderer
+        .prepare_text(
+            &multiline_snapshot("first\r\nsecond", 8, 2),
+            RenderGeometry::new(8 * 16, 2 * 24, 16, 24),
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("prime the prior catalog generation");
+    let snapshot = multiline_snapshot("first\r\nאבג", 8, 2);
+    let geometry = RenderGeometry::new(8 * 16, 2 * 24, 16, 24);
+    let expected_generation = renderer.text_catalog_generation().expect("text catalog");
+
+    renderer
+        .text_catalog_mut()
+        .expect("text catalog")
+        .load_source(source("NotoSansHebrew.fixture.ttf"))
+        .expect("late Hebrew activation");
+    let expansion = renderer
+        .prepare_text_for_catalog_generation(
+            expected_generation,
+            &snapshot,
+            geometry,
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("generation check");
+    assert_eq!(
+        expansion.catalog_expansion(),
+        Some((expected_generation, expected_generation + 1))
+    );
+
+    let restarted = renderer
+        .prepare_text_for_catalog_generation(
+            expected_generation + 1,
+            &snapshot,
+            geometry,
+            &[DamageRegion::new(0, 1, 1, 1)],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("one whole-frame restart");
+    let report = restarted
+        .into_prepared()
+        .expect("a stable retry must prepare the frame");
+    assert_eq!(report.prepared_rows, vec![0, 1]);
+    assert_eq!(report.catalog_generation, expected_generation + 1);
+    assert!(report.missing_glyphs.is_empty());
+}
+
+#[test]
+fn retired_renderers_release_all_cpu_font_state_without_draining_the_replacement() {
+    let _gpu = gpu_test_guard();
+    let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+        .expect("headless adapter");
+    let make_renderer = || {
+        let mut renderer = GpuLayerRenderer::new(&context, wgpu::TextureFormat::Rgba8Unorm, 4096)
+            .expect("layer renderer");
+        renderer
+            .enable_text(
+                FontCatalog::from_sources(
+                    "en-US",
+                    [
+                        source("NotoSans-Latin.fixture.ttf"),
+                        source("NotoSansSC-CJK.fixture.ttf"),
+                    ],
+                )
+                .expect("active catalog"),
+                font_config(),
+                config(4 * 1024 * 1024),
+            )
+            .expect("enable GPU text");
+        renderer
+    };
+    let snapshot = multiline_snapshot("ASCII\r\n中文", 8, 2);
+    let geometry = RenderGeometry::new(8 * 16, 2 * 24, 16, 24);
+    let mut current = make_renderer();
+    current
+        .prepare_text(
+            &snapshot,
+            geometry,
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("prime font caches");
+    let populated = current.text_cpu_font_metrics().expect("text metrics");
+    assert_eq!(populated.catalog.active_source_count, 2);
+    assert!(populated.catalog.retained_source_bytes > 0);
+    assert!(populated.shape_cache_bytes > 0);
+    assert!(populated.raster_cache_bytes > 0);
+    assert!(populated.row_cache_entries > 0);
+    assert!(populated.payload_bytes > 0);
+
+    let mut retired = Vec::new();
+    for _ in 0..3 {
+        let replacement = make_renderer();
+        let active = replacement
+            .text_cpu_font_metrics()
+            .expect("replacement metrics");
+        assert_eq!(active.catalog.active_source_count, 2);
+        assert!(active.catalog.retained_source_bytes > 0);
+
+        current.retire_text_cpu_font_state();
+        let released = current.text_cpu_font_metrics().expect("retired metrics");
+        assert_eq!(released.catalog.active_source_count, 0);
+        assert_eq!(released.catalog.retained_source_bytes, 0);
+        assert_eq!(released.shape_cache_bytes, 0);
+        assert_eq!(released.raster_cache_bytes, 0);
+        assert_eq!(released.row_cache_entries, 0);
+        assert_eq!(released.payload_bytes, 0);
+        retired.push(current);
+        current = replacement;
+        assert_eq!(
+            retired
+                .iter()
+                .map(|renderer| {
+                    renderer
+                        .text_cpu_font_metrics()
+                        .expect("retired text metrics")
+                        .catalog
+                        .retained_source_bytes
+                })
+                .sum::<usize>(),
+            0,
+            "repeated recovery must not accumulate retired font bytes"
+        );
+    }
+    assert_eq!(
+        current
+            .text_cpu_font_metrics()
+            .expect("current metrics")
+            .catalog
+            .active_source_count,
+        2
+    );
+}
+
+#[test]
 fn alternating_atlas_working_sets_evict_history_without_repack_or_scope_rebuild() {
     let _gpu = gpu_test_guard();
     let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))

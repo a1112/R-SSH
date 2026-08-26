@@ -6150,3 +6150,51 @@ return config
             );
         }
     }
+    #[test]
+    fn gpu_font_catalog_expansion_restarts_the_whole_frame_once() {
+        let damage = [rterm_render_core::DamageRegion::new(1, 1, 2, 1)];
+        let attempts = std::cell::RefCell::new(Vec::new());
+
+        let report = crate::window_gpu::prepare_catalog_frame_with_one_restart(
+            4,
+            &damage,
+            |generation, frame_damage, can_expand| {
+                attempts
+                    .borrow_mut()
+                    .push((generation, frame_damage.to_vec(), can_expand));
+                Ok(if generation == 4 {
+                    crate::window_gpu::CatalogFrameAttempt::Expanded(5)
+                } else {
+                    crate::window_gpu::CatalogFrameAttempt::Prepared("generation-5")
+                })
+            },
+        )
+        .expect("one full-frame catalog restart");
+
+        assert_eq!(report, "generation-5");
+        assert_eq!(
+            attempts.into_inner(),
+            vec![(4, damage.to_vec(), true), (5, Vec::new(), false)]
+        );
+    }
+
+    #[test]
+    fn gpu_font_catalog_expansion_never_restarts_a_frame_twice() {
+        let attempts = std::cell::Cell::new(0_u8);
+
+        let error = crate::window_gpu::prepare_catalog_frame_with_one_restart::<()>(
+            7,
+            &[rterm_render_core::DamageRegion::new(0, 0, 1, 1)],
+            |generation, _, can_expand| {
+                assert_eq!(can_expand, attempts.get() == 0);
+                attempts.set(attempts.get().saturating_add(1));
+                Ok(crate::window_gpu::CatalogFrameAttempt::Expanded(
+                    generation + 1,
+                ))
+            },
+        )
+        .expect_err("a second catalog expansion must fail closed");
+
+        assert_eq!(attempts.get(), 2);
+        assert!(error.to_string().contains("expanded twice"));
+    }

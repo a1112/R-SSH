@@ -13,8 +13,8 @@ use glyphon::{
     SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
 };
 use rssh_fonts::{
-    FontCatalog, FontConfig, FontId, RasterCache, RasterCacheConfig, RasterContent, RasterFlags,
-    RasterRequest, ShapedRow, TerminalShaper,
+    CatalogMemoryMetrics, FontCatalog, FontConfig, FontId, RasterCache, RasterCacheConfig,
+    RasterContent, RasterFlags, RasterRequest, ShapedRow, TerminalShaper,
 };
 
 use rterm_render_cpu::{
@@ -78,9 +78,21 @@ pub struct GpuTextAtlasMetrics {
     pub trim_calls: u64,
 }
 
+/// CPU font allocations retained by a live or driver-retired text renderer.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct GpuTextCpuFontMetrics {
+    pub catalog: CatalogMemoryMetrics,
+    pub shape_cache_bytes: usize,
+    pub raster_cache_bytes: usize,
+    pub row_cache_entries: usize,
+    pub payload_bytes: usize,
+}
+
 /// Diagnostics for one terminal text preparation.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct GpuTextPrepareReport {
+    /// One catalog generation owns every shaped row in this report.
+    pub catalog_generation: u64,
     pub prepared_rows: Vec<u16>,
     pub shaped_glyphs: usize,
     /// Source codepoints whose shaped cluster is not covered by the configured
@@ -96,6 +108,37 @@ pub struct GpuTextPrepareReport {
     pub glyph_bounds: Vec<PixelRect>,
     pub cursor_foreground_bounds: Vec<PixelRect>,
     pub damage_bounds: Vec<PixelRect>,
+}
+
+/// Result of preparing a frame against an app-owned catalog generation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GpuTextCatalogStatus {
+    Prepared(GpuTextPrepareReport),
+    CatalogExpanded {
+        previous_generation: u64,
+        catalog_generation: u64,
+    },
+}
+
+impl GpuTextCatalogStatus {
+    #[must_use]
+    pub const fn catalog_expansion(&self) -> Option<(u64, u64)> {
+        match self {
+            Self::CatalogExpanded {
+                previous_generation,
+                catalog_generation,
+            } => Some((*previous_generation, *catalog_generation)),
+            Self::Prepared(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn into_prepared(self) -> Option<GpuTextPrepareReport> {
+        match self {
+            Self::Prepared(report) => Some(report),
+            Self::CatalogExpanded { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -295,6 +338,44 @@ impl GpuText {
         &mut self.catalog
     }
 
+    pub(crate) const fn catalog_generation(&self) -> u64 {
+        self.catalog.generation()
+    }
+
+    pub(crate) fn cpu_font_metrics(&self) -> GpuTextCpuFontMetrics {
+        GpuTextCpuFontMetrics {
+            catalog: self.catalog.memory_metrics(),
+            shape_cache_bytes: self.shaper.cache_metrics().current_bytes,
+            raster_cache_bytes: self.raster.metrics().current_bytes,
+            row_cache_entries: self.row_cache.len(),
+            payload_bytes: self.payload_retained_bytes,
+        }
+    }
+
+    /// Drops app-owned font bytes and CPU glyph caches while leaving driver
+    /// GPU objects alive for the narrowly scoped deferred-destruction path.
+    pub(crate) fn retire_cpu_font_state(&mut self) {
+        self.catalog = FontCatalog::new("retired");
+        self.shaper = TerminalShaper::with_cache_budget(FontConfig::new("retired"), 0);
+        self.raster = RasterCache::new(RasterCacheConfig::new(0));
+        self.glyphon.swash_cache = SwashCache::new();
+        self.glyphon.empty_buffer = Buffer::new_empty(Metrics::new(1.0, 1.0));
+        self.identity_to_id.clear();
+        self.payloads.clear();
+        self.row_cache.clear();
+        self.block_quads.clear();
+        self.geometry = None;
+        self.cursor_scope = None;
+        self.paint = None;
+        self.retryable_failure = None;
+        self.report = GpuTextPrepareReport::default();
+        self.payload_retained_bytes = 0;
+        self.metrics.payload_bytes = 0;
+        self.metrics.retained_bytes = self.metrics.physical_texture_bytes;
+        self.metrics.entries = 0;
+        self.force_full_rebuild_next = true;
+    }
+
     pub(crate) fn block_quads(&self) -> &[super::GpuQuad] {
         &self.block_quads
     }
@@ -456,6 +537,43 @@ impl GpuText {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generation joins the existing explicit whole-frame text preparation contract"
+    )]
+    pub(crate) fn prepare_for_catalog_generation(
+        &mut self,
+        expected_generation: u64,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        damage: &[DamageRegion],
+        paint: &TextPaintConfig,
+        dpi_scale: f32,
+        zoom: f32,
+    ) -> Result<GpuTextCatalogStatus, GpuLayerError> {
+        let before = self.catalog.generation();
+        if before != expected_generation {
+            return Ok(GpuTextCatalogStatus::CatalogExpanded {
+                previous_generation: expected_generation,
+                catalog_generation: before,
+            });
+        }
+        let report = self.prepare(snapshot, geometry, damage, paint, dpi_scale, zoom)?;
+        let after = self.catalog.generation();
+        if after != expected_generation {
+            self.fail_closed_after_prepare_error()?;
+            return Ok(GpuTextCatalogStatus::CatalogExpanded {
+                previous_generation: expected_generation,
+                catalog_generation: after,
+            });
+        }
+        Ok(GpuTextCatalogStatus::Prepared(report))
+    }
+
+    pub(crate) fn discard_prepared_frame(&mut self) -> Result<(), GpuLayerError> {
+        self.fail_closed_after_prepare_error()
+    }
+
     fn fail_closed_after_prepare_error(&mut self) -> Result<(), GpuLayerError> {
         self.rebuild_scope()?;
         self.force_full_rebuild_next = true;
@@ -523,6 +641,7 @@ impl GpuText {
             .retain(|row, _| *row < rows && visible_rows.contains(row));
 
         let mut report = GpuTextPrepareReport {
+            catalog_generation: self.catalog.generation(),
             prepared_rows: row_numbers.iter().copied().collect(),
             content_digest: terminal_snapshot_content_digest(snapshot),
             damage_bounds: damaged_rows

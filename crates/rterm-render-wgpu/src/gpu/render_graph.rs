@@ -18,7 +18,10 @@ use super::{
     GpuContext, GpuContextGeneration, GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
     images::image_layer,
     quads::{INSTANCE_SIZE, encode_instance},
-    text::{GpuText, GpuTextAtlasMetrics, GpuTextConfig, GpuTextPrepareReport},
+    text::{
+        GpuText, GpuTextAtlasMetrics, GpuTextCatalogStatus, GpuTextConfig, GpuTextCpuFontMetrics,
+        GpuTextPrepareReport,
+    },
 };
 use rssh_fonts::{FontCatalog, FontConfig};
 use rterm_render_cpu::{
@@ -1062,6 +1065,23 @@ struct ReadbackLayout {
 }
 
 impl GpuLayerRenderer {
+    /// Creates an RGBA renderer for a headless context without requiring the
+    /// caller to depend directly on wgpu's texture-format type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the budget cannot hold one instance.
+    pub fn new_headless(
+        context: &GpuContext,
+        instance_budget_bytes: usize,
+    ) -> Result<Self, GpuLayerError> {
+        Self::new(
+            context,
+            wgpu::TextureFormat::Rgba8Unorm,
+            instance_budget_bytes,
+        )
+    }
+
     /// Creates pipelines with a strict upper bound for retained instance bytes.
     ///
     /// # Errors
@@ -1278,6 +1298,40 @@ impl GpuLayerRenderer {
             .prepare(snapshot, geometry, damage, paint, dpi_scale, zoom)
     }
 
+    /// Prepares one complete frame only when the app's preflight generation is
+    /// still current. A mismatch asks the caller to restart the whole frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same bounded shaping and atlas errors as [`Self::prepare_text`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generation joins the existing explicit whole-frame text preparation contract"
+    )]
+    pub fn prepare_text_for_catalog_generation(
+        &mut self,
+        expected_generation: u64,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        damage: &[DamageRegion],
+        paint: &TextPaintConfig,
+        dpi_scale: f32,
+        zoom: f32,
+    ) -> Result<GpuTextCatalogStatus, GpuLayerError> {
+        self.text
+            .as_mut()
+            .ok_or_else(|| GpuLayerError::message("GPU text is not enabled"))?
+            .prepare_for_catalog_generation(
+                expected_generation,
+                snapshot,
+                geometry,
+                damage,
+                paint,
+                dpi_scale,
+                zoom,
+            )
+    }
+
     #[must_use]
     pub fn text_atlas_metrics(&self) -> Option<GpuTextAtlasMetrics> {
         self.text.as_ref().map(GpuText::metrics)
@@ -1285,6 +1339,37 @@ impl GpuLayerRenderer {
 
     pub fn text_catalog_mut(&mut self) -> Option<&mut FontCatalog> {
         self.text.as_mut().map(GpuText::catalog_mut)
+    }
+
+    #[must_use]
+    pub fn text_catalog_generation(&self) -> Option<u64> {
+        self.text.as_ref().map(GpuText::catalog_generation)
+    }
+
+    #[must_use]
+    pub fn text_cpu_font_metrics(&self) -> Option<GpuTextCpuFontMetrics> {
+        self.text.as_ref().map(GpuText::cpu_font_metrics)
+    }
+
+    /// Releases CPU-side font state before a lost renderer is retained solely
+    /// to defer destruction of unsafe driver GPU objects.
+    pub fn retire_text_cpu_font_state(&mut self) {
+        if let Some(text) = self.text.as_mut() {
+            text.retire_cpu_font_state();
+        }
+    }
+
+    /// Clears a partially prepared frame after app-owned font preflight grows
+    /// the catalog and before the caller restarts the complete frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if rebuilding the empty GPU text scope fails.
+    pub fn discard_prepared_text_frame(&mut self) -> Result<(), GpuLayerError> {
+        self.text
+            .as_mut()
+            .ok_or_else(|| GpuLayerError::message("GPU text is not enabled"))?
+            .discard_prepared_frame()
     }
 
     /// Updates the persistent instance buffer, writing only its dirty range.

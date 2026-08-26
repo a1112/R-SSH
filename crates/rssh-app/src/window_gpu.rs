@@ -10,11 +10,17 @@ use rterm_render_wgpu::gpu::{
 };
 use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
+use crate::platform_fonts::{
+    CatalogActivation, FontCatalogMode, PlatformFontRepository, production_font_catalog_mode,
+};
+
 /// App-owned direct terminal renderer for the native wgpu surface.
 pub(crate) struct WindowGpu {
     context: Option<GpuContext>,
     renderer: Option<GpuLayerRenderer>,
     retired_renderers: Vec<GpuLayerRenderer>,
+    font_repository: PlatformFontRepository,
+    font_catalog_mode: FontCatalogMode,
     recovery: DeviceRecoveryCoordinator,
     report: Option<GpuTextPrepareReport>,
     rendered_frames: u64,
@@ -43,6 +49,129 @@ struct WindowGpuFrame<'a> {
     graph: &'a RenderGraph,
     render_mode: rssh_native::RenderMode,
     dpi_scale: f32,
+}
+
+pub(crate) enum CatalogFrameAttempt<T> {
+    Prepared(T),
+    Expanded(u64),
+}
+
+pub(crate) fn prepare_catalog_frame_with_one_restart<T>(
+    mut expected_generation: u64,
+    damage: &[DamageRegion],
+    mut prepare: impl FnMut(
+        u64,
+        &[DamageRegion],
+        bool,
+    ) -> Result<CatalogFrameAttempt<T>, Box<dyn Error>>,
+) -> Result<T, Box<dyn Error>> {
+    let mut frame_damage = damage;
+    for attempt in 0..=1 {
+        match prepare(expected_generation, frame_damage, attempt == 0)? {
+            CatalogFrameAttempt::Prepared(report) => return Ok(report),
+            CatalogFrameAttempt::Expanded(catalog_generation) if attempt == 0 => {
+                expected_generation = catalog_generation;
+                frame_damage = &[];
+            }
+            CatalogFrameAttempt::Expanded(_) => {
+                return Err(io::Error::other(
+                    "GPU font catalog expanded twice during one presented frame",
+                )
+                .into());
+            }
+        }
+    }
+    unreachable!("bounded catalog frame loop always returns")
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one app-owned transaction couples font preflight to one complete GPU text frame"
+)]
+fn prepare_gpu_text_frame(
+    font_repository: &mut PlatformFontRepository,
+    renderer: &mut GpuLayerRenderer,
+    snapshot: &TerminalRenderSnapshot,
+    geometry: RenderGeometry,
+    damage: &[DamageRegion],
+    paint: &TextPaintConfig,
+    dpi_scale: f32,
+    zoom: f32,
+) -> Result<GpuTextPrepareReport, Box<dyn Error>> {
+    font_repository.preflight_snapshot(
+        snapshot,
+        renderer
+            .text_catalog_mut()
+            .expect("window GPU text catalog is enabled"),
+    )?;
+    let expected_generation = renderer
+        .text_catalog_generation()
+        .expect("window GPU text catalog is enabled");
+    prepare_catalog_frame_with_one_restart(
+        expected_generation,
+        damage,
+        |expected_generation, frame_damage, can_expand| {
+            let prepared = renderer.prepare_text_for_catalog_generation(
+                expected_generation,
+                snapshot,
+                geometry,
+                frame_damage,
+                paint,
+                dpi_scale,
+                zoom,
+            )?;
+            let expansion = prepared.catalog_expansion();
+            if let Some(report) = prepared.into_prepared() {
+                if can_expand && !report.missing_glyphs.is_empty() {
+                    let activation = match font_repository.activate_missing_glyphs(
+                        &report.missing_glyphs,
+                        renderer
+                            .text_catalog_mut()
+                            .expect("window GPU text catalog is enabled"),
+                    ) {
+                        Ok(activation) => activation,
+                        Err(activation_error) => {
+                            if let Err(discard_error) = renderer.discard_prepared_text_frame() {
+                                return Err(io::Error::other(format!(
+                                    "late font activation failed: {activation_error}; discarding the partial GPU text frame also failed: {discard_error}"
+                                ))
+                                .into());
+                            }
+                            return Err(io::Error::other(format!(
+                                "late font activation failed after discarding the partial GPU text frame: {activation_error}"
+                            ))
+                            .into());
+                        }
+                    };
+                    if let CatalogActivation::CatalogExpanded {
+                        catalog_generation, ..
+                    } = activation
+                    {
+                        renderer.discard_prepared_text_frame()?;
+                        return Ok(CatalogFrameAttempt::Expanded(catalog_generation));
+                    }
+                }
+                return Ok(CatalogFrameAttempt::Prepared(report));
+            }
+            let Some((_, catalog_generation)) = expansion else {
+                return Err(io::Error::other("GPU text returned no frame outcome").into());
+            };
+            Ok(CatalogFrameAttempt::Expanded(catalog_generation))
+        },
+    )
+}
+
+fn retire_lost_renderer_before_rebuild<T>(
+    lost_renderer: &mut GpuLayerRenderer,
+    rebuild: impl FnOnce(&GpuLayerRenderer) -> Result<T, Box<dyn Error>>,
+) -> Result<T, Box<dyn Error>> {
+    lost_renderer.retire_text_cpu_font_state();
+    rebuild(lost_renderer).map_err(|error| {
+        io::Error::other(format!(
+            "rebuild GPU renderer after retiring lost CPU font state: {error}"
+        ))
+        .into()
+    })
 }
 
 #[derive(Debug, Default)]
@@ -251,11 +380,16 @@ impl WindowGpu {
         prepared: PreparedWindowGpu,
     ) -> Result<Self, Box<dyn Error>> {
         let context = GpuContext::finish_windowed(prepared.context).await?;
-        let renderer = bundled_emergency_text_backend(&context)?;
+        let font_catalog_mode = production_font_catalog_mode();
+        let mut font_repository = PlatformFontRepository::production_index();
+        let catalog = font_repository.build_catalog(font_catalog_mode)?;
+        let renderer = bundled_emergency_text_backend(&context, catalog)?;
         Ok(Self {
             context: Some(context),
             renderer: Some(renderer),
             retired_renderers: Vec::new(),
+            font_repository,
+            font_catalog_mode,
             recovery: DeviceRecoveryCoordinator::default(),
             report: None,
             rendered_frames: 0,
@@ -351,18 +485,20 @@ impl WindowGpu {
         frame: &WindowGpuFrame<'_>,
     ) -> Result<(GpuFrameStatus, GpuTextPrepareReport), Box<dyn Error>> {
         let damage = presentation_damage(frame.render_mode, frame.damage);
-        let report = self
+        let renderer = self
             .renderer
             .as_mut()
-            .expect("window GPU renderer is available before shutdown")
-            .prepare_text(
-                frame.snapshot,
-                frame.geometry,
-                damage,
-                frame.paint,
-                frame.dpi_scale,
-                1.0,
-            )?;
+            .expect("window GPU renderer is available before shutdown");
+        let report = prepare_gpu_text_frame(
+            &mut self.font_repository,
+            renderer,
+            frame.snapshot,
+            frame.geometry,
+            damage,
+            frame.paint,
+            frame.dpi_scale,
+            1.0,
+        )?;
         let status = self
             .context
             .as_mut()
@@ -382,7 +518,20 @@ impl WindowGpu {
     fn rebuild_device_and_layers(&mut self) -> Result<(), Box<dyn Error>> {
         pollster::block_on(self.context_mut().recover_device())?;
         self.replaced_device = true;
-        let renderer = match bundled_emergency_text_backend(self.context()) {
+        let font_catalog_mode = self.font_catalog_mode;
+        let font_repository = &self.font_repository;
+        let context = self
+            .context
+            .as_ref()
+            .expect("window GPU context is available before shutdown");
+        let lost_renderer = self
+            .renderer
+            .as_mut()
+            .expect("lost renderer is available before recovery");
+        let renderer = match retire_lost_renderer_before_rebuild(lost_renderer, |_| {
+            let catalog = font_repository.rebuild_catalog_from_active(font_catalog_mode)?;
+            bundled_emergency_text_backend(context, catalog)
+        }) {
             Ok(renderer) => renderer,
             Err(error) => {
                 self.context_mut().record_device_recovery_failure();
@@ -507,6 +656,8 @@ impl WindowGpu {
             context: Some(context),
             renderer: None,
             retired_renderers: Vec::new(),
+            font_repository: PlatformFontRepository::production_index_for_os("test"),
+            font_catalog_mode: production_font_catalog_mode(),
             recovery: DeviceRecoveryCoordinator::default(),
             report: None,
             rendered_frames: 0,
@@ -536,12 +687,6 @@ impl WindowGpu {
         self.report
             .as_ref()
             .map(|report| (report, self.rendered_frames))
-    }
-
-    fn context(&self) -> &GpuContext {
-        self.context
-            .as_ref()
-            .expect("window GPU context is available before shutdown")
     }
 
     fn context_mut(&mut self) -> &mut GpuContext {
@@ -609,10 +754,10 @@ fn release_renderers_before_context<Renderer, Context>(
 
 fn bundled_emergency_text_backend(
     context: &GpuContext,
+    catalog: rssh_fonts::FontCatalog,
 ) -> Result<GpuLayerRenderer, Box<dyn Error>> {
     use rssh_fonts::RasterCacheConfig;
 
-    let catalog = bundled_emergency_font_catalog()?;
     let font_config = bundled_emergency_font_config();
     let format = context
         .surface_format()
@@ -626,142 +771,10 @@ fn bundled_emergency_text_backend(
     Ok(renderer)
 }
 
+#[cfg(test)]
 fn bundled_emergency_font_catalog() -> Result<rssh_fonts::FontCatalog, Box<dyn Error>> {
-    use rssh_fonts::{FontCatalog, FontSource};
-
-    let mut catalog = FontCatalog::from_sources(
-        "en-US",
-        [
-            FontSource::new(
-                "NotoSans-Latin.fixture.ttf",
-                include_bytes!("../../../tests/fixtures/fonts/NotoSans-Latin.fixture.ttf").to_vec(),
-            ),
-            FontSource::new(
-                "NotoSansSC-CJK.fixture.ttf",
-                include_bytes!("../../../tests/fixtures/fonts/NotoSansSC-CJK.fixture.ttf").to_vec(),
-            ),
-            FontSource::new(
-                "NotoSansArabic.fixture.ttf",
-                include_bytes!("../../../tests/fixtures/fonts/NotoSansArabic.fixture.ttf").to_vec(),
-            ),
-            FontSource::new(
-                "NotoSansDevanagari.fixture.ttf",
-                include_bytes!("../../../tests/fixtures/fonts/NotoSansDevanagari.fixture.ttf")
-                    .to_vec(),
-            ),
-            FontSource::new(
-                "NotoSansHebrew.fixture.ttf",
-                include_bytes!("../../../tests/fixtures/fonts/NotoSansHebrew.fixture.ttf").to_vec(),
-            ),
-            FontSource::new(
-                "NotoSansSymbols2.fixture.ttf",
-                include_bytes!("../../../tests/fixtures/fonts/NotoSansSymbols2.fixture.ttf")
-                    .to_vec(),
-            ),
-            FontSource::new(
-                "NotoColorEmoji.fixture.ttf",
-                include_bytes!("../../../tests/fixtures/fonts/NotoColorEmoji.fixture.ttf").to_vec(),
-            ),
-        ],
-    )?;
-    load_platform_font_sources(&mut catalog);
-    Ok(catalog)
-}
-
-fn load_platform_font_sources(catalog: &mut rssh_fonts::FontCatalog) {
-    use rssh_fonts::FontSource;
-
-    #[cfg(target_os = "windows")]
-    const CANDIDATES: &[(&str, &str)] = &[
-        (
-            "CascadiaMono.system.ttf",
-            r"C:\Windows\Fonts\CascadiaMono.ttf",
-        ),
-        (
-            "CascadiaCode.system.ttf",
-            r"C:\Windows\Fonts\CascadiaCode.ttf",
-        ),
-        (
-            "SourceCodePro.system.ttf",
-            r"C:\Windows\Fonts\SourceCodePro-Regular.ttf",
-        ),
-        ("Consolas.system.ttf", r"C:\Windows\Fonts\consola.ttf"),
-        (
-            "NotoSansSC.system.ttf",
-            r"C:\Windows\Fonts\NotoSansSC-VF.ttf",
-        ),
-        (
-            "NotoSansJP.system.ttf",
-            r"C:\Windows\Fonts\NotoSansJP-VF.ttf",
-        ),
-        ("MicrosoftYaHei.system.ttc", r"C:\Windows\Fonts\msyh.ttc"),
-        ("Meiryo.system.ttc", r"C:\Windows\Fonts\meiryo.ttc"),
-        ("MalgunGothic.system.ttf", r"C:\Windows\Fonts\malgun.ttf"),
-        ("SegoeUI.system.ttf", r"C:\Windows\Fonts\segoeui.ttf"),
-        ("NirmalaUI.system.ttc", r"C:\Windows\Fonts\Nirmala.ttc"),
-        ("SegoeUIEmoji.system.ttf", r"C:\Windows\Fonts\seguiemj.ttf"),
-    ];
-    #[cfg(target_os = "linux")]
-    const CANDIDATES: &[(&str, &str)] = &[
-        (
-            "NotoSansMono.system.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
-        ),
-        (
-            "DejaVuSansMono.system.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        ),
-        (
-            "NotoSansCJK.system.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        ),
-        (
-            "NotoSansArabic.system.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf",
-        ),
-        (
-            "NotoSansDevanagari.system.ttf",
-            "/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf",
-        ),
-        (
-            "NotoColorEmoji.system.ttf",
-            "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-        ),
-    ];
-    #[cfg(target_os = "macos")]
-    const CANDIDATES: &[(&str, &str)] = &[
-        ("Menlo.system.ttc", "/System/Library/Fonts/Menlo.ttc"),
-        ("Monaco.system.dfont", "/System/Library/Fonts/Monaco.dfont"),
-        (
-            "HiraginoSansGB.system.ttc",
-            "/System/Library/Fonts/Hiragino Sans GB.ttc",
-        ),
-        (
-            "HiraginoSans.system.ttc",
-            "/System/Library/Fonts/Hiragino Sans.ttc",
-        ),
-        (
-            "AppleSDGothicNeo.system.ttc",
-            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        ),
-        (
-            "ArialUnicode.system.ttf",
-            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-        ),
-        (
-            "AppleColorEmoji.system.ttc",
-            "/System/Library/Fonts/Apple Color Emoji.ttc",
-        ),
-    ];
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-    const CANDIDATES: &[(&str, &str)] = &[];
-
-    for &(label, path) in CANDIDATES {
-        let Ok(source) = FontSource::from_file(path) else {
-            continue;
-        };
-        let _ = catalog.load_source(FontSource::new(label, source.bytes().to_vec()));
-    }
+    let mut repository = PlatformFontRepository::production_index();
+    repository.build_catalog(production_font_catalog_mode())
 }
 
 fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
@@ -911,6 +924,248 @@ mod tests {
         assert_eq!(
             presentation_damage(rssh_native::RenderMode::Damage, &damage),
             damage
+        );
+    }
+
+    #[test]
+    fn gpu_text_frame_late_missing_activates_next_source_and_restarts_without_tofu() {
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut repository = PlatformFontRepository::late_missing_fixture();
+        let catalog = repository
+            .build_catalog(FontCatalogMode::Lazy)
+            .expect("primary catalog");
+        let mut renderer =
+            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        renderer
+            .enable_text(
+                catalog,
+                bundled_emergency_font_config(),
+                GpuTextConfig::new(
+                    4 * 1024 * 1024,
+                    rssh_fonts::RasterCacheConfig::new(4 * 1024 * 1024),
+                ),
+            )
+            .expect("GPU text");
+        let geometry = RenderGeometry::new(8 * 16, 2 * 24, 16, 24);
+        let paint = TextPaintConfig::default();
+
+        let mut priming_terminal = Terminal::new(TerminalSize::new(8, 2));
+        priming_terminal.feed(b"ASCII\r\nrow");
+        prepare_gpu_text_frame(
+            &mut repository,
+            &mut renderer,
+            &TerminalRenderSnapshot::from_terminal(&priming_terminal),
+            geometry,
+            &[],
+            &paint,
+            1.0,
+            1.0,
+        )
+        .expect("prime generation one rows");
+
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+        terminal.feed("ASCII\r\n中文".as_bytes());
+        let report = prepare_gpu_text_frame(
+            &mut repository,
+            &mut renderer,
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            geometry,
+            &[DamageRegion::new(0, 1, 2, 1)],
+            &paint,
+            1.0,
+            1.0,
+        )
+        .expect("late missing source expansion and one full-frame retry");
+
+        assert_eq!(report.catalog_generation, 3);
+        assert_eq!(report.prepared_rows, [0, 1]);
+        assert!(report.missing_glyphs.is_empty());
+        let diagnostics = repository.diagnostics();
+        assert_eq!(diagnostics.active_source_count, 3);
+        assert_eq!(diagnostics.generation, 3);
+    }
+
+    #[test]
+    fn gpu_text_frame_second_late_missing_stays_tofu_without_a_second_expansion() {
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut repository = PlatformFontRepository::repeated_late_missing_fixture();
+        let catalog = repository
+            .build_catalog(FontCatalogMode::Lazy)
+            .expect("primary catalog");
+        let mut renderer =
+            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        renderer
+            .enable_text(
+                catalog,
+                bundled_emergency_font_config(),
+                GpuTextConfig::new(
+                    4 * 1024 * 1024,
+                    rssh_fonts::RasterCacheConfig::new(4 * 1024 * 1024),
+                ),
+            )
+            .expect("GPU text");
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed("中文".as_bytes());
+
+        let report = prepare_gpu_text_frame(
+            &mut repository,
+            &mut renderer,
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            RenderGeometry::new(4 * 16, 24, 16, 24),
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("one late expansion followed by stable tofu");
+
+        assert_eq!(report.catalog_generation, 3);
+        assert_eq!(report.missing_glyphs, ['中', '文']);
+        let diagnostics = repository.diagnostics();
+        assert_eq!(diagnostics.active_source_count, 3);
+        assert_eq!(diagnostics.generation, 3);
+    }
+
+    #[test]
+    fn gpu_text_frame_invalid_late_fallback_discards_partial_state_before_error() {
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut repository = PlatformFontRepository::invalid_late_missing_fixture();
+        let catalog = repository
+            .build_catalog(FontCatalogMode::Lazy)
+            .expect("primary catalog");
+        let mut renderer =
+            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        renderer
+            .enable_text(
+                catalog,
+                bundled_emergency_font_config(),
+                GpuTextConfig::new(
+                    4 * 1024 * 1024,
+                    rssh_fonts::RasterCacheConfig::new(4 * 1024 * 1024),
+                ),
+            )
+            .expect("GPU text");
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed("中文".as_bytes());
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        for _ in 0..2 {
+            let error = prepare_gpu_text_frame(
+                &mut repository,
+                &mut renderer,
+                &snapshot,
+                RenderGeometry::new(4 * 16, 24, 16, 24),
+                &[],
+                &TextPaintConfig::default(),
+                1.0,
+                1.0,
+            )
+            .expect_err("readable invalid late fallback must fail");
+            let cpu = renderer.text_cpu_font_metrics().expect("font metrics");
+            assert_eq!(cpu.row_cache_entries, 0);
+            assert_eq!(cpu.payload_bytes, 0);
+            let atlas = renderer.text_atlas_metrics().expect("atlas metrics");
+            assert_eq!(atlas.entries, 0);
+            assert_eq!(atlas.payload_bytes, 0);
+            assert!(error.to_string().contains("late font activation failed"));
+        }
+    }
+
+    #[test]
+    fn recovery_retires_real_cpu_font_state_before_building_the_replacement() {
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut repository = PlatformFontRepository::late_missing_fixture();
+        let catalog = repository
+            .build_catalog(FontCatalogMode::CurrentCopied)
+            .expect("active copied catalog");
+        let mut lost = GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("lost renderer");
+        lost.enable_text(
+            catalog,
+            bundled_emergency_font_config(),
+            GpuTextConfig::new(
+                4 * 1024 * 1024,
+                rssh_fonts::RasterCacheConfig::new(4 * 1024 * 1024),
+            ),
+        )
+        .expect("lost text state");
+        let old_bytes = lost
+            .text_cpu_font_metrics()
+            .expect("lost font metrics")
+            .catalog
+            .retained_source_bytes;
+        assert!(old_bytes > 0);
+        let peak = Cell::new(old_bytes);
+
+        let replacement = retire_lost_renderer_before_rebuild(&mut lost, |retired| {
+            let retired_metrics = retired.text_cpu_font_metrics().expect("retired metrics");
+            assert_eq!(retired_metrics.catalog.retained_source_bytes, 0);
+            let recovered_catalog = repository
+                .rebuild_catalog_from_active(FontCatalogMode::CurrentCopied)
+                .expect("recovered active catalog");
+            let mut replacement =
+                GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("replacement renderer");
+            replacement
+                .enable_text(
+                    recovered_catalog,
+                    bundled_emergency_font_config(),
+                    GpuTextConfig::new(
+                        4 * 1024 * 1024,
+                        rssh_fonts::RasterCacheConfig::new(4 * 1024 * 1024),
+                    ),
+                )
+                .expect("replacement text state");
+            let replacement_bytes = replacement
+                .text_cpu_font_metrics()
+                .expect("replacement metrics")
+                .catalog
+                .retained_source_bytes;
+            peak.set(peak.get().max(replacement_bytes));
+            Ok::<_, Box<dyn Error>>(replacement)
+        })
+        .expect("retire then rebuild");
+
+        assert_eq!(
+            lost.text_cpu_font_metrics()
+                .expect("retired metrics")
+                .catalog
+                .retained_source_bytes,
+            0
+        );
+        assert!(
+            replacement
+                .text_cpu_font_metrics()
+                .expect("replacement metrics")
+                .catalog
+                .retained_source_bytes
+                > 0
+        );
+        assert_eq!(peak.get(), old_bytes, "old and new bytes must not overlap");
+
+        let mut failed = replacement;
+        let error = retire_lost_renderer_before_rebuild(&mut failed, |retired| {
+            assert_eq!(
+                retired
+                    .text_cpu_font_metrics()
+                    .expect("failed retired metrics")
+                    .catalog
+                    .retained_source_bytes,
+                0
+            );
+            Err::<GpuLayerRenderer, _>(io::Error::other("injected replacement failure").into())
+        })
+        .expect_err("replacement failure must remain fail closed");
+        assert!(error.to_string().contains("injected replacement failure"));
+        assert_eq!(
+            failed
+                .text_cpu_font_metrics()
+                .expect("failed renderer metrics")
+                .catalog
+                .active_source_count,
+            0
         );
     }
 
@@ -1140,6 +1395,8 @@ mod tests {
             context: Some(context),
             renderer: None,
             retired_renderers: Vec::new(),
+            font_repository: PlatformFontRepository::production_index_for_os("test"),
+            font_catalog_mode: production_font_catalog_mode(),
             recovery: DeviceRecoveryCoordinator::default(),
             report: None,
             rendered_frames: 0,
@@ -1167,6 +1424,8 @@ mod tests {
             context: Some(context),
             renderer: None,
             retired_renderers: Vec::new(),
+            font_repository: PlatformFontRepository::production_index_for_os("test"),
+            font_catalog_mode: production_font_catalog_mode(),
             recovery: DeviceRecoveryCoordinator::default(),
             report: None,
             rendered_frames: 0,
@@ -1195,6 +1454,8 @@ mod tests {
             context: Some(context),
             renderer: None,
             retired_renderers: Vec::new(),
+            font_repository: PlatformFontRepository::production_index_for_os("test"),
+            font_catalog_mode: production_font_catalog_mode(),
             recovery: DeviceRecoveryCoordinator::default(),
             report: None,
             rendered_frames: 0,

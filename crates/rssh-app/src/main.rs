@@ -23,6 +23,7 @@ mod diagnostics;
 mod functional_observer;
 mod local;
 mod platform;
+mod platform_fonts;
 mod profiles;
 mod runtime_composition;
 #[cfg(feature = "transfer-tools")]
