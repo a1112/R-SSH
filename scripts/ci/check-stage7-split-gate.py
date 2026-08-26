@@ -50,7 +50,7 @@ STATES = (
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FROZEN_LKG = "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
-FROZEN_CONTRACT_SHA256 = "f6de6737e1c40cadd934ea899bb9c50856e2e57cb082e15fc2a5d9638f4f6e71"
+FROZEN_CONTRACT_SHA256 = "fe9fe188036ca114275d7064237c269a8b44d7d874681a422cc7b201f2e9408c"
 MAX_JSON_BYTES = 768 * 1024 * 1024
 JSON_READ_CHUNK_BYTES = 1024 * 1024
 MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
@@ -232,7 +232,11 @@ ENTRY_REQUIRED = {
     "cohort_id",
     "children",
 }
-ENTRY_OPTIONAL = {"binary_hashes", "runner_fingerprint_sha256"}
+ENTRY_OPTIONAL = {
+    "binary_hashes",
+    "runner_fingerprint_sha256",
+    "certification_eligible",
+}
 _SAFE_GIT_CONTROL_SNAPSHOTS: dict[str, tuple[Path, tuple[Any, ...]]] = {}
 _POISONED_GIT_ROOTS: set[str] = set()
 _STRICT_GIT_REPLAY_CACHE: set[str] = set()
@@ -434,6 +438,7 @@ def validate_json_schema(
             "array": isinstance(instance, list),
             "string": isinstance(instance, str),
             "integer": isinstance(instance, int) and not isinstance(instance, bool),
+            "boolean": isinstance(instance, bool),
             "null": instance is None,
         }
         if expected_type not in type_matches:
@@ -752,6 +757,20 @@ def validate_contract(contract_path: Path) -> tuple[dict[str, Any] | None, list[
     font_catalog_policy = policies.get("font-catalog-fingerprint", {})
     if font_catalog_policy.get("frame_generation_scope") != "per-specimen-record":
         violations.append("font frame generation scope must be per-specimen-record")
+    certification_artifacts = {
+        artifact_type
+        for artifact_type, policy in policies.items()
+        if isinstance(policy, dict) and policy.get("certification_eligible") is True
+    }
+    if certification_artifacts != {
+        "font-ownership-raw",
+        "font-ownership-aggregate",
+        "runner-fingerprint",
+        "font-catalog-fingerprint",
+    }:
+        violations.append(
+            "font certification eligibility policy differs from the frozen artifact set"
+        )
     expected_font_claims = {
         "catalog_policy_version": {"kind": "non-empty-string"},
         "ordered_sources_hashed": {"kind": "exact", "value": True},
@@ -2611,12 +2630,17 @@ def validate_metric_artifact(
             "timeout_seconds",
             "protocol",
             "groups",
+            "certification_eligible",
         },
         label,
         violations,
     )
     if artifact.get("schema") != RAW_SCHEMA:
         violations.append(f"{label}: raw metric schema must be {RAW_SCHEMA}")
+    if policy.get("certification_eligible") is True and artifact.get(
+        "certification_eligible"
+    ) is not True:
+        violations.append(f"{label}: certification_eligible must be true")
     if artifact.get("warmups") != 5 or artifact.get("measured_cold_processes") != 30:
         violations.append(f"{label}: raw metric must retain exactly 5 warmups and 30 measured processes")
     warmup_ids = artifact.get("warmup_process_ids")
@@ -3148,6 +3172,9 @@ def validate_result_artifact(
     violations: list[str],
 ) -> None:
     allowed = {"schema", "identity", "ok", "proof", "claims"}
+    policy = contract["artifact_policies"].get(artifact_type, {})
+    if policy.get("certification_eligible") is True:
+        allowed.add("certification_eligible")
     allowed.update(
         {
             "runner-fingerprint": {"fingerprint_sha256"},
@@ -3179,6 +3206,10 @@ def validate_result_artifact(
         }.get(artifact_type, set())
     )
     reject_unknown_fields(artifact, allowed, label, violations)
+    if policy.get("certification_eligible") is True and artifact.get(
+        "certification_eligible"
+    ) is not True:
+        violations.append(f"{label}: certification_eligible must be true")
     if artifact.get("schema") != RESULT_SCHEMA or artifact.get("ok") is not True:
         violations.append(f"{label}: result artifact must be a successful {RESULT_SCHEMA} object")
         return
@@ -3596,6 +3627,10 @@ def validate_entry_shape(
             violations.append(f"{label}: runner fingerprint identity is required")
     elif "runner_fingerprint_sha256" in entry and not is_sha256(entry["runner_fingerprint_sha256"]):
         violations.append(f"{label}: runner fingerprint must be a SHA-256")
+    if policy.get("certification_eligible") is True and entry.get(
+        "certification_eligible"
+    ) is not True:
+        violations.append(f"{label}: certification_eligible must be true")
     if not is_sha256(entry.get("sha256")):
         violations.append(f"{label}: artifact SHA-256 must be embedded in the manifest")
     return entry
@@ -4330,13 +4365,26 @@ def validate_manifest_recursive(
         aggregate = artifacts.get(aggregate_id, {})
         reject_unknown_fields(
             aggregate,
-            {"schema", "identity", "ok", "raw_children", "group_statistics"},
+            {
+                "schema",
+                "identity",
+                "ok",
+                "raw_children",
+                "group_statistics",
+                "certification_eligible",
+            },
             f"artifact {aggregate_id}",
             violations,
         )
         if aggregate.get("schema") != AGGREGATE_SCHEMA or aggregate.get("ok") is not True:
             violations.append(f"artifact {aggregate_id}: aggregate schema/result is invalid")
             continue
+        if policy.get("certification_eligible") is True and aggregate.get(
+            "certification_eligible"
+        ) is not True:
+            violations.append(
+                f"artifact {aggregate_id}: certification_eligible must be true"
+            )
         children = aggregate.get("raw_children")
         expected_children = sorted(
             entry["artifact_id"]

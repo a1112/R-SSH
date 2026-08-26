@@ -1,6 +1,6 @@
 {
   "schema": "rssh.stage7-split-contract/v1",
-  "evidence_manifest_schema_sha256": "f527008cf109e24fc68b6ed0d5d42d60f65e9b1eab24745cde0b6323241d96b4",
+  "evidence_manifest_schema_sha256": "a40a81b1a4739a9d7034e5d9737f7a4b4ab6b4c0146a7d7f026f191971fe0afd",
   "initial_state": "blocked",
   "no_go_reason": "Stage 7 physical repository split remains NO-GO until immutable raw evidence proves a later state.",
   "states": [
@@ -716,12 +716,12 @@
     ]
   },
   "artifact_policies": {
-    "font-ownership-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "font_ownership_ready", "required_groups": ["current-copied/ascii", "shared-all/ascii", "lazy/ascii"]},
-    "font-ownership-aggregate": {"content_kind": "aggregate", "raw_children": ["font-ownership-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "p50_reductions": [{"minuend_group": "current-copied/ascii", "subtrahend_group": "shared-all/ascii", "minimum_bytes": 67108864}, {"minuend_group": "shared-all/ascii", "subtrahend_group": "lazy/ascii", "minimum_bytes": 33554432}]},
+    "font-ownership-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "certification_eligible": true, "owner_ready_marker": "font_ownership_ready", "required_groups": ["current-copied/ascii", "shared-all/ascii", "lazy/ascii"]},
+    "font-ownership-aggregate": {"content_kind": "aggregate", "raw_children": ["font-ownership-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "certification_eligible": true, "p50_reductions": [{"minuend_group": "current-copied/ascii", "subtrahend_group": "shared-all/ascii", "minimum_bytes": 67108864}, {"minuend_group": "shared-all/ascii", "subtrahend_group": "lazy/ascii", "minimum_bytes": 33554432}]},
     "attribution-matrix-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "attribution_stage_ready", "matrix_stages": ["cpu-window", "instance-surface", "adapter-device", "configured-surface-clear", "layer-pipelines", "fixture-font-text", "platform-font-index", "full-frame"], "matrix_backends": ["auto", "dx12", "vulkan", "gl"]},
     "attribution-matrix-aggregate": {"content_kind": "aggregate", "raw_children": ["attribution-matrix-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
-    "runner-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": false, "runner_identity": false},
-    "font-catalog-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "frame_generation_scope": "per-specimen-record"},
+    "runner-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": false, "runner_identity": false, "certification_eligible": true},
+    "font-catalog-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "certification_eligible": true, "frame_generation_scope": "per-specimen-record"},
     "local-two-bare-git-source-proof": {"content_kind": "result", "platform": "repository", "binary_identity": false, "runner_identity": false},
     "attribution-deterministic-tests": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
     "windows-release-build-provenance": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},

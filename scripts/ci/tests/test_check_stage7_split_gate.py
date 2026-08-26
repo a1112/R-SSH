@@ -1007,6 +1007,92 @@ class Stage7SplitGateTests(unittest.TestCase):
             },
         )
 
+    def test_font_proof_payloads_and_entries_require_certification_eligibility(self) -> None:
+        font_artifacts = (
+            "font-ownership-raw",
+            "font-ownership-aggregate",
+            "runner-fingerprint",
+            "font-catalog-fingerprint",
+        )
+        self.assertEqual(
+            {
+                artifact_type
+                for artifact_type, policy in self.contract["artifact_policies"].items()
+                if policy.get("certification_eligible") is True
+            },
+            set(font_artifacts),
+        )
+        self.assertEqual(
+            self.schema["$defs"]["entry"]["properties"]["certification_eligible"],
+            {"type": "boolean"},
+        )
+        schema_violations: list[str] = []
+        self.checker.validate_json_schema(
+            True,
+            {"type": "boolean"},
+            self.schema,
+            "certification flag",
+            schema_violations,
+        )
+        self.assertEqual(schema_violations, [])
+
+        for artifact_type in font_artifacts:
+            for invalid in (None, False):
+                with self.subTest(
+                    surface="payload", artifact_type=artifact_type, invalid=invalid
+                ), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    manifest = self.build_chain(root, "attribution-ready")[
+                        "attribution-ready"
+                    ]
+
+                    def invalidate_payload(payload: dict) -> None:
+                        if invalid is None:
+                            payload.pop("certification_eligible")
+                        else:
+                            payload["certification_eligible"] = invalid
+
+                    self.mutate_artifact(
+                        root, manifest, artifact_type, invalidate_payload
+                    )
+                    decision = self.checker.validate_gate(
+                        CONTRACT_PATH, "attribution-ready", manifest
+                    )
+                    self.assertFalse(decision["ok"], decision)
+                    self.assertTrue(
+                        any(
+                            "certification_eligible" in violation
+                            for violation in decision["violations"]
+                        ),
+                        decision,
+                    )
+
+                with self.subTest(
+                    surface="entry", artifact_type=artifact_type, invalid=invalid
+                ), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    fragment = self.make_fragment(root, "attribution-ready")
+                    data = json.loads(fragment.read_text(encoding="utf-8"))
+                    entry = next(
+                        item
+                        for item in data["entries"]
+                        if item["artifact_type"] == artifact_type
+                    )
+                    if invalid is None:
+                        entry.pop("certification_eligible")
+                    else:
+                        entry["certification_eligible"] = invalid
+                    write_json(fragment, data)
+                    with self.assertRaises(self.assembler.EvidenceError) as error:
+                        self.assembler.assemble(
+                            CONTRACT_PATH,
+                            "attribution-ready",
+                            root,
+                            [fragment],
+                            root / "manifest.json",
+                        )
+                    self.assertIn("certification_eligible", str(error.exception))
+
     def test_font_catalog_functional_specimens_are_derived_not_self_attested(self) -> None:
         specimens = self.font_functional_specimens()
         for specimen in specimens:
@@ -1021,6 +1107,7 @@ class Stage7SplitGateTests(unittest.TestCase):
             specimen["frame_catalog_generation"] = generation
         payload = {
             "schema": "rssh.stage7.result/v1",
+            "certification_eligible": True,
             "identity": {
                 "source_sha": SOURCE_SHA,
                 "binary_hashes": {"rssh.exe": BINARY_SHA},
@@ -4071,6 +4158,8 @@ class Stage7SplitGateTests(unittest.TestCase):
                     "children": payload.get("raw_children", []),
                     **identity,
                 }
+                if policy.get("certification_eligible") is True:
+                    entry["certification_eligible"] = True
                 entry["cohort_id"] = self.checker.cohort_id(entry)
                 entries.append(entry)
                 if policy["content_kind"] == "raw-metric":
@@ -4105,14 +4194,17 @@ class Stage7SplitGateTests(unittest.TestCase):
     ) -> dict:
         kind = policy["content_kind"]
         if kind == "raw-metric":
-            return self.make_metric_payload(artifact_type, policy, identity)
+            payload = self.make_metric_payload(artifact_type, policy, identity)
+            if policy.get("certification_eligible") is True:
+                payload["certification_eligible"] = True
+            return payload
         if kind == "aggregate":
             raw_children = [
                 (raw_id, raw)
                 for raw_child_type in policy["raw_children"]
                 for raw_id, raw in raw_payloads[raw_child_type]
             ]
-            return {
+            payload = {
                 "schema": "rssh.stage7.metric-aggregate/v1",
                 "identity": identity,
                 "ok": True,
@@ -4123,6 +4215,9 @@ class Stage7SplitGateTests(unittest.TestCase):
                     for group in raw["groups"]
                 ],
             }
+            if policy.get("certification_eligible") is True:
+                payload["certification_eligible"] = True
+            return payload
         claims = {
             name: self.claim_value(rule, rssh_epoch, rterm_epoch)
             for name, rule in self.contract["result_claims"][artifact_type].items()
@@ -4134,6 +4229,8 @@ class Stage7SplitGateTests(unittest.TestCase):
             "proof": artifact_type,
             "claims": claims,
         }
+        if policy.get("certification_eligible") is True:
+            payload["certification_eligible"] = True
         if artifact_type == "runner-fingerprint":
             payload["fingerprint_sha256"] = RUNNER_SHA
         elif artifact_type == "font-catalog-fingerprint":
@@ -4365,7 +4462,7 @@ class Stage7SplitGateTests(unittest.TestCase):
                     group["lkg"]["actual_backend"] = group["actual_backend"]
                     group["lkg"]["adapter_identity"] = group["adapter_identity"]
             groups.append(group)
-        return {
+        payload = {
             "schema": "rssh.stage7.metric-raw/v1",
             "identity": identity,
             "warmups": 5,
@@ -4375,6 +4472,9 @@ class Stage7SplitGateTests(unittest.TestCase):
             "protocol": protocol,
             "groups": groups,
         }
+        if policy.get("certification_eligible") is True:
+            payload["certification_eligible"] = True
+        return payload
 
     def metric_protocol(self, policy: dict) -> dict:
         protocol = {
