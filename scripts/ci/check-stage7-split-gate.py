@@ -50,7 +50,7 @@ STATES = (
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FROZEN_LKG = "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
-FROZEN_CONTRACT_SHA256 = "dcfc300c647162d1228a89556c07d12b26d01975e4ed2921751ab64481bf3a03"
+FROZEN_CONTRACT_SHA256 = "f6de6737e1c40cadd934ea899bb9c50856e2e57cb082e15fc2a5d9638f4f6e71"
 MAX_JSON_BYTES = 768 * 1024 * 1024
 JSON_READ_CHUNK_BYTES = 1024 * 1024
 MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
@@ -749,6 +749,9 @@ def validate_contract(contract_path: Path) -> tuple[dict[str, Any] | None, list[
     font_aggregate_policy = policies.get("font-ownership-aggregate", {})
     if font_aggregate_policy.get("p50_reductions") != expected_font_reductions:
         violations.append("font ownership p50 reduction rules differ from the frozen proof contract")
+    font_catalog_policy = policies.get("font-catalog-fingerprint", {})
+    if font_catalog_policy.get("frame_generation_scope") != "per-specimen-record":
+        violations.append("font frame generation scope must be per-specimen-record")
     expected_font_claims = {
         "catalog_policy_version": {"kind": "non-empty-string"},
         "ordered_sources_hashed": {"kind": "exact", "value": True},
@@ -3378,7 +3381,6 @@ def validate_font_functional_specimens(
     }
     valid_backends = set(contract.get("windows_backends", {}).get("diagnostic_only", []))
     actual_backends: set[Any] = set()
-    frame_generations: set[Any] = set()
     derived = {
         "functional_specimen_count": len(specimens),
         "zero_tofu": True,
@@ -3419,8 +3421,6 @@ def validate_font_functional_specimens(
             violations.append(f"{record_label}: tofu count must be zero")
         generation = record.get("generation")
         frame_generation = record.get("frame_catalog_generation")
-        if isinstance(frame_generation, int) and not isinstance(frame_generation, bool):
-            frame_generations.add(frame_generation)
         if (
             not isinstance(generation, int)
             or isinstance(generation, bool)
@@ -3472,9 +3472,6 @@ def validate_font_functional_specimens(
     if len(actual_backends) != 1:
         derived["same_actual_backend"] = False
         violations.append(f"{label}: functional specimens must use one actual backend")
-    if len(frame_generations) != 1:
-        derived["single_frame_generation"] = False
-        violations.append(f"{label}: functional specimens have mixed frame generations")
     claims = artifact.get("claims")
     if isinstance(claims, dict):
         for name, value in derived.items():

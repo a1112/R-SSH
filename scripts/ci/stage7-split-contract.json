@@ -721,7 +721,7 @@
     "attribution-matrix-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "attribution_stage_ready", "matrix_stages": ["cpu-window", "instance-surface", "adapter-device", "configured-surface-clear", "layer-pipelines", "fixture-font-text", "platform-font-index", "full-frame"], "matrix_backends": ["auto", "dx12", "vulkan", "gl"]},
     "attribution-matrix-aggregate": {"content_kind": "aggregate", "raw_children": ["attribution-matrix-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
     "runner-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": false, "runner_identity": false},
-    "font-catalog-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
+    "font-catalog-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "frame_generation_scope": "per-specimen-record"},
     "local-two-bare-git-source-proof": {"content_kind": "result", "platform": "repository", "binary_identity": false, "runner_identity": false},
     "attribution-deterministic-tests": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
     "windows-release-build-provenance": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},

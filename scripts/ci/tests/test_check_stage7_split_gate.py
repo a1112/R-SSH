@@ -988,6 +988,12 @@ class Stage7SplitGateTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
+            self.contract["artifact_policies"]["font-catalog-fingerprint"][
+                "frame_generation_scope"
+            ],
+            "per-specimen-record",
+        )
+        self.assertEqual(
             self.contract["result_claims"]["font-catalog-fingerprint"],
             {
                 "catalog_policy_version": {"kind": "non-empty-string"},
@@ -1003,6 +1009,16 @@ class Stage7SplitGateTests(unittest.TestCase):
 
     def test_font_catalog_functional_specimens_are_derived_not_self_attested(self) -> None:
         specimens = self.font_functional_specimens()
+        for specimen in specimens:
+            generation = {
+                "current": 7,
+                "shared": 1,
+                "lazy": 1 if specimen["requested_font_specimen"] == "ascii" else 2,
+            }[specimen["requested_font_mode"]]
+            specimen["catalog_builds"] = generation
+            specimen["generation"] = generation
+            specimen["recovery_generation"] = generation
+            specimen["frame_catalog_generation"] = generation
         payload = {
             "schema": "rssh.stage7.result/v1",
             "identity": {
