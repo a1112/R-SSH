@@ -340,7 +340,7 @@
   },
   "result_claims": {
     "runner-fingerprint": {"fingerprint_fields_complete": {"kind": "exact", "value": true}},
-    "font-catalog-fingerprint": {"catalog_policy_version": {"kind": "non-empty-string"}, "ordered_sources_hashed": {"kind": "exact", "value": true}},
+    "font-catalog-fingerprint": {"catalog_policy_version": {"kind": "non-empty-string"}, "ordered_sources_hashed": {"kind": "exact", "value": true}, "functional_specimen_count": {"kind": "exact", "value": 6}, "zero_tofu": {"kind": "exact", "value": true}, "single_frame_generation": {"kind": "exact", "value": true}, "recovery_retained_bytes_stable": {"kind": "exact", "value": true}, "same_actual_backend": {"kind": "exact", "value": true}, "activation_latency_report_only": {"kind": "exact", "value": true}},
     "local-two-bare-git-source-proof": {"object_databases_independent": {"kind": "exact", "value": true}, "immutable_refs": {"kind": "exact", "value": true}},
     "attribution-deterministic-tests": {"suite_id": {"kind": "non-empty-string"}, "passed": {"kind": "exact", "value": true}},
     "windows-release-build-provenance": {"locked": {"kind": "exact", "value": true}, "profile": {"kind": "exact", "value": "release"}, "build_provenance_sha256": {"kind": "sha256"}},
@@ -717,7 +717,7 @@
   },
   "artifact_policies": {
     "font-ownership-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "font_ownership_ready", "required_groups": ["current-copied/ascii", "shared-all/ascii", "lazy/ascii"]},
-    "font-ownership-aggregate": {"content_kind": "aggregate", "raw_children": ["font-ownership-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
+    "font-ownership-aggregate": {"content_kind": "aggregate", "raw_children": ["font-ownership-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "p50_reductions": [{"minuend_group": "current-copied/ascii", "subtrahend_group": "shared-all/ascii", "minimum_bytes": 67108864}, {"minuend_group": "shared-all/ascii", "subtrahend_group": "lazy/ascii", "minimum_bytes": 33554432}]},
     "attribution-matrix-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "attribution_stage_ready", "matrix_stages": ["cpu-window", "instance-surface", "adapter-device", "configured-surface-clear", "layer-pipelines", "fixture-font-text", "platform-font-index", "full-frame"], "matrix_backends": ["auto", "dx12", "vulkan", "gl"]},
     "attribution-matrix-aggregate": {"content_kind": "aggregate", "raw_children": ["attribution-matrix-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
     "runner-fingerprint": {"content_kind": "result", "platform": "windows-x86_64", "binary_identity": false, "runner_identity": false},

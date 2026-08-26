@@ -50,7 +50,7 @@ STATES = (
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FROZEN_LKG = "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
-FROZEN_CONTRACT_SHA256 = "45d6584de6a47269cefa77d8363b9b2853abf0eed3a35391107a16ae22427f3a"
+FROZEN_CONTRACT_SHA256 = "dcfc300c647162d1228a89556c07d12b26d01975e4ed2921751ab64481bf3a03"
 MAX_JSON_BYTES = 768 * 1024 * 1024
 JSON_READ_CHUNK_BYTES = 1024 * 1024
 MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
@@ -734,6 +734,33 @@ def validate_contract(contract_path: Path) -> tuple[dict[str, Any] | None, list[
     }
     if not isinstance(result_claims, dict) or set(result_claims) != result_types:
         violations.append("result_claims must define type-specific claims for every result artifact")
+    expected_font_reductions = [
+        {
+            "minuend_group": "current-copied/ascii",
+            "subtrahend_group": "shared-all/ascii",
+            "minimum_bytes": 67_108_864,
+        },
+        {
+            "minuend_group": "shared-all/ascii",
+            "subtrahend_group": "lazy/ascii",
+            "minimum_bytes": 33_554_432,
+        },
+    ]
+    font_aggregate_policy = policies.get("font-ownership-aggregate", {})
+    if font_aggregate_policy.get("p50_reductions") != expected_font_reductions:
+        violations.append("font ownership p50 reduction rules differ from the frozen proof contract")
+    expected_font_claims = {
+        "catalog_policy_version": {"kind": "non-empty-string"},
+        "ordered_sources_hashed": {"kind": "exact", "value": True},
+        "functional_specimen_count": {"kind": "exact", "value": 6},
+        "zero_tofu": {"kind": "exact", "value": True},
+        "single_frame_generation": {"kind": "exact", "value": True},
+        "recovery_retained_bytes_stable": {"kind": "exact", "value": True},
+        "same_actual_backend": {"kind": "exact", "value": True},
+        "activation_latency_report_only": {"kind": "exact", "value": True},
+    }
+    if not isinstance(result_claims, dict) or result_claims.get("font-catalog-fingerprint") != expected_font_claims:
+        violations.append("font functional specimen claims differ from the frozen proof contract")
     if not isinstance(epoch_requirements, dict) or set(epoch_requirements) != set(STATES):
         violations.append("epoch_requirements_by_state must cover every state")
     if not isinstance(new_by_state, dict) or set(new_by_state) != set(STATES):
@@ -3121,7 +3148,10 @@ def validate_result_artifact(
     allowed.update(
         {
             "runner-fingerprint": {"fingerprint_sha256"},
-            "font-catalog-fingerprint": {"catalog_fingerprint_sha256"},
+            "font-catalog-fingerprint": {
+                "catalog_fingerprint_sha256",
+                "functional_specimens",
+            },
             "local-two-bare-git-source-proof": {
                 "bare_repository_count",
                 "source_refs",
@@ -3160,8 +3190,8 @@ def validate_result_artifact(
             validate_claim_rule(name, claims.get(name), rule, manifest, label, violations)
     if artifact_type == "runner-fingerprint" and not is_sha256(artifact.get("fingerprint_sha256")):
         violations.append(f"{label}: runner fingerprint hash is missing")
-    elif artifact_type == "font-catalog-fingerprint" and not is_sha256(artifact.get("catalog_fingerprint_sha256")):
-        violations.append(f"{label}: font catalog fingerprint hash is missing")
+    elif artifact_type == "font-catalog-fingerprint":
+        validate_font_functional_specimens(artifact, contract, label, violations)
     elif artifact_type == "local-two-bare-git-source-proof":
         refs = artifact.get("source_refs")
         proof_source = artifact.get("identity", {}).get("source_sha")
@@ -3294,6 +3324,196 @@ def validate_result_artifact(
         expected = {"stdout", "stderr", "markers", "json", "session-log", "snapshot"}
         if artifact.get("hits") != 0 or set(artifact.get("scopes", [])) != expected:
             violations.append(f"{label}: secret scan must have zero hits over every required scope")
+
+
+def recursively_reject_path_keys(value: Any, label: str, violations: list[str]) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if "path" in key.casefold():
+                violations.append(f"{label}: functional specimen path key is forbidden: {key}")
+            recursively_reject_path_keys(child, label, violations)
+    elif isinstance(value, list):
+        for child in value:
+            recursively_reject_path_keys(child, label, violations)
+
+
+def validate_font_functional_specimens(
+    artifact: dict[str, Any],
+    contract: dict[str, Any],
+    label: str,
+    violations: list[str],
+) -> None:
+    specimens = artifact.get("functional_specimens")
+    if not isinstance(specimens, list) or len(specimens) != 6:
+        violations.append(f"{label}: exactly six functional specimens are required")
+        return
+    recursively_reject_path_keys(specimens, label, violations)
+    expected_pairs = [
+        (mode, specimen)
+        for mode in ("current", "shared", "lazy")
+        for specimen in ("cjk", "emoji")
+    ]
+    fields = {
+        "requested_font_mode",
+        "actual_font_mode",
+        "requested_font_specimen",
+        "actual_font_specimen",
+        "requested_backend",
+        "actual_backend",
+        "activation_latency_ms",
+        "activation_latency_gate",
+        "retained_source_bytes",
+        "recovery_retained_source_bytes",
+        "indexed_source_count",
+        "active_source_count",
+        "catalog_builds",
+        "generation",
+        "recovery_generation",
+        "frame_catalog_generation",
+        "frame_generation_consistent",
+        "tofu_count",
+        "index_fingerprint_sha256",
+        "catalog_fingerprint_sha256",
+        "ordered_catalog_fingerprint_sha256",
+    }
+    valid_backends = set(contract.get("windows_backends", {}).get("diagnostic_only", []))
+    actual_backends: set[Any] = set()
+    frame_generations: set[Any] = set()
+    derived = {
+        "functional_specimen_count": len(specimens),
+        "zero_tofu": True,
+        "single_frame_generation": True,
+        "recovery_retained_bytes_stable": True,
+        "same_actual_backend": True,
+        "activation_latency_report_only": True,
+    }
+    for index, (record, (mode, specimen)) in enumerate(zip(specimens, expected_pairs)):
+        record_label = f"{label} functional specimen {index}"
+        if not isinstance(record, dict):
+            violations.append(f"{record_label}: specimen must be an object")
+            continue
+        reject_unknown_fields(record, fields, record_label, violations)
+        if (
+            record.get("requested_font_mode") != mode
+            or record.get("actual_font_mode") != mode
+            or record.get("requested_font_specimen") != specimen
+            or record.get("actual_font_specimen") != specimen
+        ):
+            violations.append(f"{record_label}: mode/specimen fallback or inventory drift")
+        if record.get("requested_backend") != "auto":
+            violations.append(f"{record_label}: requested backend must be auto")
+        actual_backend = record.get("actual_backend")
+        if isinstance(actual_backend, str):
+            actual_backends.add(actual_backend)
+        if not isinstance(actual_backend, str) or actual_backend not in valid_backends:
+            violations.append(f"{record_label}: actual backend is missing or unsupported")
+        latency = record.get("activation_latency_ms")
+        if not numeric(latency):
+            violations.append(f"{record_label}: activation latency must be finite and non-negative")
+        if record.get("activation_latency_gate") != "report-only":
+            derived["activation_latency_report_only"] = False
+            violations.append(f"{record_label}: activation latency must remain report-only")
+        tofu_count = record.get("tofu_count")
+        if not isinstance(tofu_count, int) or isinstance(tofu_count, bool) or tofu_count != 0:
+            derived["zero_tofu"] = False
+            violations.append(f"{record_label}: tofu count must be zero")
+        generation = record.get("generation")
+        frame_generation = record.get("frame_catalog_generation")
+        if isinstance(frame_generation, int) and not isinstance(frame_generation, bool):
+            frame_generations.add(frame_generation)
+        if (
+            not isinstance(generation, int)
+            or isinstance(generation, bool)
+            or generation <= 0
+            or not isinstance(record.get("catalog_builds"), int)
+            or isinstance(record.get("catalog_builds"), bool)
+            or record.get("catalog_builds") != generation
+            or not isinstance(record.get("recovery_generation"), int)
+            or isinstance(record.get("recovery_generation"), bool)
+            or record.get("recovery_generation") != generation
+        ):
+            violations.append(f"{record_label}: catalog builds/generation must be positive and consistent")
+        if (
+            not isinstance(frame_generation, int)
+            or isinstance(frame_generation, bool)
+            or frame_generation != generation
+            or record.get("frame_generation_consistent") is not True
+        ):
+            derived["single_frame_generation"] = False
+            violations.append(f"{record_label}: frame generation must equal the resource generation")
+        retained = record.get("retained_source_bytes")
+        if not isinstance(retained, int) or isinstance(retained, bool) or retained < 0:
+            violations.append(f"{record_label}: retained source bytes must be a non-negative integer")
+        recovery_retained = record.get("recovery_retained_source_bytes")
+        if (
+            not isinstance(recovery_retained, int)
+            or isinstance(recovery_retained, bool)
+            or recovery_retained != retained
+        ):
+            derived["recovery_retained_bytes_stable"] = False
+            violations.append(f"{record_label}: recovery retained bytes duplicated or drifted")
+        indexed = record.get("indexed_source_count")
+        active = record.get("active_source_count")
+        if (
+            not isinstance(indexed, int)
+            or isinstance(indexed, bool)
+            or not isinstance(active, int)
+            or isinstance(active, bool)
+            or not indexed >= active > 0
+        ):
+            violations.append(f"{record_label}: indexed/active source counts must satisfy indexed >= active > 0")
+        for fingerprint in (
+            "index_fingerprint_sha256",
+            "catalog_fingerprint_sha256",
+            "ordered_catalog_fingerprint_sha256",
+        ):
+            if not is_sha256(record.get(fingerprint)):
+                violations.append(f"{record_label}: {fingerprint} must be a SHA-256")
+    if len(actual_backends) != 1:
+        derived["same_actual_backend"] = False
+        violations.append(f"{label}: functional specimens must use one actual backend")
+    if len(frame_generations) != 1:
+        derived["single_frame_generation"] = False
+        violations.append(f"{label}: functional specimens have mixed frame generations")
+    claims = artifact.get("claims")
+    if isinstance(claims, dict):
+        for name, value in derived.items():
+            if claims.get(name) != value:
+                violations.append(f"{label}: claim {name} does not match derived functional evidence")
+    fingerprint = artifact.get("catalog_fingerprint_sha256")
+    expected_fingerprint = canonical_sha256(specimens)
+    if fingerprint != expected_fingerprint:
+        violations.append(f"{label}: canonical functional specimen digest mismatch")
+
+
+def validate_font_ownership_reductions(
+    statistics: list[dict[str, int | float]],
+    policy: dict[str, Any],
+    violations: list[str],
+) -> None:
+    reductions = policy.get("p50_reductions")
+    if not isinstance(reductions, list):
+        violations.append("font ownership aggregate is missing p50 reduction rules")
+        return
+    ordered_groups: list[str] = []
+    for reduction in reductions:
+        for field in ("minuend_group", "subtrahend_group"):
+            group = reduction.get(field) if isinstance(reduction, dict) else None
+            if isinstance(group, str) and group not in ordered_groups:
+                ordered_groups.append(group)
+    if len(statistics) != len(ordered_groups):
+        violations.append("font ownership aggregate statistics do not match the frozen group inventory")
+        return
+    statistics_by_group = dict(zip(ordered_groups, statistics))
+    for reduction in reductions:
+        minuend = reduction["minuend_group"]
+        subtrahend = reduction["subtrahend_group"]
+        minimum = reduction["minimum_bytes"]
+        observed = statistics_by_group[minuend]["p50"] - statistics_by_group[subtrahend]["p50"]
+        if observed < minimum:
+            violations.append(
+                f"font ownership minimum p50 reduction violated for {minuend} -> {subtrahend}: {observed} < {minimum}"
+            )
 
 
 def validate_entry_shape(
@@ -4137,6 +4357,8 @@ def validate_manifest_recursive(
                 violations.append(f"artifact {aggregate_id}: raw child type {child_type} is absent or invalid")
             else:
                 expected_statistics.extend(combined_statistics_by_type[child_type])
+        if artifact_type == "font-ownership-aggregate":
+            validate_font_ownership_reductions(expected_statistics, policy, violations)
         if aggregate.get("group_statistics") != expected_statistics:
             violations.append(f"artifact {aggregate_id}: summary statistics do not match raw children")
 

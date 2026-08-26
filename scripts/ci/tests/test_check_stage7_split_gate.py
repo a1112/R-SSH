@@ -970,6 +970,239 @@ class Stage7SplitGateTests(unittest.TestCase):
         )
         self.assertFalse(any(group.endswith(("/cjk", "/emoji")) for group in groups))
 
+    def test_font_proof_contract_freezes_reductions_and_functional_claims(self) -> None:
+        policy = self.contract["artifact_policies"]["font-ownership-aggregate"]
+        self.assertEqual(
+            policy["p50_reductions"],
+            [
+                {
+                    "minuend_group": "current-copied/ascii",
+                    "subtrahend_group": "shared-all/ascii",
+                    "minimum_bytes": 67_108_864,
+                },
+                {
+                    "minuend_group": "shared-all/ascii",
+                    "subtrahend_group": "lazy/ascii",
+                    "minimum_bytes": 33_554_432,
+                },
+            ],
+        )
+        self.assertEqual(
+            self.contract["result_claims"]["font-catalog-fingerprint"],
+            {
+                "catalog_policy_version": {"kind": "non-empty-string"},
+                "ordered_sources_hashed": {"kind": "exact", "value": True},
+                "functional_specimen_count": {"kind": "exact", "value": 6},
+                "zero_tofu": {"kind": "exact", "value": True},
+                "single_frame_generation": {"kind": "exact", "value": True},
+                "recovery_retained_bytes_stable": {"kind": "exact", "value": True},
+                "same_actual_backend": {"kind": "exact", "value": True},
+                "activation_latency_report_only": {"kind": "exact", "value": True},
+            },
+        )
+
+    def test_font_catalog_functional_specimens_are_derived_not_self_attested(self) -> None:
+        specimens = self.font_functional_specimens()
+        payload = {
+            "schema": "rssh.stage7.result/v1",
+            "identity": {
+                "source_sha": SOURCE_SHA,
+                "binary_hashes": {"rssh.exe": BINARY_SHA},
+                "runner_fingerprint_sha256": RUNNER_SHA,
+                "platform": "windows-x86_64",
+                "run_id": "font-functional-run",
+            },
+            "ok": True,
+            "proof": "font-catalog-fingerprint",
+            "claims": {
+                "catalog_policy_version": "stage7-private-v1",
+                "ordered_sources_hashed": True,
+                "functional_specimen_count": 6,
+                "zero_tofu": True,
+                "single_frame_generation": True,
+                "recovery_retained_bytes_stable": True,
+                "same_actual_backend": True,
+                "activation_latency_report_only": True,
+            },
+            "catalog_fingerprint_sha256": canonical_sha256(specimens),
+            "functional_specimens": specimens,
+        }
+        violations: list[str] = []
+        self.checker.validate_result_artifact(
+            "font-catalog-fingerprint",
+            payload,
+            self.contract,
+            {},
+            REPO,
+            "font catalog",
+            violations,
+        )
+        self.assertEqual(violations, [])
+
+        cases = [
+            (
+                "mode fallback",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "actual_font_mode", "shared"
+                ),
+                "mode/specimen fallback",
+            ),
+            (
+                "backend fallback",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "requested_backend", "dx12"
+                ),
+                "requested backend",
+            ),
+            (
+                "mixed backend",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "actual_backend", "vulkan"
+                ),
+                "actual backend",
+            ),
+            (
+                "negative activation latency",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "activation_latency_ms", -0.001
+                ),
+                "activation latency",
+            ),
+            (
+                "tofu",
+                lambda value: value["functional_specimens"][0].__setitem__("tofu_count", 1),
+                "tofu",
+            ),
+            (
+                "mixed frame generation",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "frame_catalog_generation", 3
+                ),
+                "frame generation",
+            ),
+            (
+                "recovery duplication",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "recovery_retained_source_bytes", 1_000_001
+                ),
+                "recovery retained",
+            ),
+            (
+                "missing active source",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "active_source_count", 0
+                ),
+                "indexed/active",
+            ),
+            (
+                "raw path key",
+                lambda value: value["functional_specimens"][0].__setitem__(
+                    "font_path", "C:/Windows/Fonts/fixture.ttf"
+                ),
+                "path key",
+            ),
+            (
+                "digest drift",
+                lambda value: value.__setitem__("catalog_fingerprint_sha256", "f" * 64),
+                "canonical functional specimen digest",
+            ),
+        ]
+        for name, mutate, expected in cases:
+            with self.subTest(name=name):
+                invalid = copy.deepcopy(payload)
+                mutate(invalid)
+                if name != "digest drift":
+                    invalid["catalog_fingerprint_sha256"] = canonical_sha256(
+                        invalid["functional_specimens"]
+                    )
+                violations = []
+                self.checker.validate_result_artifact(
+                    "font-catalog-fingerprint",
+                    invalid,
+                    self.contract,
+                    {},
+                    REPO,
+                    "font catalog",
+                    violations,
+                )
+                self.assertTrue(
+                    any(expected in violation for violation in violations), violations
+                )
+
+    def test_font_ownership_reductions_use_recomputed_process_medians(self) -> None:
+        policy = self.contract["artifact_policies"]["font-ownership-raw"]
+        raw = self.make_metric_payload(
+            "font-ownership-raw",
+            policy,
+            {
+                "source_sha": SOURCE_SHA,
+                "binary_hashes": {"rssh.exe": BINARY_SHA},
+                "runner_fingerprint_sha256": RUNNER_SHA,
+                "platform": "windows-x86_64",
+                "run_id": "font-reduction-run",
+            },
+        )
+        values = [300_000_000, 300_000_000 - 67_108_864, 300_000_000 - 67_108_864 - 33_554_432]
+        for group, value in zip(raw["groups"], values):
+            for process in group["processes"]:
+                process["samples"] = [value] * 10
+                process["representative"] = value
+            group["statistics"] = {"p50": value, "p95": value, "max": value}
+        violations: list[str] = []
+        statistics = self.checker.combine_metric_shards(
+            "font-ownership-raw",
+            [("font-ownership-raw", self.checker.validate_metric_artifact(
+                raw,
+                policy,
+                self.contract,
+                "font raw",
+                violations,
+            ))],
+            policy,
+            self.contract,
+            violations,
+        )
+        self.assertEqual(len(statistics), 3)
+        self.checker.validate_font_ownership_reductions(
+            statistics,
+            self.contract["artifact_policies"]["font-ownership-aggregate"],
+            violations,
+        )
+        self.assertEqual(violations, [])
+
+        below = copy.deepcopy(statistics)
+        below[1]["p50"] += 1
+        violations = []
+        self.checker.validate_font_ownership_reductions(
+            below,
+            self.contract["artifact_policies"]["font-ownership-aggregate"],
+            violations,
+        )
+        self.assertTrue(any("minimum p50 reduction" in item for item in violations))
+
+        flattened = copy.deepcopy(raw)
+        flattened["groups"][0]["flattened_samples"] = [1] * 300
+        violations = []
+        self.checker.validate_metric_artifact(
+            flattened, policy, self.contract, "font raw", violations
+        )
+        self.assertTrue(any("flattened" in item for item in violations))
+
+        wrong_name = copy.deepcopy(raw)
+        wrong_name["groups"][0]["name"] = "current/ascii"
+        violations = []
+        groups = self.checker.validate_metric_artifact(
+            wrong_name, policy, self.contract, "font raw", violations
+        )
+        self.checker.combine_metric_shards(
+            "font-ownership-raw",
+            [("font-ownership-raw", groups)],
+            policy,
+            self.contract,
+            violations,
+        )
+        self.assertTrue(any("group inventory" in item for item in violations))
+
     def test_contract_freezes_every_bootstrap_template_source_and_target(self) -> None:
         expected = [
             {"source_path": "release/rterm-bootstrap/Cargo.toml", "filtered_path": "Cargo.toml"},
@@ -3888,7 +4121,9 @@ class Stage7SplitGateTests(unittest.TestCase):
         if artifact_type == "runner-fingerprint":
             payload["fingerprint_sha256"] = RUNNER_SHA
         elif artifact_type == "font-catalog-fingerprint":
-            payload["catalog_fingerprint_sha256"] = "f" * 64
+            specimens = self.font_functional_specimens()
+            payload["functional_specimens"] = specimens
+            payload["catalog_fingerprint_sha256"] = canonical_sha256(specimens)
         elif artifact_type == "local-two-bare-git-source-proof":
             payload.update(
                 {
@@ -3962,6 +4197,37 @@ class Stage7SplitGateTests(unittest.TestCase):
             )
         return payload
 
+    def font_functional_specimens(self) -> list[dict]:
+        records = []
+        for mode in ("current", "shared", "lazy"):
+            for specimen in ("cjk", "emoji"):
+                records.append(
+                    {
+                        "requested_font_mode": mode,
+                        "actual_font_mode": mode,
+                        "requested_font_specimen": specimen,
+                        "actual_font_specimen": specimen,
+                        "requested_backend": "auto",
+                        "actual_backend": "dx12",
+                        "activation_latency_ms": 0.009,
+                        "activation_latency_gate": "report-only",
+                        "retained_source_bytes": 1_000_000,
+                        "recovery_retained_source_bytes": 1_000_000,
+                        "indexed_source_count": 3,
+                        "active_source_count": 2,
+                        "catalog_builds": 2,
+                        "generation": 2,
+                        "recovery_generation": 2,
+                        "frame_catalog_generation": 2,
+                        "frame_generation_consistent": True,
+                        "tofu_count": 0,
+                        "index_fingerprint_sha256": "1" * 64,
+                        "catalog_fingerprint_sha256": "2" * 64,
+                        "ordered_catalog_fingerprint_sha256": "3" * 64,
+                    }
+                )
+        return records
+
     def make_metric_payload(self, artifact_type: str, policy: dict, identity: dict) -> dict:
         mode = policy["sampling_mode"]
         protocol = self.metric_protocol(policy)
@@ -3976,6 +4242,13 @@ class Stage7SplitGateTests(unittest.TestCase):
             ]
         groups = []
         for group_name in group_names:
+            group_value = value
+            if artifact_type == "font-ownership-raw":
+                group_value = {
+                    "current-copied/ascii": 300_000_000,
+                    "shared-all/ascii": 300_000_000 - 67_108_864,
+                    "lazy/ascii": 300_000_000 - 67_108_864 - 33_554_432,
+                }[group_name]
             requested_backend = policy.get("requested_backend", "auto")
             if "matrix_stages" in policy:
                 requested_backend, stage = group_name.split("/", 1)
@@ -3995,7 +4268,7 @@ class Stage7SplitGateTests(unittest.TestCase):
                         "phase": "measured",
                         "benchmark_startup": True,
                         "marker_count": 1,
-                        "value": value,
+                        "value": group_value,
                     }
                     for index in range(30)
                 ]
@@ -4017,14 +4290,18 @@ class Stage7SplitGateTests(unittest.TestCase):
                     {
                         "process_id": f"{group_name}-process-{index:02d}",
                         "phase": "measured",
-                        "samples": [value] * 10,
-                        "representative": value,
+                        "samples": [group_value] * 10,
+                        "representative": group_value,
                     }
                     for index in range(30)
                 ]
             if policy.get("connection_state"):
                 group["connection_state"] = policy["connection_state"]
-            group["statistics"] = {"p50": value, "p95": value, "max": value}
+            group["statistics"] = {
+                "p50": group_value,
+                "p95": group_value,
+                "max": group_value,
+            }
             if policy.get("same_machine_lkg"):
                 lkg_processes = []
                 for index in range(30):
@@ -4035,15 +4312,15 @@ class Stage7SplitGateTests(unittest.TestCase):
                                 "phase": "measured",
                                 "benchmark_startup": True,
                                 "marker_count": 1,
-                                "value": value,
+                                "value": group_value,
                             }
                         )
                     else:
                         process.update(
                             {
                                 "phase": "measured",
-                                "samples": [value] * 10,
-                                "representative": value,
+                                "samples": [group_value] * 10,
+                                "representative": group_value,
                             }
                         )
                     lkg_processes.append(process)
@@ -4061,7 +4338,11 @@ class Stage7SplitGateTests(unittest.TestCase):
                     "timeout_seconds": 60,
                     "protocol": copy.deepcopy(protocol),
                     "processes": lkg_processes,
-                    "statistics": {"p50": value, "p95": value, "max": value},
+                    "statistics": {
+                        "p50": group_value,
+                        "p95": group_value,
+                        "max": group_value,
+                    },
                     "relative_regression_ratios": {"p50": 1.0, "p95": 1.0, "max": 1.0},
                 }
                 if mode == "residence":
