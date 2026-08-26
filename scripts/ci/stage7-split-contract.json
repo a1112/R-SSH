@@ -716,7 +716,7 @@
     ]
   },
   "artifact_policies": {
-    "font-ownership-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "font_ownership_ready", "required_groups": ["current-copied/ascii", "current-copied/cjk", "current-copied/emoji", "shared-all/ascii", "shared-all/cjk", "shared-all/emoji", "lazy/ascii", "lazy/cjk", "lazy/emoji"]},
+    "font-ownership-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "font_ownership_ready", "required_groups": ["current-copied/ascii", "shared-all/ascii", "lazy/ascii"]},
     "font-ownership-aggregate": {"content_kind": "aggregate", "raw_children": ["font-ownership-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},
     "attribution-matrix-raw": {"content_kind": "raw-metric", "sampling_mode": "residence", "metric": "windows_private_working_set_bytes", "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true, "owner_ready_marker": "attribution_stage_ready", "matrix_stages": ["cpu-window", "instance-surface", "adapter-device", "configured-surface-clear", "layer-pipelines", "fixture-font-text", "platform-font-index", "full-frame"], "matrix_backends": ["auto", "dx12", "vulkan", "gl"]},
     "attribution-matrix-aggregate": {"content_kind": "aggregate", "raw_children": ["attribution-matrix-raw"], "platform": "windows-x86_64", "binary_identity": true, "runner_identity": true},

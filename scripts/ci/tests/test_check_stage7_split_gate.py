@@ -950,6 +950,26 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertEqual(residence["samples_per_process"], 10)
         self.assertEqual(residence["owner_ready_marker_required"], True)
 
+    def test_font_ownership_raw_inventory_is_exactly_the_900_ascii_sample_contract(self) -> None:
+        groups = self.contract["artifact_policies"]["font-ownership-raw"][
+            "required_groups"
+        ]
+        self.assertEqual(
+            groups,
+            [
+                "current-copied/ascii",
+                "shared-all/ascii",
+                "lazy/ascii",
+            ],
+        )
+        self.assertEqual(
+            len(groups)
+            * self.contract["protocol"]["measured_cold_processes"]
+            * self.contract["sampling"]["residence"]["samples_per_process"],
+            900,
+        )
+        self.assertFalse(any(group.endswith(("/cjk", "/emoji")) for group in groups))
+
     def test_contract_freezes_every_bootstrap_template_source_and_target(self) -> None:
         expected = [
             {"source_path": "release/rterm-bootstrap/Cargo.toml", "filtered_path": "Cargo.toml"},
