@@ -1142,6 +1142,66 @@ fn stage7_font_proof_owns_the_single_reusable_runner_fingerprint_artifact() {
 }
 
 #[test]
+fn stage7_attribution_what_if_freezes_interleaved_stage_backend_sampling() {
+    let output_directory = std::env::temp_dir().join(format!(
+        "rssh-attribution-what-if-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos()
+    ));
+    let output = Command::new("pwsh.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            repo_path("scripts/ci/run-stage7-attribution-matrix.ps1")
+                .to_str()
+                .expect("UTF-8 runner path"),
+            "-OutputDirectory",
+            output_directory.to_str().expect("UTF-8 output path"),
+            "-WhatIf",
+        ])
+        .current_dir(repo_path("."))
+        .output()
+        .expect("execute attribution matrix WhatIf contract");
+    assert!(
+        output.status.success(),
+        "attribution matrix WhatIf failed: {}",
+        combined_output(&output)
+    );
+    let plan: Value = serde_json::from_slice(&output.stdout).expect("parse WhatIf plan JSON");
+    assert_eq!(plan["schema"], "rssh.stage7/attribution-matrix-plan/v1");
+    assert_eq!(
+        plan["stages"],
+        serde_json::json!([
+            "cpu-window",
+            "instance-surface",
+            "adapter-device",
+            "configured-surface-clear",
+            "layer-pipelines",
+            "fixture-font-text",
+            "platform-font-index",
+            "full-frame"
+        ])
+    );
+    assert_eq!(
+        plan["backends"],
+        serde_json::json!(["auto", "dx12", "vulkan", "gl"])
+    );
+    assert_eq!(plan["warmups"], 5);
+    assert_eq!(plan["measured_cold_processes"], 30);
+    assert_eq!(plan["samples_per_process"], 10);
+    assert_eq!(plan["stabilization_ms"], 5_000);
+    assert_eq!(plan["sample_interval_ms"], 100);
+    assert_eq!(plan["atomic_raw_record_files"], 960);
+    assert_eq!(plan["schedule"]["warmups"].as_array().unwrap().len(), 160);
+    assert_eq!(plan["schedule"]["measured"].as_array().unwrap().len(), 960);
+    assert!(!output_directory.exists(), "WhatIf created evidence");
+}
+
+#[test]
 fn matrix_accepts_strict_cpu_and_gpu_records_and_emits_exact_current_evidence() {
     let fixture = MatrixFixture::new("valid", "valid");
     let output = fixture.run();

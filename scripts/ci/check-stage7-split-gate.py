@@ -135,6 +135,55 @@ FROZEN_DIAGNOSTIC_OUTCOMES = {
     "reason_pattern": "^[a-z0-9][a-z0-9-]*$",
     "stage_semantics": "supported-prefix-then-unsupported-suffix",
 }
+PROJECT_RESOURCE_SCHEMA = "rssh.project-owned-resources/v1"
+PROJECT_RESOURCE_NUMERIC_FIELDS = (
+    "cpu_staging_bytes",
+    "cpu_surface_count",
+    "cpu_present_count",
+    "instance_count",
+    "surface_count",
+    "adapter_count",
+    "device_count",
+    "queue_count",
+    "surface_configure_count",
+    "surface_acquire_count",
+    "clear_present_count",
+    "pipeline_count",
+    "pipeline_layout_count",
+    "materialized_buffer_count",
+    "retained_font_bytes",
+    "inactive_font_bytes",
+    "indexed_font_count",
+    "active_font_count",
+    "catalog_builds",
+    "catalog_generation",
+    "glyph_atlas_bytes",
+    "raster_cache_bytes",
+    "image_texture_bytes",
+    "snapshot_bytes",
+    "instance_buffer_bytes",
+    "upload_buffer_bytes",
+    "total_allocated_buffer_bytes",
+    "total_allocated_texture_bytes",
+    "base_text_renderer_materialization_count",
+    "cursor_text_renderer_materialization_count",
+    "config_load_count",
+    "config_watcher_count",
+    "pty_start_count",
+    "ssh_start_count",
+    "post_ready_task_count",
+)
+PROJECT_RESOURCE_FIELDS = frozenset((*PROJECT_RESOURCE_NUMERIC_FIELDS, "backend", "adapter_name"))
+ATTRIBUTION_STAGES = (
+    "cpu-window",
+    "instance-surface",
+    "adapter-device",
+    "configured-surface-clear",
+    "layer-pipelines",
+    "fixture-font-text",
+    "platform-font-index",
+    "full-frame",
+)
 FROZEN_OWNED_PROJECTION_REQUIRED = [
     ("crates/rterm-types", "crates/rterm-types"),
     ("crates/rssh-terminal", "crates/rterm-terminal"),
@@ -2500,6 +2549,139 @@ def expected_metric_protocol(
     return protocol
 
 
+def validate_project_owned_resource_metrics_v1(
+    summary: Any,
+    stage: str,
+    label: str,
+    violations: list[str],
+    *,
+    expected_backend: str | None = None,
+    expected_adapter_name: str | None = None,
+) -> None:
+    """Validate the closed ProjectOwnedResourceMetricsV1 stage row.
+
+    The application owns the same boundary in Rust.  Keeping the validator in
+    the evidence checker prevents a runner from replacing an owner marker with
+    a generic delay or from silently carrying a later-stage allocation into an
+    earlier attribution cell.
+    """
+    if not isinstance(summary, dict):
+        violations.append(f"{label}: ProjectOwnedResourceMetricsV1 row must be an object")
+        return
+    if stage not in ATTRIBUTION_STAGES:
+        violations.append(f"{label}: attribution stage is outside the frozen matrix")
+        return
+    unknown = set(summary) - PROJECT_RESOURCE_FIELDS
+    if unknown:
+        violations.append(f"{label}: resource row has unknown fields {sorted(unknown)}")
+    for field in PROJECT_RESOURCE_NUMERIC_FIELDS:
+        value = summary.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            violations.append(f"{label}: resource field {field} must be a non-negative JSON integer")
+
+    stage_index = ATTRIBUTION_STAGES.index(stage)
+    allowed_by_stage = [
+        "cpu_staging_bytes",
+        "cpu_surface_count",
+        "cpu_present_count",
+    ]
+    if stage_index >= 1:
+        allowed_by_stage += ["instance_count", "surface_count"]
+    if stage_index >= 2:
+        allowed_by_stage += ["adapter_count", "device_count", "queue_count"]
+    if stage_index >= 3:
+        allowed_by_stage += ["surface_configure_count", "surface_acquire_count", "clear_present_count"]
+    if stage_index >= 4:
+        allowed_by_stage += [
+            "pipeline_count",
+            "pipeline_layout_count",
+            "materialized_buffer_count",
+            "total_allocated_buffer_bytes",
+        ]
+    if stage_index >= 5:
+        allowed_by_stage += [
+            "retained_font_bytes",
+            "active_font_count",
+            "catalog_builds",
+            "catalog_generation",
+            "glyph_atlas_bytes",
+            "raster_cache_bytes",
+            "instance_buffer_bytes",
+            "upload_buffer_bytes",
+            "total_allocated_texture_bytes",
+            "base_text_renderer_materialization_count",
+            "cursor_text_renderer_materialization_count",
+        ]
+    if stage_index >= 6:
+        allowed_by_stage.append("indexed_font_count")
+    if stage_index >= 7:
+        allowed_by_stage += ["image_texture_bytes", "snapshot_bytes"]
+    for field in PROJECT_RESOURCE_NUMERIC_FIELDS:
+        value = summary.get(field)
+        if isinstance(value, int) and not isinstance(value, bool) and value != 0 and field not in allowed_by_stage:
+            violations.append(f"{label}: resource field {field} must remain zero at {stage}")
+
+    def require_exact(field: str, expected: int) -> None:
+        if summary.get(field) != expected:
+            violations.append(f"{label}: resource field {field} must be {expected}")
+
+    def require_positive(field: str) -> None:
+        value = summary.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value == 0:
+            violations.append(f"{label}: resource field {field} must be positive")
+
+    require_positive("cpu_staging_bytes")
+    require_exact("cpu_surface_count", 1)
+    require_exact("cpu_present_count", 1)
+    if stage_index >= 1:
+        require_exact("instance_count", 1)
+        require_exact("surface_count", 1)
+    if stage_index >= 2:
+        for field in ("adapter_count", "device_count", "queue_count"):
+            require_exact(field, 1)
+        backend = summary.get("backend")
+        adapter_name = summary.get("adapter_name")
+        if backend not in {"dx12", "vulkan", "gl"}:
+            violations.append(f"{label}: resource backend is required from adapter-device onward")
+        if not isinstance(adapter_name, str) or not adapter_name:
+            violations.append(f"{label}: resource adapter_name is required from adapter-device onward")
+        if expected_backend is not None and backend != expected_backend:
+            violations.append(f"{label}: resource backend differs from renderer identity")
+        if expected_adapter_name is not None and adapter_name != expected_adapter_name:
+            violations.append(f"{label}: resource adapter_name differs from renderer identity")
+    elif "backend" in summary or "adapter_name" in summary:
+        violations.append(f"{label}: resource backend and adapter_name must be absent before adapter-device")
+    if stage_index >= 3:
+        require_exact("surface_configure_count", 1)
+        require_exact("clear_present_count", 1)
+        require_exact("surface_acquire_count", 3 if stage_index >= 7 else 2 if stage_index >= 5 else 1)
+    if stage_index >= 4:
+        require_exact("pipeline_count", 2)
+        require_exact("pipeline_layout_count", 2)
+        require_exact("materialized_buffer_count", 1)
+        if summary.get("total_allocated_buffer_bytes") == 0:
+            violations.append(f"{label}: total_allocated_buffer_bytes must be positive")
+    if stage_index >= 5:
+        for field in (
+            "retained_font_bytes",
+            "active_font_count",
+            "catalog_builds",
+            "catalog_generation",
+            "glyph_atlas_bytes",
+        ):
+            require_positive(field)
+        if summary.get("total_allocated_texture_bytes") != summary.get("glyph_atlas_bytes", 0) + summary.get("image_texture_bytes", 0):
+            violations.append(f"{label}: total_allocated_texture_bytes does not equal glyph plus image bytes")
+        text_count = 2 if stage_index >= 7 else 1
+        require_exact("base_text_renderer_materialization_count", text_count)
+        require_exact("cursor_text_renderer_materialization_count", text_count)
+    if stage_index >= 6:
+        require_positive("indexed_font_count")
+        require_exact("inactive_font_bytes", 0)
+    if stage_index >= 7:
+        require_positive("snapshot_bytes")
+
+
 def validate_lkg(
     lkg: Any,
     candidate: dict[str, int | float],
@@ -2882,6 +3064,7 @@ def validate_metric_artifact(
         if "flattened_samples" in group or "samples" in group:
             violations.append(f"{group_label}: flattened residence samples are forbidden")
         matrix_status: str | None = None
+        matrix_stage: str | None = None
         if "matrix_stages" in policy:
             expected_names = {
                 f"{backend}/{stage}"
@@ -2893,6 +3076,7 @@ def validate_metric_artifact(
                 violations.append(f"{group_label}: matrix stage/backend cell is outside the frozen inventory")
             else:
                 backend, stage = name.split("/", 1)
+                matrix_stage = stage
                 matrix_status = group.get("support_status")
                 if matrix_status not in set(
                     contract["diagnostic_probe_outcomes"]["statuses"]
@@ -3037,6 +3221,15 @@ def validate_metric_artifact(
                 if mode == "startup-marker"
                 else {"process_id", "phase", "samples", "representative"}
             )
+            if "matrix_stages" in policy:
+                process_fields.update(
+                    {
+                        "round_index",
+                        "attribution_stage",
+                        "resource_summary_schema",
+                        "resource_summary",
+                    }
+                )
             if font_resource_evidence:
                 process_fields.update({"round_index", "font_resources"})
             reject_unknown_fields(
@@ -3051,6 +3244,25 @@ def validate_metric_artifact(
                 violations.append(f"{process_label}: process_id must be an actual diagnostic run ID")
             if process_value.get("phase") != "measured" or process_id in warmup_ids:
                 violations.append(f"{process_label}: warmup records cannot be mixed into measured samples")
+            if "matrix_stages" in policy:
+                if matrix_stage is None:
+                    continue
+                round_index = process_value.get("round_index")
+                if not isinstance(round_index, int) or isinstance(round_index, bool) or not 1 <= round_index <= 30:
+                    violations.append(f"{process_label}: round_index must be an integer from 1 through 30")
+                if process_value.get("attribution_stage") != matrix_stage:
+                    violations.append(f"{process_label}: attribution_stage must be the exact owner stage")
+                if process_value.get("resource_summary_schema") != PROJECT_RESOURCE_SCHEMA:
+                    violations.append(f"{process_label}: resource_summary_schema must be {PROJECT_RESOURCE_SCHEMA}")
+                validate_project_owned_resource_metrics_v1(
+                    process_value.get("resource_summary"),
+                    matrix_stage,
+                    f"{process_label} resource_summary",
+                    violations,
+                    expected_backend=group.get("actual_backend")
+                    if policy["matrix_stages"].index(matrix_stage) >= 2
+                    else None,
+                )
             if font_resource_evidence:
                 round_index = process_value.get("round_index")
                 if not isinstance(round_index, int) or isinstance(round_index, bool) or not 1 <= round_index <= 30:
@@ -5045,6 +5257,17 @@ def validate_manifest_recursive(
                 "raw_children",
                 "group_statistics",
                 "certification_eligible",
+                # Stage attribution keeps the auditable reductions and
+                # failure classifications alongside the contract-required
+                # group_statistics.  They are report-only and never replace
+                # recomputation from raw children.
+                "representatives",
+                "raw_maxima",
+                "identities",
+                "failure_classifications",
+                "adjacent_stage_deltas",
+                "source_tree_sha256",
+                "runner_fingerprint_sha256",
             },
             f"artifact {aggregate_id}",
             violations,

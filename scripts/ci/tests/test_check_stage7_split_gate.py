@@ -25,6 +25,7 @@ CONTRACT_PATH = REPO / "scripts/ci/stage7-split-contract.json"
 SCHEMA_PATH = REPO / "scripts/ci/stage7-evidence-manifest.schema.json"
 CHECKER_PATH = REPO / "scripts/ci/check-stage7-split-gate.py"
 ASSEMBLER_PATH = REPO / "scripts/ci/assemble-stage7-evidence.py"
+ATTRIBUTION_RUNNER_PATH = REPO / "scripts/ci/run-stage7-attribution-matrix.ps1"
 PYTHON = Path(sys.executable)
 SOURCE_SHA = subprocess.run(
     ["git", "rev-parse", "HEAD"],
@@ -116,6 +117,44 @@ FIXTURE_RUNNER_FIELDS = {
     },
 }
 RUNNER_SHA = runner_canonical_sha256(FIXTURE_RUNNER_FIELDS)
+PROJECT_RESOURCE_NUMERIC_FIELDS = (
+    "cpu_staging_bytes",
+    "cpu_surface_count",
+    "cpu_present_count",
+    "instance_count",
+    "surface_count",
+    "adapter_count",
+    "device_count",
+    "queue_count",
+    "surface_configure_count",
+    "surface_acquire_count",
+    "clear_present_count",
+    "pipeline_count",
+    "pipeline_layout_count",
+    "materialized_buffer_count",
+    "retained_font_bytes",
+    "inactive_font_bytes",
+    "indexed_font_count",
+    "active_font_count",
+    "catalog_builds",
+    "catalog_generation",
+    "glyph_atlas_bytes",
+    "raster_cache_bytes",
+    "image_texture_bytes",
+    "snapshot_bytes",
+    "instance_buffer_bytes",
+    "upload_buffer_bytes",
+    "total_allocated_buffer_bytes",
+    "total_allocated_texture_bytes",
+    "base_text_renderer_materialization_count",
+    "cursor_text_renderer_materialization_count",
+    "config_load_count",
+    "config_watcher_count",
+    "pty_start_count",
+    "ssh_start_count",
+    "post_ready_task_count",
+)
+PROJECT_RESOURCE_SCHEMA = "rssh.project-owned-resources/v1"
 
 
 def git_commit_object(ref: str, raw: bytes | None = None) -> dict:
@@ -988,6 +1027,126 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertEqual(residence["sample_interval_ms"], 100)
         self.assertEqual(residence["samples_per_process"], 10)
         self.assertEqual(residence["owner_ready_marker_required"], True)
+
+    def test_attribution_matrix(self) -> None:
+        """The hardware runner must expose the complete cumulative matrix contract."""
+        self.assertTrue(
+            ATTRIBUTION_RUNNER_PATH.is_file(),
+            "the cumulative Stage 7 attribution runner is required",
+        )
+        source = ATTRIBUTION_RUNNER_PATH.read_text(encoding="utf-8")
+        for stage in self.contract["artifact_policies"]["attribution-matrix-raw"][
+            "matrix_stages"
+        ]:
+            self.assertIn(stage, source)
+        for backend in ("auto", "dx12", "vulkan", "gl"):
+            self.assertIn(backend, source)
+        self.assertIn("attribution_stage_ready", source)
+        self.assertIn("ProjectOwnedResourceMetricsV1", source)
+        self.assertIn("nearest-rank-p50", source)
+        self.assertIn("raw-maximum", source)
+        self.assertIn("flattening_for_percentiles", source)
+        self.assertIn("Write-AtomicJson", source)
+        self.assertIn("runner-fingerprint", source)
+        self.assertIn("certification_eligible", source)
+
+        output = subprocess.run(
+            [
+                "pwsh",
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                str(ATTRIBUTION_RUNNER_PATH),
+                "-WhatIf",
+            ],
+            cwd=REPO,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(output.returncode, 0, output.stderr or output.stdout)
+        plan = json.loads(output.stdout)
+        self.assertEqual(plan["schema"], "rssh.stage7/attribution-matrix-plan/v1")
+        self.assertEqual(plan["stages"], self.contract["artifact_policies"]["attribution-matrix-raw"]["matrix_stages"])
+        self.assertEqual(plan["backends"], ["auto", "dx12", "vulkan", "gl"])
+        self.assertEqual(plan["warmups"], 5)
+        self.assertEqual(plan["measured_cold_processes"], 30)
+        self.assertEqual(plan["samples_per_process"], 10)
+        self.assertEqual(plan["stabilization_ms"], 5_000)
+        self.assertEqual(plan["sample_interval_ms"], 100)
+        self.assertEqual(plan["process_timeout_seconds"], 60)
+        self.assertEqual(plan["atomic_raw_record_files"], 4 * 8 * 30)
+        self.assertEqual(len(plan["schedule"]["warmups"]), 4 * 8 * 5)
+        self.assertEqual(len(plan["schedule"]["measured"]), 4 * 8 * 30)
+        for phase in ("warmups", "measured"):
+            schedule = plan["schedule"][phase]
+            rounds = plan["warmups"] if phase == "warmups" else plan["measured_cold_processes"]
+            for round_index in range(1, rounds + 1):
+                block = schedule[(round_index - 1) * 32 : round_index * 32]
+                self.assertEqual(
+                    [(item["backend"], item["stage"]) for item in block],
+                    [
+                        (backend, stage)
+                        for backend in ("auto", "dx12", "vulkan", "gl")
+                        for stage in self.contract["artifact_policies"]["attribution-matrix-raw"]["matrix_stages"]
+                    ],
+                )
+        self.assertEqual(
+            plan["artifacts"],
+            [
+                "attribution-matrix-raw",
+                "attribution-matrix-aggregate",
+                "artifact-manifest-fragment.json",
+            ],
+        )
+        workflow = (REPO / ".github/workflows/release.yml").read_text(encoding="utf-8")
+        self.assertIn("stage7-attribution-matrix:", workflow)
+        self.assertIn(
+            "github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+            workflow,
+        )
+        self.assertIn("run-stage7-font-proof.ps1", workflow)
+        self.assertIn("run-stage7-attribution-matrix.ps1", workflow)
+        self.assertIn("actions/upload-artifact", workflow)
+
+    def _valid_attribution_payload(self) -> tuple[dict, dict]:
+        policy = self.contract["artifact_policies"]["attribution-matrix-raw"]
+        payload = self.make_metric_payload(
+            "attribution-matrix-raw",
+            policy,
+            {
+                "source_sha": SOURCE_SHA,
+                "binary_hashes": {"rssh-app.exe": BINARY_SHA},
+                "runner_fingerprint_sha256": RUNNER_SHA,
+                "platform": "windows-x86_64",
+                "run_id": "attribution-matrix-test",
+            },
+        )
+        return payload, policy
+
+    def test_rejects_fixture_stage_without_fixture_text(self) -> None:
+        payload, policy = self._valid_attribution_payload()
+        group = next(item for item in payload["groups"] if item["name"] == "auto/fixture-font-text")
+        group["processes"][0]["resource_summary"]["retained_font_bytes"] = 0
+        violations: list[str] = []
+        self.checker.validate_metric_artifact(payload, policy, self.contract, "attribution raw", violations)
+        self.assertTrue(any("retained_font_bytes" in item for item in violations), violations)
+
+    def test_rejects_platform_index_with_retained_inactive_bytes(self) -> None:
+        payload, policy = self._valid_attribution_payload()
+        group = next(item for item in payload["groups"] if item["name"] == "auto/platform-font-index")
+        group["processes"][0]["resource_summary"]["inactive_font_bytes"] = 1
+        violations: list[str] = []
+        self.checker.validate_metric_artifact(payload, policy, self.contract, "attribution raw", violations)
+        self.assertTrue(any("inactive_font_bytes" in item for item in violations), violations)
+
+    def test_rejects_full_frame_without_present(self) -> None:
+        payload, policy = self._valid_attribution_payload()
+        group = next(item for item in payload["groups"] if item["name"] == "auto/full-frame")
+        group["processes"][0]["resource_summary"]["clear_present_count"] = 0
+        violations: list[str] = []
+        self.checker.validate_metric_artifact(payload, policy, self.contract, "attribution raw", violations)
+        self.assertTrue(any("clear_present_count" in item for item in violations), violations)
 
     def test_font_ownership_raw_inventory_is_exactly_the_900_ascii_sample_contract(self) -> None:
         policy = self.contract["artifact_policies"]["font-ownership-raw"]
@@ -4868,6 +5027,63 @@ class Stage7SplitGateTests(unittest.TestCase):
             summary["font_index_policy_version"] = 1
         return summary
 
+    def project_resource_summary(self, stage: str, backend: str = "dx12") -> dict:
+        fields = {
+            name: 0
+            for name in PROJECT_RESOURCE_NUMERIC_FIELDS
+        }
+        fields.update(
+            {
+                "cpu_staging_bytes": 4,
+                "cpu_surface_count": 1,
+                "cpu_present_count": 1,
+            }
+        )
+        stage_index = self.contract["artifact_policies"]["attribution-matrix-raw"][
+            "matrix_stages"
+        ].index(stage)
+        if stage_index >= 1:
+            fields.update({"instance_count": 1, "surface_count": 1})
+        if stage_index >= 2:
+            fields.update({"adapter_count": 1, "device_count": 1, "queue_count": 1})
+            fields["backend"] = backend
+            fields["adapter_name"] = "test-adapter"
+        if stage_index >= 3:
+            fields.update(
+                {
+                    "surface_configure_count": 1,
+                    "surface_acquire_count": 3 if stage_index >= 7 else 2 if stage_index >= 5 else 1,
+                    "clear_present_count": 1,
+                }
+            )
+        if stage_index >= 4:
+            fields.update(
+                {
+                    "pipeline_count": 2,
+                    "pipeline_layout_count": 2,
+                    "materialized_buffer_count": 1,
+                    "total_allocated_buffer_bytes": 8,
+                }
+            )
+        if stage_index >= 5:
+            fields.update(
+                {
+                    "retained_font_bytes": 1,
+                    "active_font_count": 1,
+                    "catalog_builds": 1,
+                    "catalog_generation": 1,
+                    "glyph_atlas_bytes": 1,
+                    "total_allocated_texture_bytes": 1,
+                    "base_text_renderer_materialization_count": 2 if stage_index >= 7 else 1,
+                    "cursor_text_renderer_materialization_count": 2 if stage_index >= 7 else 1,
+                }
+            )
+        if stage_index >= 6:
+            fields["indexed_font_count"] = 2
+        if stage_index >= 7:
+            fields["snapshot_bytes"] = 1
+        return fields
+
     def make_metric_payload(self, artifact_type: str, policy: dict, identity: dict) -> dict:
         mode = policy["sampling_mode"]
         protocol = self.metric_protocol(policy)
@@ -4948,6 +5164,19 @@ class Stage7SplitGateTests(unittest.TestCase):
                                 ),
                             }
                             if artifact_type == "font-ownership-raw"
+                            else {}
+                        ),
+                        **(
+                            {
+                                "round_index": index + 1,
+                                "attribution_stage": stage,
+                                "resource_summary_schema": PROJECT_RESOURCE_SCHEMA,
+                                "resource_summary": self.project_resource_summary(
+                                    stage,
+                                    "dx12" if requested_backend == "auto" else requested_backend,
+                                ),
+                            }
+                            if "matrix_stages" in policy
                             else {}
                         ),
                     }

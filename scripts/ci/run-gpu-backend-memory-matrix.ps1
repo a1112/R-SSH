@@ -103,9 +103,10 @@ function Get-NearestRankPercentile([UInt64[]] $Values, [double] $Percentile) {
     if ($Values.Count -eq 0) {
         throw "nearest-rank percentile requires at least one value"
     }
-    $ordered = @($Values | Sort-Object)
-    $rank = [Math]::Ceiling($Percentile * $ordered.Count)
-    return [UInt64] $ordered[[Math]::Max(0, $rank - 1)]
+    [UInt64[]] $ordered = @($Values | ForEach-Object { [UInt64] $_ } | Sort-Object)
+    [int] $rank = [Math]::Ceiling($Percentile * $ordered.Count)
+    [int] $index = [Math]::Max(0, $rank - 1)
+    return [UInt64] $ordered[$index]
 }
 
 function Try-GetJsonUInt64Scalar(
@@ -427,13 +428,24 @@ try {
             continue
         }
 
+        # Residence percentiles are defined over one representative per cold
+        # process.  Flattening all 300 samples would let a noisy process
+        # contribute thirty times and is explicitly forbidden by the Stage 7
+        # evidence contract.  The maximum still comes from every raw sample.
+        [UInt64[]] $representatives = @(
+            $records |
+                ForEach-Object {
+                    [UInt64[]] $sampleValues = @($_.memory.samples | ForEach-Object { [UInt64] $_.bytes })
+                    Get-NearestRankPercentile -Values $sampleValues -Percentile 0.50
+                }
+        )
         [UInt64[]] $bytes = @(
             $records |
                 ForEach-Object { $_.memory.samples } |
                 ForEach-Object { [UInt64] $_.bytes }
         )
-        $p50 = Get-NearestRankPercentile -Values $bytes -Percentile 0.50
-        $p95 = Get-NearestRankPercentile -Values $bytes -Percentile 0.95
+        $p50 = Get-NearestRankPercentile -Values $representatives -Percentile 0.50
+        $p95 = Get-NearestRankPercentile -Values $representatives -Percentile 0.95
         $maximum = [UInt64] ($bytes | Measure-Object -Maximum).Maximum
         $firstRecord = $records[0]
         $successfulReport = [ordered]@{
@@ -447,6 +459,14 @@ try {
             memory_p50_bytes = $p50
             memory_p95_bytes = $p95
             memory_max_bytes = $maximum
+            representatives = @($representatives)
+            raw_sample_count = $bytes.Count
+            aggregation = [ordered]@{
+                process_representative = "nearest-rank-p50"
+                cross_process_percentiles = "nearest-rank over per-process representatives"
+                maximum = "raw-maximum"
+                flattening_for_percentiles = "forbidden"
+            }
             report_only_target_bytes = $report_only_target_bytes
             report_only_target_met = ($p95 -le $report_only_target_bytes)
             evidence = [ordered]@{

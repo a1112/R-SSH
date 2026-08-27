@@ -8,6 +8,7 @@ param(
     [Parameter(Mandatory = $true)]
     [UInt32] $FontIndexPolicyVersion,
     [string] $TestInputPath,
+    [string] $OutputPath,
     [ValidateSet(
         "none",
         "collector-failure",
@@ -497,4 +498,21 @@ $result = [ordered]@{
     collector_script_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $PSCommandPath).Hash.ToLowerInvariant()
     collector_timeout_seconds = 60
 }
-$result | ConvertTo-Json -Depth 100 -Compress
+$resultJson = $result | ConvertTo-Json -Depth 100 -Compress
+if (-not [string]::IsNullOrWhiteSpace($OutputPath)) {
+    $outputDirectory = Split-Path -Parent $OutputPath
+    if (-not [string]::IsNullOrWhiteSpace($outputDirectory)) {
+        New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+    }
+    $temporaryPath = Join-Path ([IO.Path]::GetTempPath()) ("rssh-stage7-runner-fingerprint-{0}-{1}.tmp" -f $PID, [Guid]::NewGuid().ToString("N"))
+    try {
+        [IO.File]::WriteAllText($temporaryPath, $resultJson, [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $temporaryPath -Destination $OutputPath -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+    }
+}
+Write-Output $resultJson
