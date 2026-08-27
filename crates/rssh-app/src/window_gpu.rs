@@ -1,5 +1,8 @@
 use std::{cell::RefCell, error::Error, io, sync::Arc};
 
+#[cfg(any(test, feature = "diagnostic-tools"))]
+use std::time::Duration;
+
 #[cfg(feature = "diagnostic-tools")]
 use std::time::Instant;
 
@@ -11,10 +14,20 @@ use rterm_render_wgpu::gpu::{
     GpuLayerRenderer, GpuPresentationMetrics, GpuTextConfig, GpuTextPrepareReport, RenderGraph,
     WindowedGpuContextBootstrap, should_abandon_recovered_window_surface,
 };
+#[cfg(any(test, feature = "diagnostic-tools"))]
+use rterm_render_wgpu::gpu::{GpuInitializationResourceSnapshot, WindowedGpuDevice};
 use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
 use crate::platform_fonts::{
     CatalogActivation, FontCatalogMode, PlatformFontRepository, production_font_catalog_mode,
+};
+#[cfg(any(test, feature = "diagnostic-tools"))]
+use crate::{
+    stage7_attribution::{
+        AttributionStageRuntime, GpuAttributionStage, ProductServiceEntry,
+        ProjectOwnedResourceSnapshot, audit_product_service_start,
+    },
+    window_bootstrap::WindowBootstrapSurface,
 };
 
 /// App-owned direct terminal renderer for the native wgpu surface.
@@ -44,6 +57,617 @@ pub(crate) struct PreparedWindowGpu {
     context: WindowedGpuContextBootstrap,
     diagnostic_font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
     diagnostic_font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+pub(crate) struct Stage7FullFrameInputs {
+    snapshot: TerminalRenderSnapshot,
+    geometry: RenderGeometry,
+    graph: RenderGraph,
+    paint: TextPaintConfig,
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+impl Stage7FullFrameInputs {
+    fn for_diagnostic_empty_window(spec: Stage7DiagnosticFrameSpec) -> Self {
+        #[cfg(test)]
+        STAGE7_FULL_FRAME_INPUTS_CREATED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let terminal = rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(20, 4));
+        Self {
+            snapshot: TerminalRenderSnapshot::from_terminal(&terminal),
+            geometry: RenderGeometry::new(spec.width, spec.height, 16, 24),
+            graph: RenderGraph::new(spec.width, spec.height),
+            paint: TextPaintConfig::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for Stage7FullFrameInputs {
+    fn drop(&mut self) {
+        STAGE7_FULL_FRAME_INPUTS_DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[cfg(test)]
+static STAGE7_FULL_FRAME_INPUTS_CREATED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+#[cfg(test)]
+static STAGE7_FULL_FRAME_INPUTS_DROPPED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Stage7DiagnosticFrameSpec {
+    width: u32,
+    height: u32,
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+impl Stage7DiagnosticFrameSpec {
+    const fn for_surface(size: PhysicalSize<u32>) -> Self {
+        Self {
+            width: size.width,
+            height: size.height,
+        }
+    }
+}
+
+/// Real owner composition used by the private Stage 7 stop-stage diagnostic.
+/// No WGPU object is created until the controller enters `InstanceSurface`.
+#[allow(
+    dead_code,
+    reason = "Task 6 wires the private diagnostic launcher to this Task 5 owner"
+)]
+#[cfg(any(test, feature = "diagnostic-tools"))]
+pub(crate) struct Stage7WindowAttributionRuntime<'a> {
+    cpu_surface: &'a mut WindowBootstrapSurface,
+    cpu_rgba: Vec<u8>,
+    display: OwnedDisplayHandle,
+    window: Arc<Window>,
+    surface_size: PhysicalSize<u32>,
+    high_performance: bool,
+    force_fallback_adapter: bool,
+    diagnostic_backend: Option<DiagnosticGpuBackend>,
+    full_frame_spec: Stage7DiagnosticFrameSpec,
+    full_frame_inputs: Option<Stage7FullFrameInputs>,
+    prepared: Option<WindowedGpuContextBootstrap>,
+    device: Option<WindowedGpuDevice>,
+    context: Option<GpuContext>,
+    renderer: Option<GpuLayerRenderer>,
+    font_repository: Option<PlatformFontRepository>,
+    resources: ProjectOwnedResourceSnapshot,
+}
+
+#[allow(
+    dead_code,
+    reason = "Task 6 wires the private diagnostic launcher to this Task 5 owner"
+)]
+#[cfg(any(test, feature = "diagnostic-tools"))]
+impl<'a> Stage7WindowAttributionRuntime<'a> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the private owner binds one real CPU surface, GPU surface, and diagnostic frame"
+    )]
+    pub(crate) fn new(
+        cpu_surface: &'a mut WindowBootstrapSurface,
+        cpu_rgba: Vec<u8>,
+        display: OwnedDisplayHandle,
+        window: Arc<Window>,
+        surface_size: PhysicalSize<u32>,
+        high_performance: bool,
+        force_fallback_adapter: bool,
+        diagnostic_backend: Option<DiagnosticGpuBackend>,
+    ) -> Self {
+        Self {
+            cpu_surface,
+            cpu_rgba,
+            display,
+            window,
+            surface_size,
+            high_performance,
+            force_fallback_adapter,
+            diagnostic_backend,
+            full_frame_spec: Stage7DiagnosticFrameSpec::for_surface(surface_size),
+            full_frame_inputs: None,
+            prepared: None,
+            device: None,
+            context: None,
+            renderer: None,
+            font_repository: None,
+            resources: ProjectOwnedResourceSnapshot::default(),
+        }
+    }
+
+    fn audit_disabled_product_service_entries() -> Result<(), Box<dyn Error>> {
+        let attempts = [
+            audit_product_service_start(ProductServiceEntry::DeferredConfig),
+            audit_product_service_start(ProductServiceEntry::ConfigWatcher),
+            audit_product_service_start(ProductServiceEntry::LocalPty),
+            audit_product_service_start(ProductServiceEntry::NativeSsh),
+            audit_product_service_start(ProductServiceEntry::PostReadyCoordinator),
+        ];
+        if attempts.iter().any(Result::is_ok) {
+            return Err(
+                io::Error::other("a Stage 7 product service entry remained enabled").into(),
+            );
+        }
+        Ok(())
+    }
+
+    fn complete_cpu_window(&mut self) -> Result<(), Box<dyn Error>> {
+        self.cpu_surface.present_rgba(&self.cpu_rgba)?;
+        let size = self.cpu_surface.size();
+        let bytes = usize::try_from(size.width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(size.height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .and_then(|pixels| pixels.checked_mul(4))
+            .ok_or_else(|| io::Error::other("CPU bootstrap byte size overflow"))?;
+        if self.cpu_rgba.len() != bytes {
+            return Err(io::Error::other("CPU bootstrap owner retained a mismatched frame").into());
+        }
+        self.resources.cpu_staging_bytes = u64::try_from(self.cpu_rgba.capacity())
+            .map_err(|_| io::Error::other("CPU bootstrap retained capacity exceeds u64"))?;
+        self.resources.cpu_surface_count = 1;
+        self.resources.cpu_present_count = 1;
+        Ok(())
+    }
+
+    fn complete_instance_surface(&mut self) -> Result<(), Box<dyn Error>> {
+        let options = gpu_context_options(
+            self.high_performance,
+            self.force_fallback_adapter,
+            self.diagnostic_backend,
+        )?;
+        let prepared = GpuContext::prepare_windowed(
+            self.display.clone(),
+            Arc::clone(&self.window),
+            self.surface_size.width,
+            self.surface_size.height,
+            options,
+        )?;
+        merge_gpu_resources(&mut self.resources, &prepared.initialization_resources());
+        self.prepared = Some(prepared);
+        Ok(())
+    }
+
+    fn complete_adapter_device(&mut self) -> Result<(), Box<dyn Error>> {
+        let prepared = self
+            .prepared
+            .take()
+            .ok_or_else(|| io::Error::other("InstanceSurface owner is unavailable"))?;
+        let device = pollster::block_on(prepared.select_device())?;
+        merge_gpu_resources(&mut self.resources, device.initialization_resources());
+        self.device = Some(device);
+        Ok(())
+    }
+
+    fn complete_configured_surface_clear(&mut self) -> Result<(), Box<dyn Error>> {
+        let device = self
+            .device
+            .take()
+            .ok_or_else(|| io::Error::other("AdapterDevice owner is unavailable"))?;
+        let mut context = device.configure_surface()?;
+        if context.present_clear_once()? != GpuFrameStatus::Presented {
+            return Err(
+                io::Error::other("configured Stage 7 clear frame was not presented").into(),
+            );
+        }
+        merge_gpu_resources(&mut self.resources, context.initialization_resources());
+        self.context = Some(context);
+        Ok(())
+    }
+
+    fn complete_layer_pipelines(&mut self) -> Result<(), Box<dyn Error>> {
+        let context = self
+            .context
+            .as_ref()
+            .ok_or_else(|| io::Error::other("ConfiguredSurfaceClear owner is unavailable"))?;
+        let format = context
+            .surface_format()
+            .ok_or_else(|| io::Error::other("configured attribution surface has no format"))?;
+        let renderer = GpuLayerRenderer::new(context, format, 64 * 1024)?;
+        self.renderer = Some(renderer);
+        self.sync_live_gpu_resources();
+        Ok(())
+    }
+
+    fn complete_fixture_font_text(&mut self) -> Result<(), Box<dyn Error>> {
+        let catalog = stage7_fixture_font_catalog()?;
+        let metrics = catalog.memory_metrics();
+        let catalog_generation = catalog.generation();
+        let mut terminal = rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(20, 1));
+        terminal.feed(b"R-SSH Stage 7");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let geometry =
+            RenderGeometry::new(self.surface_size.width, self.surface_size.height, 16, 24);
+        let renderer = self
+            .renderer
+            .as_mut()
+            .ok_or_else(|| io::Error::other("LayerPipelines owner is unavailable"))?;
+        renderer.enable_text(catalog, stage7_fixture_font_config(), stage7_text_config())?;
+        renderer.prepare_text(
+            &snapshot,
+            geometry,
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )?;
+        let graph = RenderGraph::new(self.surface_size.width, self.surface_size.height);
+        let context = self
+            .context
+            .as_mut()
+            .ok_or_else(|| io::Error::other("ConfiguredSurfaceClear owner is unavailable"))?;
+        if context.render_graph(renderer, &graph, || {})? != GpuFrameStatus::Presented {
+            return Err(io::Error::other("fixture GPU text frame was not presented").into());
+        }
+        self.resources.retained_font_bytes =
+            project_owned_u64(metrics.retained_source_bytes, "fixture retained font bytes")?;
+        self.resources.active_font_count =
+            project_owned_u64(metrics.active_source_count, "fixture active font count")?;
+        self.resources.catalog_builds = metrics.catalog_builds;
+        self.resources.catalog_generation = catalog_generation;
+        self.sync_live_gpu_resources();
+        Ok(())
+    }
+
+    fn complete_platform_font_index(&mut self) -> Result<(), Box<dyn Error>> {
+        let repository = PlatformFontRepository::production_index();
+        let diagnostics = repository.diagnostics();
+        self.resources.indexed_font_count =
+            project_owned_u64(diagnostics.indexed_source_count, "indexed font count")?;
+        self.resources.inactive_font_bytes =
+            project_owned_u64(diagnostics.retained_source_bytes, "inactive font bytes")?;
+        self.font_repository = Some(repository);
+        Ok(())
+    }
+
+    fn complete_full_frame(&mut self) -> Result<(), Box<dyn Error>> {
+        let inputs = Stage7FullFrameInputs::for_diagnostic_empty_window(self.full_frame_spec);
+        let repository = self
+            .font_repository
+            .as_mut()
+            .ok_or_else(|| io::Error::other("PlatformFontIndex owner is unavailable"))?;
+        let catalog = repository.build_catalog(FontCatalogMode::Lazy)?;
+        let renderer = self
+            .renderer
+            .as_mut()
+            .ok_or_else(|| io::Error::other("FixtureFontText owner is unavailable"))?;
+        renderer.enable_text(
+            catalog,
+            bundled_emergency_font_config(),
+            stage7_text_config(),
+        )?;
+        prepare_gpu_text_frame(
+            repository,
+            renderer,
+            &inputs.snapshot,
+            inputs.geometry,
+            &[],
+            &inputs.paint,
+            1.0,
+            1.0,
+        )?;
+        let context = self
+            .context
+            .as_mut()
+            .ok_or_else(|| io::Error::other("ConfiguredSurfaceClear owner is unavailable"))?;
+        if context.render_graph(renderer, &inputs.graph, || {})? != GpuFrameStatus::Presented {
+            return Err(io::Error::other("full Stage 7 GPU frame was not presented").into());
+        }
+        let diagnostics = repository.diagnostics();
+        self.resources.retained_font_bytes =
+            project_owned_u64(diagnostics.retained_source_bytes, "retained font bytes")?;
+        self.resources.indexed_font_count =
+            project_owned_u64(diagnostics.indexed_source_count, "indexed font count")?;
+        self.resources.active_font_count =
+            project_owned_u64(diagnostics.active_source_count, "active font count")?;
+        self.resources.catalog_builds = diagnostics.catalog_builds;
+        self.resources.catalog_generation = diagnostics.generation;
+        self.resources.snapshot_bytes = u64::try_from(
+            inputs
+                .snapshot
+                .project_owned_logical_bytes_v1()
+                .map_err(|error| io::Error::other(error.to_string()))?,
+        )
+        .map_err(|_| io::Error::other("snapshot logical bytes exceed u64"))?;
+        self.sync_live_gpu_resources();
+        self.full_frame_inputs = Some(inputs);
+        Ok(())
+    }
+
+    fn sync_live_gpu_resources(&mut self) {
+        let mut current = GpuInitializationResourceSnapshot::default();
+        if let Some(context) = self.context.as_ref() {
+            current = current.merged(context.initialization_resources());
+        }
+        if let Some(renderer) = self.renderer.as_ref() {
+            current = current.merged(&renderer.initialization_resources());
+        }
+        merge_gpu_resources(&mut self.resources, &current);
+    }
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+impl AttributionStageRuntime for Stage7WindowAttributionRuntime<'_> {
+    type Error = Box<dyn Error>;
+
+    fn disable_product_services(&mut self) {
+        // The controller owns the shared RAII guard before completing a stage.
+    }
+
+    fn complete_stage(
+        &mut self,
+        stage: GpuAttributionStage,
+    ) -> Result<ProjectOwnedResourceSnapshot, Self::Error> {
+        Self::audit_disabled_product_service_entries()?;
+        match stage {
+            GpuAttributionStage::CpuWindow => self.complete_cpu_window()?,
+            GpuAttributionStage::InstanceSurface => self.complete_instance_surface()?,
+            GpuAttributionStage::AdapterDevice => self.complete_adapter_device()?,
+            GpuAttributionStage::ConfiguredSurfaceClear => {
+                self.complete_configured_surface_clear()?;
+            }
+            GpuAttributionStage::LayerPipelines => self.complete_layer_pipelines()?,
+            GpuAttributionStage::FixtureFontText => self.complete_fixture_font_text()?,
+            GpuAttributionStage::PlatformFontIndex => self.complete_platform_font_index()?,
+            GpuAttributionStage::FullFrame => self.complete_full_frame()?,
+        }
+        Self::audit_disabled_product_service_entries()?;
+        Ok(self.resources.clone())
+    }
+
+    fn hold(&mut self, duration: Duration) {
+        std::thread::sleep(duration);
+        Self::audit_disabled_product_service_entries()
+            .expect("product services remain disabled after the attribution hold");
+    }
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+fn stage7_fixture_font_catalog() -> Result<rssh_fonts::FontCatalog, Box<dyn Error>> {
+    let source = rssh_fonts::FontSource::new(
+        "R-SSH Stage 7 Fixture",
+        include_bytes!("../../../tests/fixtures/fonts/NotoSans-Latin.fixture.ttf").to_vec(),
+    );
+    Ok(rssh_fonts::FontCatalog::from_sources("en-US", [source])?)
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+fn stage7_fixture_font_config() -> rssh_fonts::FontConfig {
+    rssh_fonts::FontConfig::new("R-SSH Stage 7 Fixture")
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+fn stage7_text_config() -> GpuTextConfig {
+    use rssh_fonts::RasterCacheConfig;
+
+    GpuTextConfig::new(4 * 1024 * 1024, RasterCacheConfig::new(4 * 1024 * 1024))
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+fn project_owned_u64(value: usize, label: &str) -> Result<u64, Box<dyn Error>> {
+    u64::try_from(value).map_err(|_| io::Error::other(format!("{label} exceeds u64")).into())
+}
+
+#[cfg(any(test, feature = "diagnostic-tools"))]
+fn merge_gpu_resources(
+    destination: &mut ProjectOwnedResourceSnapshot,
+    source: &GpuInitializationResourceSnapshot,
+) {
+    destination.instance_count = source.instance_count;
+    destination.surface_count = source.surface_count;
+    destination.adapter_count = source.adapter_count;
+    destination.device_count = source.device_count;
+    destination.queue_count = source.queue_count;
+    destination.surface_configure_count = source.surface_configure_count;
+    destination.surface_acquire_count = source.surface_acquire_count;
+    destination.clear_present_count = source.clear_present_count;
+    destination.pipeline_count = source.pipeline_count;
+    destination.pipeline_layout_count = source.pipeline_layout_count;
+    destination.materialized_buffer_count = source.materialized_buffer_count;
+    destination.instance_buffer_bytes = source.instance_buffer_bytes;
+    destination.upload_buffer_bytes = source.upload_buffer_bytes;
+    destination.total_allocated_buffer_bytes = source.total_allocated_buffer_bytes;
+    destination.total_allocated_texture_bytes = source.total_allocated_texture_bytes;
+    destination.glyph_atlas_bytes = source.glyph_atlas_bytes;
+    destination.raster_cache_bytes = source.raster_cache_bytes;
+    destination.image_texture_bytes = source.image_texture_bytes;
+    destination.base_text_renderer_materialization_count =
+        source.base_text_renderer_materialization_count;
+    destination.cursor_text_renderer_materialization_count =
+        source.cursor_text_renderer_materialization_count;
+    destination.backend.clone_from(&source.backend);
+    destination.adapter_name.clone_from(&source.adapter_name);
+}
+
+#[cfg(all(test, target_os = "windows"))]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one native event-loop fixture keeps the real eight-stage owner and production compatibility teardown auditable"
+)]
+pub(crate) fn run_stage7_native_attribution_for_test(
+    stop_stage: GpuAttributionStage,
+) -> Result<ProjectOwnedResourceSnapshot, Box<dyn Error>> {
+    use winit::{
+        application::ApplicationHandler,
+        event::WindowEvent,
+        event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+        platform::windows::EventLoopBuilderExtWindows,
+        window::{WindowAttributes, WindowId},
+    };
+
+    use crate::stage7_attribution::AttributionStageController;
+
+    struct NativeAttributionApp {
+        stop_stage: GpuAttributionStage,
+        result: Option<Result<ProjectOwnedResourceSnapshot, String>>,
+    }
+
+    impl ApplicationHandler for NativeAttributionApp {
+        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+            let result = (|| -> Result<ProjectOwnedResourceSnapshot, Box<dyn Error>> {
+                let size = PhysicalSize::new(320, 96);
+                let attributes = WindowAttributes::default()
+                    .with_title("R-SSH Stage 7 attribution test")
+                    .with_visible(false)
+                    .with_inner_size(size);
+                let window = Arc::new(event_loop.create_window(attributes)?);
+                let actual_size = window.request_inner_size(size).unwrap_or(size);
+                let frame_len = usize::try_from(actual_size.width)
+                    .ok()
+                    .and_then(|width| {
+                        usize::try_from(actual_size.height)
+                            .ok()
+                            .and_then(|height| width.checked_mul(height))
+                    })
+                    .and_then(|pixels| pixels.checked_mul(4))
+                    .ok_or_else(|| io::Error::other("native attribution frame overflow"))?;
+                let cpu_rgba = {
+                    let mut terminal =
+                        rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(1, 1));
+                    terminal.feed(b"R");
+                    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+                    let mut rgba = vec![0_u8; frame_len];
+                    rterm_render_cpu::PixelRenderer::new().render(
+                        &snapshot,
+                        &mut rgba,
+                        actual_size.width,
+                        actual_size.height,
+                        16,
+                        24,
+                    );
+                    rgba
+                };
+                let mut cpu_surface =
+                    WindowBootstrapSurface::new(event_loop, Arc::clone(&window), actual_size)?;
+                STAGE7_FULL_FRAME_INPUTS_CREATED.store(0, std::sync::atomic::Ordering::SeqCst);
+                STAGE7_FULL_FRAME_INPUTS_DROPPED.store(0, std::sync::atomic::Ordering::SeqCst);
+                let mut runtime = Stage7WindowAttributionRuntime::new(
+                    &mut cpu_surface,
+                    cpu_rgba,
+                    event_loop.owned_display_handle(),
+                    window,
+                    actual_size,
+                    false,
+                    false,
+                    None,
+                );
+                assert_eq!(
+                    STAGE7_FULL_FRAME_INPUTS_CREATED.load(std::sync::atomic::Ordering::SeqCst),
+                    0,
+                    "no FullFrame owner may exist before the controller reaches FullFrame"
+                );
+                let report = AttributionStageController::new(self.stop_stage)
+                    .run(&mut runtime)
+                    .map_err(|error| io::Error::other(error.to_string()))?;
+                let resources = report.resources;
+                let expected_full_frame_owners =
+                    usize::from(self.stop_stage == GpuAttributionStage::FullFrame);
+                assert_eq!(
+                    STAGE7_FULL_FRAME_INPUTS_CREATED.load(std::sync::atomic::Ordering::SeqCst),
+                    expected_full_frame_owners,
+                    "the FullFrame input owner is created only at its stage"
+                );
+                assert_eq!(
+                    STAGE7_FULL_FRAME_INPUTS_DROPPED.load(std::sync::atomic::Ordering::SeqCst),
+                    0,
+                    "the FullFrame owner must remain live throughout the controller hold"
+                );
+                drop(runtime);
+                assert_eq!(
+                    STAGE7_FULL_FRAME_INPUTS_DROPPED.load(std::sync::atomic::Ordering::SeqCst),
+                    expected_full_frame_owners,
+                    "dropping the runtime must release the retained FullFrame owner"
+                );
+                drop(cpu_surface);
+
+                if self.stop_stage == GpuAttributionStage::FullFrame {
+                    let production_window = Arc::new(
+                        event_loop.create_window(
+                            WindowAttributes::default()
+                                .with_title("R-SSH production composition test")
+                                .with_visible(false)
+                                .with_inner_size(actual_size),
+                        )?,
+                    );
+                    let mut production = pollster::block_on(WindowGpu::new(
+                        event_loop.owned_display_handle(),
+                        Arc::clone(&production_window),
+                        actual_size,
+                        false,
+                        false,
+                    ))?;
+                    if production.metrics().presented_frames != 0
+                        || production.metrics().surface_reconfigurations != 1
+                    {
+                        return Err(io::Error::other(
+                            "production one-call composition changed its pre-present boundary",
+                        )
+                        .into());
+                    }
+                    let terminal =
+                        rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(20, 4));
+                    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+                    let status = production.present(
+                        production_window.as_ref(),
+                        &snapshot,
+                        RenderGeometry::new(actual_size.width, actual_size.height, 16, 24),
+                        &[],
+                        &TextPaintConfig::default(),
+                        &RenderGraph::new(actual_size.width, actual_size.height),
+                        rssh_native::RenderMode::Full,
+                        1.0,
+                    )?;
+                    if status != GpuFrameStatus::Presented
+                        || production.metrics().presented_frames != 1
+                    {
+                        return Err(io::Error::other(
+                            "production one-call composition did not present one normal frame",
+                        )
+                        .into());
+                    }
+                    production.shutdown_after_native_window_close();
+                    drop(production);
+                }
+                Ok(resources)
+            })();
+            self.result = Some(result.map_err(|error| error.to_string()));
+            event_loop.exit();
+        }
+
+        fn window_event(
+            &mut self,
+            _event_loop: &ActiveEventLoop,
+            _window_id: WindowId,
+            _event: WindowEvent,
+        ) {
+        }
+    }
+
+    let event_loop = EventLoop::builder()
+        .with_any_thread(true)
+        .build()
+        .map_err(|error| {
+            io::Error::other(format!("create native attribution event loop: {error}"))
+        })?;
+    event_loop.set_control_flow(ControlFlow::Wait);
+    let mut app = NativeAttributionApp {
+        stop_stage,
+        result: None,
+    };
+    event_loop
+        .run_app(&mut app)
+        .map_err(|error| io::Error::other(format!("run native attribution event loop: {error}")))?;
+    app.result
+        .take()
+        .ok_or_else(|| io::Error::other("native attribution event loop returned no result"))?
+        .map_err(|error| io::Error::other(error).into())
 }
 
 struct WindowGpuFrame<'a> {

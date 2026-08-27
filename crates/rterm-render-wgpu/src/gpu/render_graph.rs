@@ -15,7 +15,8 @@ std::thread_local! {
 }
 
 use super::{
-    GpuContext, GpuContextGeneration, GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
+    GpuContext, GpuContextGeneration, GpuImage, GpuInitializationResourceSnapshot, GpuLayer,
+    GpuLayerError, GpuQuad, PixelRect,
     images::image_layer,
     quads::{INSTANCE_SIZE, encode_instance},
     text::{
@@ -1051,6 +1052,8 @@ pub struct GpuLayerRenderer {
     prepared_batches: Vec<DrawBatch>,
     prepared_textures: Vec<TextureIdentity>,
     texture_materializations: u64,
+    base_text_renderer_materializations: u64,
+    cursor_text_renderer_materializations: u64,
     prepared_size: (u32, u32),
     text: Option<GpuText>,
 }
@@ -1246,6 +1249,8 @@ impl GpuLayerRenderer {
             prepared_batches: Vec::new(),
             prepared_textures: Vec::new(),
             texture_materializations: 0,
+            base_text_renderer_materializations: 0,
+            cursor_text_renderer_materializations: 0,
             prepared_size: (0, 0),
             text: None,
         })
@@ -1264,7 +1269,7 @@ impl GpuLayerRenderer {
         font_config: FontConfig,
         config: GpuTextConfig,
     ) -> Result<(), GpuLayerError> {
-        self.text = Some(GpuText::new(
+        let text = GpuText::new(
             self.generation,
             self.device.clone(),
             self.queue.clone(),
@@ -1272,7 +1277,15 @@ impl GpuLayerRenderer {
             catalog,
             font_config,
             config,
-        )?);
+        )?;
+        let materialization = text.owner_materialization();
+        self.base_text_renderer_materializations = self
+            .base_text_renderer_materializations
+            .saturating_add(materialization.base_renderer_count);
+        self.cursor_text_renderer_materializations = self
+            .cursor_text_renderer_materializations
+            .saturating_add(materialization.cursor_renderer_count);
+        self.text = Some(text);
         Ok(())
     }
 
@@ -1453,6 +1466,36 @@ impl GpuLayerRenderer {
         let mut metrics = self.texture_cache.metrics();
         metrics.materializations = self.texture_materializations;
         metrics
+    }
+
+    /// Reports only the buffers, textures, and pipelines owned by this live
+    /// renderer. The caller can merge it with its context snapshot to obtain a
+    /// cumulative initialization-stage view.
+    #[must_use]
+    pub fn initialization_resources(&self) -> GpuInitializationResourceSnapshot {
+        let instance_bytes = u64::try_from(self.instances.capacity_bytes).unwrap_or(u64::MAX);
+        let texture_metrics = self.texture_cache_metrics();
+        let image_texture_bytes = u64::try_from(texture_metrics.retained_bytes).unwrap_or(u64::MAX);
+        let text_atlas = self.text_atlas_metrics().unwrap_or_default();
+        let glyph_atlas_bytes =
+            u64::try_from(text_atlas.physical_texture_bytes).unwrap_or(u64::MAX);
+        let raster_cache_bytes = self.text_cpu_font_metrics().map_or(0, |metrics| {
+            u64::try_from(metrics.raster_cache_bytes).unwrap_or(u64::MAX)
+        });
+        GpuInitializationResourceSnapshot {
+            pipeline_count: 2,
+            pipeline_layout_count: 2,
+            materialized_buffer_count: 1 + u64::from(self.instances.buffer.is_some()),
+            instance_buffer_bytes: instance_bytes,
+            total_allocated_buffer_bytes: 8_u64.saturating_add(instance_bytes),
+            total_allocated_texture_bytes: image_texture_bytes.saturating_add(glyph_atlas_bytes),
+            glyph_atlas_bytes,
+            raster_cache_bytes,
+            image_texture_bytes,
+            base_text_renderer_materialization_count: self.base_text_renderer_materializations,
+            cursor_text_renderer_materialization_count: self.cursor_text_renderer_materializations,
+            ..GpuInitializationResourceSnapshot::default()
+        }
     }
 
     fn validate_readback(&self, width: u32, height: u32) -> Result<ReadbackLayout, GpuLayerError> {

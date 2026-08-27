@@ -7437,6 +7437,13 @@ impl NativeWindowApp {
             return;
         }
 
+        if let Err(error) = crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::PostReadyCoordinator,
+        ) {
+            eprintln!("deferred GPU initialization blocked by scheduling audit: {error}");
+            self.activate_cpu_fallback();
+            return;
+        }
         self.presentation_owner = PresentationOwner::GpuInitializing;
         self.deferred_gpu_generation = self.deferred_gpu_generation.saturating_add(1);
         let generation = self.deferred_gpu_generation;

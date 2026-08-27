@@ -9,7 +9,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{GpuPresentationMetrics, SurfaceFault, SurfaceRecovery, SurfaceRecoveryState};
+use super::{
+    GpuInitializationResourceSnapshot, GpuPresentationMetrics, SurfaceFault, SurfaceRecovery,
+    SurfaceRecoveryState,
+};
 
 pub const DEFAULT_CPU_FRAME_BYTE_BUDGET: usize = 256 * 1024 * 1024;
 static NEXT_GPU_CONTEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -308,6 +311,7 @@ pub struct GpuContext {
     runtime_faults: Arc<GpuFaultMonitor>,
     suspended: bool,
     metrics: GpuPresentationMetrics,
+    initialization_resources: GpuInitializationResourceSnapshot,
     #[cfg(test)]
     recovery_failure_injections: u64,
     #[cfg(test)]
@@ -326,6 +330,114 @@ pub struct WindowedGpuContextBootstrap {
     surface: wgpu::Surface<'static>,
     width: u32,
     height: u32,
+}
+
+/// Prepared surface with exactly one selected adapter, device, and queue.
+///
+/// The surface is deliberately not configured until `configure_surface` is
+/// called, making the adapter/device ownership boundary independently holdable.
+pub struct WindowedGpuDevice {
+    context: GpuContext,
+    width: u32,
+    height: u32,
+}
+
+impl WindowedGpuContextBootstrap {
+    #[must_use]
+    pub fn initialization_resources(&self) -> GpuInitializationResourceSnapshot {
+        GpuInitializationResourceSnapshot {
+            instance_count: 1,
+            surface_count: 1,
+            ..GpuInitializationResourceSnapshot::default()
+        }
+    }
+
+    /// Selects exactly one adapter, device, and queue without configuring or
+    /// acquiring the retained surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when adapter selection or device creation fails.
+    pub async fn select_device(self) -> Result<WindowedGpuDevice, GpuContextError> {
+        let Self {
+            options,
+            instance,
+            surface_window,
+            surface,
+            width,
+            height,
+        } = self;
+        let adapter = request_adapter(&instance, Some(&surface), options).await?;
+        let info = adapter.get_info();
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("rssh-native-device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults()
+                    .using_resolution(adapter.limits()),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+            })
+            .await
+            .map_err(|error| GpuContextError::new("request device", error))?;
+        let runtime_faults = Arc::new(GpuFaultMonitor::default());
+        install_device_fault_handlers(&device, &runtime_faults);
+        let initialization_resources = GpuInitializationResourceSnapshot {
+            instance_count: 1,
+            surface_count: 1,
+            adapter_count: 1,
+            device_count: 1,
+            queue_count: 1,
+            backend: Some(info.backend.to_string()),
+            adapter_name: Some(info.name.clone()),
+            ..GpuInitializationResourceSnapshot::default()
+        };
+
+        Ok(WindowedGpuDevice {
+            context: GpuContext {
+                generation: next_gpu_context_generation(),
+                options,
+                instance,
+                adapter,
+                device,
+                queue,
+                surface_window: Some(surface_window),
+                surface: Some(surface),
+                surface_config: None,
+                compatibility_pipeline: None,
+                runtime_faults,
+                suspended: width == 0 || height == 0,
+                metrics: GpuPresentationMetrics::from_adapter(&info),
+                initialization_resources,
+                #[cfg(test)]
+                recovery_failure_injections: 0,
+                #[cfg(test)]
+                recovery_post_validation_failure_injections: 0,
+            },
+            width,
+            height,
+        })
+    }
+}
+
+impl WindowedGpuDevice {
+    #[must_use]
+    pub const fn initialization_resources(&self) -> &GpuInitializationResourceSnapshot {
+        &self.context.initialization_resources
+    }
+
+    /// Configures the retained surface without acquiring or presenting it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for unsupported surface dimensions or capabilities.
+    pub fn configure_surface(mut self) -> Result<GpuContext, GpuContextError> {
+        if !self.context.suspended {
+            self.context.configure_surface(self.width, self.height)?;
+        }
+        Ok(self.context)
+    }
 }
 
 impl fmt::Debug for GpuContext {
@@ -380,6 +492,15 @@ impl GpuContext {
             runtime_faults,
             suspended: false,
             metrics: GpuPresentationMetrics::from_adapter(&info),
+            initialization_resources: GpuInitializationResourceSnapshot {
+                instance_count: 1,
+                adapter_count: 1,
+                device_count: 1,
+                queue_count: 1,
+                backend: Some(info.backend.to_string()),
+                adapter_name: Some(info.name.clone()),
+                ..GpuInitializationResourceSnapshot::default()
+            },
             #[cfg(test)]
             recovery_failure_injections: 0,
             #[cfg(test)]
@@ -452,59 +573,17 @@ impl GpuContext {
     pub async fn finish_windowed(
         bootstrap: WindowedGpuContextBootstrap,
     ) -> Result<Self, GpuContextError> {
-        let WindowedGpuContextBootstrap {
-            options,
-            instance,
-            surface_window,
-            surface,
-            width,
-            height,
-        } = bootstrap;
-        let adapter = request_adapter(&instance, Some(&surface), options).await?;
-        let info = adapter.get_info();
-        let (device, queue) = adapter
-            .request_device(&wgpu::DeviceDescriptor {
-                label: Some("rssh-native-device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults()
-                    .using_resolution(adapter.limits()),
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
-                trace: wgpu::Trace::Off,
-            })
-            .await
-            .map_err(|error| GpuContextError::new("request device", error))?;
-        let runtime_faults = Arc::new(GpuFaultMonitor::default());
-        install_device_fault_handlers(&device, &runtime_faults);
-
-        let mut context = Self {
-            generation: next_gpu_context_generation(),
-            options,
-            instance,
-            adapter,
-            device,
-            queue,
-            surface_window: Some(surface_window),
-            surface: Some(surface),
-            surface_config: None,
-            compatibility_pipeline: None,
-            runtime_faults,
-            suspended: width == 0 || height == 0,
-            metrics: GpuPresentationMetrics::from_adapter(&info),
-            #[cfg(test)]
-            recovery_failure_injections: 0,
-            #[cfg(test)]
-            recovery_post_validation_failure_injections: 0,
-        };
-        if !context.suspended {
-            context.configure_surface(width, height)?;
-        }
-        Ok(context)
+        bootstrap.select_device().await?.configure_surface()
     }
 
     #[must_use]
     pub const fn metrics(&self) -> &GpuPresentationMetrics {
         &self.metrics
+    }
+
+    #[must_use]
+    pub const fn initialization_resources(&self) -> &GpuInitializationResourceSnapshot {
+        &self.initialization_resources
     }
 
     #[must_use]
@@ -813,6 +892,20 @@ impl GpuContext {
         }
     }
 
+    /// Acquires, clears, submits, and presents exactly one configured surface
+    /// frame without materializing layer or text pipelines.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the surface is not configured, acquisition fails,
+    /// or a device fault is reported during the one-frame transaction.
+    pub fn present_clear_once(&mut self) -> Result<GpuFrameStatus, GpuContextError> {
+        if self.suspended {
+            return Ok(GpuFrameStatus::Skipped);
+        }
+        run_initialization_clear_transaction(self)
+    }
+
     /// Reconfigures the swap chain, or suspends acquisition for a zero-sized window.
     ///
     /// # Errors
@@ -1050,6 +1143,10 @@ impl GpuContext {
         self.metrics.surface_height = Some(height);
         self.metrics.surface_reconfigurations =
             self.metrics.surface_reconfigurations.saturating_add(1);
+        self.initialization_resources.surface_configure_count = self
+            .initialization_resources
+            .surface_configure_count
+            .saturating_add(1);
         self.surface_config = Some(config);
         self.suspended = false;
         Ok(())
@@ -1096,8 +1193,20 @@ impl GpuContext {
             .get_current_texture();
         self.check_runtime_faults("after surface acquisition")?;
         match acquisition {
-            wgpu::CurrentSurfaceTexture::Success(texture) => Ok(Some((texture, false))),
-            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Ok(Some((texture, true))),
+            wgpu::CurrentSurfaceTexture::Success(texture) => {
+                self.initialization_resources.surface_acquire_count = self
+                    .initialization_resources
+                    .surface_acquire_count
+                    .saturating_add(1);
+                Ok(Some((texture, false)))
+            }
+            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
+                self.initialization_resources.surface_acquire_count = self
+                    .initialization_resources
+                    .surface_acquire_count
+                    .saturating_add(1);
+                Ok(Some((texture, true)))
+            }
             wgpu::CurrentSurfaceTexture::Timeout => {
                 self.metrics.surface_timeouts = self.metrics.surface_timeouts.saturating_add(1);
                 Ok(None)
@@ -1678,6 +1787,112 @@ impl fmt::Display for GpuContextError {
 
 impl Error for GpuContextError {}
 
+trait InitializationClearTransactionDriver {
+    type Frame;
+
+    fn ensure_available(&self) -> Result<(), GpuContextError>;
+    fn acquire(&mut self) -> Result<Option<(Self::Frame, bool)>, GpuContextError>;
+    fn submit_and_present(&mut self, frame: Self::Frame) -> Result<(), GpuContextError>;
+    fn commit(&mut self, suboptimal: bool) -> Result<(), GpuContextError>;
+    fn post_present(&mut self) -> Result<(), GpuContextError>;
+}
+
+fn run_initialization_clear_transaction<D: InitializationClearTransactionDriver>(
+    driver: &mut D,
+) -> Result<GpuFrameStatus, GpuContextError> {
+    driver.ensure_available()?;
+    let Some((frame, suboptimal)) = driver.acquire()? else {
+        return Ok(GpuFrameStatus::Skipped);
+    };
+    driver.submit_and_present(frame)?;
+    driver.commit(suboptimal)?;
+    driver.post_present()?;
+    Ok(GpuFrameStatus::Presented)
+}
+
+impl InitializationClearTransactionDriver for GpuContext {
+    type Frame = wgpu::SurfaceTexture;
+
+    fn ensure_available(&self) -> Result<(), GpuContextError> {
+        ensure_initialization_clear_available(&self.initialization_resources)
+    }
+
+    fn acquire(&mut self) -> Result<Option<(Self::Frame, bool)>, GpuContextError> {
+        self.acquire_surface_texture(&mut SurfaceRecoveryState::new())
+    }
+
+    fn submit_and_present(&mut self, surface_texture: Self::Frame) -> Result<(), GpuContextError> {
+        let surface_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("rssh-attribution-clear-frame"),
+            });
+        {
+            let color_attachments = [Some(wgpu::RenderPassColorAttachment {
+                view: &surface_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })];
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("rssh-attribution-clear-present"),
+                color_attachments: &color_attachments,
+                ..wgpu::RenderPassDescriptor::default()
+            });
+        }
+        self.check_runtime_faults("before attribution clear submission")?;
+        self.queue.submit([encoder.finish()]);
+        self.check_runtime_faults("after attribution clear submission")?;
+        self.metrics.rendered_frames = self.metrics.rendered_frames.saturating_add(1);
+        self.queue.present(surface_texture);
+        Ok(())
+    }
+
+    fn commit(&mut self, suboptimal: bool) -> Result<(), GpuContextError> {
+        commit_initialization_clear_present(
+            &mut self.metrics,
+            &mut self.initialization_resources,
+            suboptimal,
+        )
+    }
+
+    fn post_present(&mut self) -> Result<(), GpuContextError> {
+        self.check_runtime_faults("after attribution clear presentation")
+    }
+}
+
+fn commit_initialization_clear_present(
+    metrics: &mut GpuPresentationMetrics,
+    resources: &mut GpuInitializationResourceSnapshot,
+    suboptimal: bool,
+) -> Result<(), GpuContextError> {
+    metrics.presented_frames = metrics.presented_frames.saturating_add(1);
+    resources.clear_present_count = 1;
+    if suboptimal {
+        return Err(GpuContextError::message(
+            "suboptimal initialization clear frame was presented; retry is forbidden".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_initialization_clear_available(
+    resources: &GpuInitializationResourceSnapshot,
+) -> Result<(), GpuContextError> {
+    if resources.clear_present_count != 0 {
+        return Err(GpuContextError::message(
+            "initialization clear frame was already presented".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -1688,6 +1903,74 @@ mod tests {
         drop(GpuContext::finish_windowed(bootstrap));
     }
 
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum FakeClearFault {
+        None,
+        Timeout,
+        PostPresent,
+    }
+
+    struct FakeClearDriver {
+        metrics: GpuPresentationMetrics,
+        resources: GpuInitializationResourceSnapshot,
+        fault: FakeClearFault,
+        suboptimal: bool,
+        acquire_calls: u64,
+        present_calls: u64,
+        configure_calls: u64,
+    }
+
+    impl FakeClearDriver {
+        fn new(fault: FakeClearFault, suboptimal: bool) -> Self {
+            Self {
+                metrics: GpuPresentationMetrics::uninitialized(),
+                resources: GpuInitializationResourceSnapshot::default(),
+                fault,
+                suboptimal,
+                acquire_calls: 0,
+                present_calls: 0,
+                configure_calls: 0,
+            }
+        }
+    }
+
+    impl InitializationClearTransactionDriver for FakeClearDriver {
+        type Frame = ();
+
+        fn ensure_available(&self) -> Result<(), GpuContextError> {
+            ensure_initialization_clear_available(&self.resources)
+        }
+
+        fn acquire(&mut self) -> Result<Option<(Self::Frame, bool)>, GpuContextError> {
+            self.acquire_calls += 1;
+            if self.fault == FakeClearFault::Timeout {
+                return Err(GpuContextError::message(
+                    "injected initialization clear timeout".to_owned(),
+                ));
+            }
+            Ok(Some(((), self.suboptimal)))
+        }
+
+        fn submit_and_present(&mut self, (): Self::Frame) -> Result<(), GpuContextError> {
+            self.metrics.rendered_frames += 1;
+            self.present_calls += 1;
+            Ok(())
+        }
+
+        fn commit(&mut self, suboptimal: bool) -> Result<(), GpuContextError> {
+            commit_initialization_clear_present(&mut self.metrics, &mut self.resources, suboptimal)
+        }
+
+        fn post_present(&mut self) -> Result<(), GpuContextError> {
+            if self.fault == FakeClearFault::PostPresent {
+                return Err(GpuContextError::message(
+                    "injected post-present fault".to_owned(),
+                ));
+            }
+            Ok(())
+        }
+    }
+
     #[test]
     fn prepared_windowed_context_is_sendable_to_the_device_initialization_worker() {
         fn assert_send<T: Send>() {}
@@ -1695,6 +1978,85 @@ mod tests {
 
         assert_send::<WindowedGpuContextBootstrap>();
         assert_finish_signature(finish_prepared_windowed_context);
+    }
+
+    #[test]
+    fn initialization_clear_timeout_does_not_commit_a_present() {
+        let mut driver = FakeClearDriver::new(FakeClearFault::Timeout, false);
+        let error = run_initialization_clear_transaction(&mut driver)
+            .expect_err("timeout must fail before presentation");
+        assert!(error.to_string().contains("timeout"));
+        assert_eq!(driver.acquire_calls, 1);
+        assert_eq!(driver.present_calls, 0);
+        assert_eq!(driver.configure_calls, 0);
+        assert_eq!(driver.metrics.rendered_frames, 0);
+        assert_eq!(driver.metrics.presented_frames, 0);
+        assert_eq!(driver.resources.clear_present_count, 0);
+    }
+
+    #[test]
+    fn initialization_clear_present_is_committed_once_before_later_faults() {
+        let mut driver = FakeClearDriver::new(FakeClearFault::PostPresent, false);
+        let later_fault = run_initialization_clear_transaction(&mut driver)
+            .expect_err("post-present fault must fail after committing the side effect");
+        assert_eq!(later_fault.kind(), GpuContextErrorKind::Surface);
+        assert_eq!(driver.acquire_calls, 1);
+        assert_eq!(driver.present_calls, 1);
+        assert_eq!(driver.configure_calls, 0);
+        assert_eq!(driver.metrics.rendered_frames, 1);
+        assert_eq!(driver.metrics.presented_frames, 1);
+        assert_eq!(driver.resources.clear_present_count, 1);
+        assert!(
+            run_initialization_clear_transaction(&mut driver).is_err(),
+            "retry must stay forbidden"
+        );
+        assert_eq!(
+            driver.acquire_calls, 1,
+            "second call must fail before acquire"
+        );
+        assert_eq!(
+            driver.present_calls, 1,
+            "second call must not present again"
+        );
+    }
+
+    #[test]
+    fn suboptimal_initialization_clear_is_committed_and_fails_closed() {
+        let mut driver = FakeClearDriver::new(FakeClearFault::None, true);
+        let error = run_initialization_clear_transaction(&mut driver)
+            .expect_err("suboptimal clear must fail closed after present");
+
+        assert!(
+            error
+                .to_string()
+                .contains("suboptimal initialization clear frame")
+        );
+        assert_eq!(driver.acquire_calls, 1);
+        assert_eq!(driver.present_calls, 1);
+        assert_eq!(driver.configure_calls, 0);
+        assert_eq!(driver.metrics.presented_frames, 1);
+        assert_eq!(driver.resources.clear_present_count, 1);
+        assert!(run_initialization_clear_transaction(&mut driver).is_err());
+        assert_eq!(driver.acquire_calls, 1);
+        assert_eq!(driver.present_calls, 1);
+    }
+
+    #[test]
+    fn successful_initialization_clear_rejects_a_second_call_without_side_effects() {
+        let mut driver = FakeClearDriver::new(FakeClearFault::None, false);
+        assert_eq!(
+            run_initialization_clear_transaction(&mut driver).expect("first clear"),
+            GpuFrameStatus::Presented
+        );
+        assert_eq!(driver.acquire_calls, 1);
+        assert_eq!(driver.present_calls, 1);
+        assert_eq!(driver.configure_calls, 0);
+        assert_eq!(driver.metrics.presented_frames, 1);
+        assert_eq!(driver.resources.clear_present_count, 1);
+
+        assert!(run_initialization_clear_transaction(&mut driver).is_err());
+        assert_eq!(driver.acquire_calls, 1);
+        assert_eq!(driver.present_calls, 1);
     }
 
     fn assert_close(actual: f32, expected: f32) {

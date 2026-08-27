@@ -2223,6 +2223,13 @@ impl NativeWindowManager {
             self.finish_deferred_startup_after_config();
             return;
         };
+        if crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::DeferredConfig,
+        )
+        .is_err()
+        {
+            return;
+        }
         let task = lifecycle.reload_task();
         let event_proxy = self
             .windows
@@ -2372,6 +2379,13 @@ impl NativeWindowManager {
         let Some(event_proxy) = event_proxy else {
             return;
         };
+        if crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::ConfigWatcher,
+        )
+        .is_err()
+        {
+            return;
+        }
         if let Some(lifecycle) = self.config_lifecycle.as_mut()
             && let Err(diagnostic) = lifecycle.install_watcher_sink(Arc::new(move || {
                 event_proxy

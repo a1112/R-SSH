@@ -2933,6 +2933,9 @@ impl NativeWindowApp {
             .grid()
             .size();
         let pty_size = PtySize::try_new(size.columns, size.rows)?;
+        crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::LocalPty,
+        )?;
         self.metrics.start_spawn_timer();
         let session = PtySession::spawn(&command, pty_size)?;
         let process_id = session.process_id();
@@ -3339,6 +3342,9 @@ impl NativeWindowApp {
             })?;
 
         if let PaneLaunchDomain::Ssh(ssh_launch) = launch.domain() {
+            crate::stage7_attribution::audit_product_service_start(
+                crate::stage7_attribution::ProductServiceEntry::NativeSsh,
+            )?;
             return self.spawn_native_ssh_runtime(
                 pane_id,
                 ssh_launch,
@@ -3346,6 +3352,10 @@ impl NativeWindowApp {
                 event_proxy,
             );
         }
+
+        crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::LocalPty,
+        )?;
 
         let term_session_id =
             iterm_session_termid(self.app_window_id.get(), tab_id.get(), pane_id.get());

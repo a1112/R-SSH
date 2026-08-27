@@ -711,6 +711,9 @@ pub fn run(
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
     let config_event_proxy = event_proxy.clone();
+    crate::stage7_attribution::audit_product_service_start(
+        crate::stage7_attribution::ProductServiceEntry::ConfigWatcher,
+    )?;
     if let Err(diagnostic) = lifecycle.install_watcher_sink(Arc::new(move || {
         config_event_proxy
             .send_event(WindowUserEvent::ConfigFileChanged)

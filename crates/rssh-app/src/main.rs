@@ -33,6 +33,11 @@ mod self_test;
 #[cfg(feature = "transfer-tools")]
 mod sftp;
 mod ssh;
+#[allow(
+    dead_code,
+    reason = "Task 6 wires the cfg-gated Task 5 controller; production uses only its scheduling gate"
+)]
+mod stage7_attribution;
 mod startup_metrics;
 mod terminal_input;
 mod terminal_modes;

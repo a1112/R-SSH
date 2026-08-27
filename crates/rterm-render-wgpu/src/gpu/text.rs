@@ -201,6 +201,12 @@ struct GlyphonState {
     empty_buffer: Buffer,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct GpuTextOwnerMaterialization {
+    pub(crate) base_renderer_count: u64,
+    pub(crate) cursor_renderer_count: u64,
+}
+
 impl GlyphonState {
     fn new(
         device: &wgpu::Device,
@@ -230,6 +236,17 @@ impl GlyphonState {
             swash_cache: SwashCache::new(),
             empty_buffer: Buffer::new_empty(Metrics::new(1.0, 1.0)),
         })
+    }
+
+    fn owner_materialization(&self) -> GpuTextOwnerMaterialization {
+        fn count_owned_renderer(_renderer: &TextRenderer) -> u64 {
+            1
+        }
+
+        GpuTextOwnerMaterialization {
+            base_renderer_count: count_owned_renderer(&self.renderer),
+            cursor_renderer_count: count_owned_renderer(&self.cursor_renderer),
+        }
     }
 }
 
@@ -328,6 +345,10 @@ impl GpuText {
             retryable_failure: None,
             force_full_rebuild_next: false,
         })
+    }
+
+    pub(crate) fn owner_materialization(&self) -> GpuTextOwnerMaterialization {
+        self.glyphon.owner_materialization()
     }
 
     pub(crate) const fn metrics(&self) -> GpuTextAtlasMetrics {

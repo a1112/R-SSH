@@ -6198,3 +6198,1172 @@ return config
         assert_eq!(attempts.get(), 2);
         assert!(error.to_string().contains("expanded twice"));
     }
+
+    mod exact_gpu_stop_stage {
+        use std::time::Duration;
+
+        use crate::stage7_attribution::{
+            AttributionSchedulingAuditGuard, AttributionStageController,
+            AttributionStageRuntime, GpuAttributionStage, ProductServiceCounters,
+            ProductServiceEntry, ProjectOwnedResourceSnapshot, audit_product_service_start,
+            inactive_scheduling_audit_allows_for_test,
+            poisoned_scheduling_audit_fails_closed_for_test,
+        };
+
+        #[derive(Debug, Default)]
+        struct RecordingRuntime {
+            services_disabled: bool,
+            completed: Vec<GpuAttributionStage>,
+            holds: Vec<Duration>,
+        }
+
+        fn assert_all_product_entries_disabled() -> Result<(), &'static str> {
+            if [
+                ProductServiceEntry::DeferredConfig,
+                ProductServiceEntry::ConfigWatcher,
+                ProductServiceEntry::LocalPty,
+                ProductServiceEntry::NativeSsh,
+                ProductServiceEntry::PostReadyCoordinator,
+            ]
+            .into_iter()
+            .any(|entry| audit_product_service_start(entry).is_ok())
+            {
+                return Err("a product service entry remained enabled");
+            }
+            Ok(())
+        }
+
+        impl AttributionStageRuntime for RecordingRuntime {
+            type Error = &'static str;
+
+            fn disable_product_services(&mut self) {
+                self.services_disabled = true;
+            }
+
+            fn complete_stage(
+                &mut self,
+                stage: GpuAttributionStage,
+            ) -> Result<ProjectOwnedResourceSnapshot, Self::Error> {
+                if !self.services_disabled {
+                    return Err("controller did not disable product services");
+                }
+                assert_all_product_entries_disabled()?;
+                self.completed.push(stage);
+                Ok(ProjectOwnedResourceSnapshot::exact_for_test_stage(stage))
+            }
+
+            fn hold(&mut self, duration: Duration) {
+                assert_all_product_entries_disabled()
+                    .expect("product services remain disabled during hold");
+                self.holds.push(duration);
+            }
+        }
+
+        #[test]
+        fn shared_scheduling_audit_is_inactive_for_production_and_fail_closed_when_disabled() {
+            assert!(inactive_scheduling_audit_allows_for_test(
+                ProductServiceEntry::DeferredConfig
+            ));
+
+            {
+                let enabled = AttributionSchedulingAuditGuard::enabled_for_test();
+                for entry in [
+                    ProductServiceEntry::DeferredConfig,
+                    ProductServiceEntry::ConfigWatcher,
+                    ProductServiceEntry::LocalPty,
+                    ProductServiceEntry::NativeSsh,
+                    ProductServiceEntry::PostReadyCoordinator,
+                ] {
+                    audit_product_service_start(entry).expect("enabled audit entry");
+                }
+                assert_eq!(
+                    enabled.counters(),
+                    ProductServiceCounters {
+                        deferred_config_starts: 1,
+                        config_watcher_starts: 1,
+                        pty_starts: 1,
+                        ssh_starts: 1,
+                        post_ready_task_starts: 1,
+                    }
+                );
+            }
+
+            let disabled = AttributionSchedulingAuditGuard::disabled();
+            for entry in [
+                ProductServiceEntry::DeferredConfig,
+                ProductServiceEntry::ConfigWatcher,
+                ProductServiceEntry::LocalPty,
+                ProductServiceEntry::NativeSsh,
+                ProductServiceEntry::PostReadyCoordinator,
+            ] {
+                assert!(audit_product_service_start(entry).is_err());
+            }
+            assert_eq!(disabled.counters(), ProductServiceCounters::default());
+        }
+
+        #[test]
+        fn shared_scheduling_audit_is_process_wide_and_raii_scoped() {
+            let disabled = AttributionSchedulingAuditGuard::disabled();
+            let blocked = std::thread::spawn(|| {
+                audit_product_service_start(ProductServiceEntry::LocalPty)
+            })
+            .join()
+            .expect("disabled scheduling audit child");
+            assert!(
+                blocked.is_err(),
+                "a disabled process audit must not fail open on another thread"
+            );
+            assert_eq!(disabled.counters(), ProductServiceCounters::default());
+            drop(disabled);
+
+            assert!(inactive_scheduling_audit_allows_for_test(
+                ProductServiceEntry::LocalPty
+            ));
+
+            let enabled = AttributionSchedulingAuditGuard::enabled_for_test();
+            for entry in [
+                ProductServiceEntry::DeferredConfig,
+                ProductServiceEntry::ConfigWatcher,
+                ProductServiceEntry::LocalPty,
+                ProductServiceEntry::NativeSsh,
+                ProductServiceEntry::PostReadyCoordinator,
+            ] {
+                std::thread::spawn(move || audit_product_service_start(entry))
+                    .join()
+                    .expect("enabled scheduling audit child")
+                    .expect("enabled scheduling audit entry");
+            }
+            assert_eq!(
+                enabled.counters(),
+                ProductServiceCounters {
+                    deferred_config_starts: 1,
+                    config_watcher_starts: 1,
+                    pty_starts: 1,
+                    ssh_starts: 1,
+                    post_ready_task_starts: 1,
+                },
+                "enabled process audit must count starts from worker threads"
+            );
+            drop(enabled);
+
+            assert!(inactive_scheduling_audit_allows_for_test(
+                ProductServiceEntry::NativeSsh
+            ));
+        }
+
+        #[test]
+        fn shared_scheduling_audit_fails_closed_when_state_lock_is_poisoned() {
+            assert!(poisoned_scheduling_audit_fails_closed_for_test(
+                ProductServiceEntry::DeferredConfig
+            ));
+        }
+
+        #[test]
+        fn holds_each_of_eight_stages_without_later_work() {
+            for (stop_index, stop_stage) in GpuAttributionStage::ORDERED.into_iter().enumerate() {
+                let mut runtime = RecordingRuntime::default();
+                let report = AttributionStageController::new(stop_stage)
+                    .run(&mut runtime)
+                    .unwrap_or_else(|error| panic!("hold {stop_stage:?}: {error}"));
+
+                assert_eq!(
+                    runtime.completed,
+                    GpuAttributionStage::ORDERED[..=stop_index],
+                    "no stage after {stop_stage:?} may be completed"
+                );
+                assert_eq!(runtime.holds, [Duration::from_secs(5)]);
+                assert_eq!(report.held_stage, stop_stage);
+                report
+                    .resources
+                    .validate_at(stop_stage)
+                    .unwrap_or_else(|violations| {
+                        panic!("valid {stop_stage:?} project snapshot: {violations:?}")
+                    });
+            }
+        }
+
+        #[test]
+        fn attribution_never_starts_product_services() {
+            for stop_stage in GpuAttributionStage::ORDERED {
+                let mut runtime = RecordingRuntime::default();
+                AttributionStageController::new(stop_stage)
+                    .run(&mut runtime)
+                    .unwrap_or_else(|error| panic!("hold {stop_stage:?}: {error}"));
+
+                assert!(runtime.services_disabled);
+            }
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_resource_field_inventory_is_fail_closed() {
+            let snapshot = ProjectOwnedResourceSnapshot::exact_for_test_stage(
+                GpuAttributionStage::FullFrame,
+            );
+            let mut missing = snapshot.resource_fields();
+            missing.remove("snapshot_bytes");
+            let violations = ProjectOwnedResourceSnapshot::validate_explicit_fields_for_test(
+                GpuAttributionStage::FullFrame,
+                &missing,
+                snapshot.backend.as_deref(),
+                snapshot.adapter_name.as_deref(),
+            )
+            .expect_err("a missing project-owned field must fail closed");
+            assert!(
+                violations
+                    .iter()
+                    .any(|violation| violation.contains("missing resource field snapshot_bytes"))
+            );
+
+            let mut unknown = snapshot.resource_fields();
+            unknown.insert("future_unaccounted_texture_bytes", 1);
+            let violations = ProjectOwnedResourceSnapshot::validate_explicit_fields_for_test(
+                GpuAttributionStage::FullFrame,
+                &unknown,
+                snapshot.backend.as_deref(),
+                snapshot.adapter_name.as_deref(),
+            )
+            .expect_err("an unknown project-owned field must fail closed");
+            assert!(violations.iter().any(|violation| {
+                violation.contains("unknown resource field future_unaccounted_texture_bytes")
+            }));
+
+            let mut overflow = snapshot.resource_fields();
+            overflow.insert("glyph_atlas_bytes", u64::MAX);
+            overflow.insert("image_texture_bytes", 1);
+            let violations = ProjectOwnedResourceSnapshot::validate_explicit_fields_for_test(
+                GpuAttributionStage::FullFrame,
+                &overflow,
+                snapshot.backend.as_deref(),
+                snapshot.adapter_name.as_deref(),
+            )
+            .expect_err("project-owned byte overflow must fail closed");
+            assert!(
+                violations
+                    .iter()
+                    .any(|violation| violation.contains("texture byte total overflowed"))
+            );
+
+            let mut later = ProjectOwnedResourceSnapshot::exact_for_test_stage(
+                GpuAttributionStage::CpuWindow,
+            );
+            later.pipeline_count = 1;
+            assert!(
+                later
+                    .validate_at(GpuAttributionStage::CpuWindow)
+                    .expect_err("later-stage materialization must fail closed")
+                    .iter()
+                    .any(|violation| violation.contains("pipeline_count"))
+            );
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_defers_product_frame_owners_until_full_frame() {
+            let source = include_str!("../window_gpu.rs");
+            let runtime = source
+                .split("pub(crate) struct Stage7WindowAttributionRuntime")
+                .nth(1)
+                .expect("Stage7 runtime")
+                .split("impl<'a> Stage7WindowAttributionRuntime")
+                .next()
+                .expect("bounded Stage7 runtime fields");
+
+            assert!(!runtime.contains("full_snapshot:"));
+            assert!(!runtime.contains("full_graph:"));
+            assert!(!runtime.contains("full_paint:"));
+            assert!(
+                !runtime.contains("Box<dyn FnMut") && !runtime.contains("full_frame_factory"),
+                "the FullFrame input type must not be able to capture an earlier-stage owner"
+            );
+            assert!(
+                runtime.contains("full_frame_spec: Stage7DiagnosticFrameSpec")
+                    && runtime.contains("full_frame_inputs: Option<Stage7FullFrameInputs>"),
+                "the runtime must retain only a Copy diagnostic spec before FullFrame and the real inputs afterwards"
+            );
+
+            let full_frame = source
+                .split("fn complete_full_frame")
+                .nth(1)
+                .expect("FullFrame owner transition")
+                .split("fn sync_live_gpu_resources")
+                .next()
+                .expect("bounded FullFrame transition");
+            assert!(
+                full_frame.contains("Stage7FullFrameInputs::for_diagnostic_empty_window")
+                    && full_frame.contains("self.full_frame_inputs = Some(inputs)"),
+                "FullFrame must create and then retain the fixed diagnostic inputs across the hold"
+            );
+
+            let native_pre_controller = source
+                .split("struct NativeAttributionApp")
+                .nth(1)
+                .expect("native attribution fixture")
+                .split("AttributionStageController::new")
+                .next()
+                .expect("native fixture before controller");
+            assert!(
+                !native_pre_controller.contains("R-SSH Stage 7 native owner"),
+                "the native fixture must not materialize the product snapshot before CpuWindow"
+            );
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_uses_live_owner_lengths_and_rebuilds_current_resources() {
+            let source = include_str!("../window_gpu.rs");
+            assert!(
+                source.contains("cpu_rgba: Vec<u8>")
+                    && source.contains("u64::try_from(self.cpu_rgba.capacity())"),
+                "CPU staging attribution must own a Vec and report its retained capacity"
+            );
+            assert!(
+                source.contains("self.cpu_rgba.len() != bytes"),
+                "the separately validated logical framebuffer length must exactly match the surface"
+            );
+            assert!(
+                source.contains(
+                    "project_owned_u64(diagnostics.retained_source_bytes, \"inactive font bytes\")",
+                ),
+                "the metadata-only index must report repository-owned inactive bytes"
+            );
+            let merge = source
+                .split("fn merge_gpu_resources")
+                .nth(1)
+                .expect("GPU resource rebuild helper")
+                .split("#[cfg(all(test, target_os = \"windows\"))]")
+                .next()
+                .expect("bounded GPU resource helper");
+            assert!(
+                !merge.contains(".max(source."),
+                "current owner snapshots must not hide duplicate work behind maxima"
+            );
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_rejects_fabricated_full_frame_materialization_counts() {
+            let snapshot = ProjectOwnedResourceSnapshot::exact_for_test_stage(
+                GpuAttributionStage::FullFrame,
+            );
+            for field in [
+                "materialized_buffer_count",
+                "total_allocated_buffer_bytes",
+                "base_text_renderer_materialization_count",
+                "cursor_text_renderer_materialization_count",
+            ] {
+                let mut fields = snapshot.resource_fields();
+                fields.insert(field, 99);
+                let violations =
+                    ProjectOwnedResourceSnapshot::validate_explicit_fields_for_test(
+                        GpuAttributionStage::FullFrame,
+                        &fields,
+                        snapshot.backend.as_deref(),
+                        snapshot.adapter_name.as_deref(),
+                    )
+                    .expect_err("a fabricated full-frame owner count must fail closed");
+                assert!(
+                    violations
+                        .iter()
+                        .any(|violation| violation.contains(field)),
+                    "missing exact violation for {field}: {violations:?}"
+                );
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        fn exact_gpu_stop_stage_parent_ignores_inherited_child_environment() {
+            use std::collections::BTreeSet;
+
+            const TEST_NAME: &str = "window::tests::exact_gpu_stop_stage::exact_gpu_stop_stage_real_owner_reaches_full_frame_without_product_services";
+            let output = std::process::Command::new(
+                std::env::current_exe().expect("current native test executable"),
+            )
+            .args([TEST_NAME, "--exact", "--nocapture"])
+            .env("RSSH_STAGE7_NATIVE_OWNER_CHILD_INDEX", "0")
+            .env("RSSH_STAGE7_NATIVE_OWNER_ROLE", "stale-parent-environment")
+            .output()
+            .expect("launch attribution parent with stale inherited role variables");
+            assert!(
+                output.status.success(),
+                "attribution parent failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let results = stdout
+                .lines()
+                .filter(|line| line.starts_with("RSSH_STAGE7_NATIVE_OWNER_RESULT "))
+                .collect::<Vec<_>>();
+            assert_eq!(results.len(), GpuAttributionStage::ORDERED.len());
+            assert_eq!(
+                results.iter().copied().collect::<BTreeSet<_>>().len(),
+                GpuAttributionStage::ORDERED.len(),
+                "each child result must bind a unique nonce/stage role"
+            );
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_parent_owns_a_bounded_child_job_and_nonce_protocol() {
+            let source = include_str!("../window_compat_tests/part02_tests.rs");
+            let function_name = [
+                "fn exact_gpu_stop_stage_real_owner_reaches_full_frame_",
+                "without_product_services",
+            ]
+            .concat();
+            let native = source
+                .split(&function_name)
+                .nth(1)
+                .expect("native parent test source");
+            assert!(native.contains("native_owner_nonce"));
+            assert!(native.contains("results.insert"));
+            assert!(native.contains("spawn_bounded_native_owner_child"));
+            let helper_name = ["fn spawn_bounded_native_", "owner_child"].concat();
+            let helper = source
+                .rsplit(&helper_name)
+                .next()
+                .expect("bounded native child helper");
+            assert!(
+                helper.contains("process-harness.ps1")
+                    && helper.contains("env_remove(NATIVE_OWNER_ROLE)")
+                    && helper.contains("env_remove(NATIVE_OWNER_NONCE)")
+                    && helper.contains("env_remove(NATIVE_OWNER_STAGE)"),
+                "the parent must own a bounded child process tree"
+            );
+            assert!(
+                helper.contains("parse_native_owner_result")
+                    && helper.contains("WRAPPER_DEADLINE_MS")
+                    && helper.contains("elapsed_ms")
+                    && helper.contains("wall_elapsed"),
+                "the parent must strictly parse the complete nonce/stage/elapsed protocol and independently retain spawn-to-exit wall time"
+            );
+            assert!(
+                helper.contains("const WRAPPER_DEADLINE_MS: u64 = 45_000"),
+                "the outer wrapper needs child timeout + cleanup + scheduling slack"
+            );
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_outer_wrapper_has_cleanup_slack() {
+            let source = include_str!("../window_compat_tests/part02_tests.rs");
+            let helper = source
+                .rsplit("fn spawn_bounded_native_owner_child")
+                .next()
+                .expect("bounded native child helper");
+            assert!(
+                helper.contains("const WRAPPER_DEADLINE_MS: u64 = 45_000"),
+                "the outer wrapper must allow the 30-second child deadline, ten-second cleanup, and scheduling slack"
+            );
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_binds_the_shared_service_audit_to_real_entries() {
+            let audit = include_str!("../stage7_attribution.rs");
+            assert!(
+                audit.contains("pub(crate) enum ProductServiceEntry")
+                    && audit.contains("pub(crate) fn audit_product_service_start")
+                    && audit.contains("pub(crate) struct AttributionSchedulingAuditGuard"),
+                "Stage 7 needs one shared RAII audit API rather than a fixture-only counter"
+            );
+            let controller = audit
+                .split("pub(crate) fn run<R: AttributionStageRuntime>")
+                .nth(1)
+                .expect("attribution controller run")
+                .split("Ok(AttributionHoldReport")
+                .next()
+                .expect("bounded attribution controller run");
+            let disable = controller
+                .find("AttributionSchedulingAuditGuard::disabled()")
+                .expect("controller scheduling disable");
+            let first_stage = controller.find("for stage in").expect("first owner stage");
+            assert!(
+                disable < first_stage,
+                "the shared scheduling gate must be disabled before any owner stage can run"
+            );
+
+            let part07 = include_str!("../window_parts/part07.rs");
+            let part08 = include_str!("../window_parts/part08.rs");
+            let part10 = include_str!("../window_parts/part10.rs");
+            let window = include_str!("../window.rs");
+            let mut missing_bindings = Vec::new();
+            for (source, function, entry) in [
+                (part07, "start_deferred_config_if_ready", "DeferredConfig"),
+                (part07, "finish_deferred_startup_after_config", "ConfigWatcher"),
+                (part08, "initialize_deferred_gpu", "PostReadyCoordinator"),
+                (part10, "restart_transferred_local_pane", "LocalPty"),
+                (part10, "spawn_pane_runtime_for_pane", "LocalPty"),
+                (part10, "spawn_pane_runtime_for_pane", "NativeSsh"),
+            ] {
+                let body = source
+                    .split(&format!("fn {function}"))
+                    .nth(1)
+                    .unwrap_or_else(|| panic!("real product entry {function}"))
+                    .split("\n    fn ")
+                    .next()
+                    .expect("bounded real product entry");
+                if !body.contains(&format!("ProductServiceEntry::{entry}"))
+                    || !body.contains("audit_product_service_start")
+                {
+                    missing_bindings.push(format!("{function}:{entry}"));
+                }
+            }
+            assert!(
+                missing_bindings.is_empty(),
+                "real product entries missing the shared audit: {missing_bindings:?}"
+            );
+            let production_run = window
+                .split("pub fn run(")
+                .nth(1)
+                .expect("production window run")
+                .split("pub fn run_ssh_gui")
+                .next()
+                .expect("bounded production window run");
+            assert!(
+                production_run.contains("ProductServiceEntry::ConfigWatcher")
+                    && production_run.contains("audit_product_service_start")
+                    && production_run
+                        .find("audit_product_service_start")
+                        .expect("production watcher audit")
+                        < production_run
+                            .find("install_watcher_sink")
+                            .expect("production watcher installation"),
+                "window::run must gate its direct watcher before installation"
+            );
+
+            for (source, function, side_effect) in [
+                (part07, "start_deferred_config_if_ready", "reload_task"),
+                (
+                    part07,
+                    "finish_deferred_startup_after_config",
+                    "install_watcher_sink",
+                ),
+                (
+                    part10,
+                    "restart_transferred_local_pane",
+                    "PtySession::spawn",
+                ),
+            ] {
+                let body = source
+                    .split(&format!("fn {function}"))
+                    .nth(1)
+                    .unwrap_or_else(|| panic!("real product entry {function}"))
+                    .split("\n    fn ")
+                    .next()
+                    .expect("bounded real product entry");
+                let audit = body
+                    .find("audit_product_service_start")
+                    .unwrap_or_else(|| panic!("{function} audit"));
+                let effect = body
+                    .find(side_effect)
+                    .unwrap_or_else(|| panic!("{function} side effect {side_effect}"));
+                assert!(
+                    audit < effect,
+                    "{function} must audit before {side_effect}: {audit} >= {effect}"
+                );
+            }
+
+            let deferred_gpu = part08
+                .split("fn initialize_deferred_gpu")
+                .nth(1)
+                .expect("deferred GPU entry")
+                .split("\n    fn ")
+                .next()
+                .expect("bounded deferred GPU entry");
+            let audit = deferred_gpu
+                .find("audit_product_service_start")
+                .expect("post-ready audit");
+            let prepare = deferred_gpu
+                .find("WindowGpu::prepare")
+                .expect("first GPU owner side effect");
+            assert!(
+                audit < prepare,
+                "PostReadyCoordinator must be blocked before WindowGpu::prepare creates GPU resources"
+            );
+            for side_effect in [
+                "self.presentation_owner = PresentationOwner::GpuInitializing",
+                "self.deferred_gpu_generation =",
+                "self.metrics.mark_gpu_started()",
+                "spawn_deferred_gpu_task",
+            ] {
+                let effect = deferred_gpu
+                    .find(side_effect)
+                    .unwrap_or_else(|| panic!("deferred GPU side effect {side_effect}"));
+                assert!(
+                    audit < effect,
+                    "PostReadyCoordinator audit must precede {side_effect}"
+                );
+            }
+        }
+
+
+        #[test]
+        fn exact_gpu_stop_stage_blocks_post_ready_before_gpu_prepare() {
+            let part08 = include_str!("../window_parts/part08.rs");
+            let deferred_gpu = part08
+                .split("fn initialize_deferred_gpu")
+                .nth(1)
+                .expect("deferred GPU entry")
+                .split("\n    fn ")
+                .next()
+                .expect("bounded deferred GPU entry");
+            let audit = deferred_gpu
+                .find("audit_product_service_start")
+                .expect("post-ready audit");
+            let prepare = deferred_gpu
+                .find("WindowGpu::prepare")
+                .expect("first GPU owner side effect");
+            assert!(audit < prepare, "audit index {audit} must precede prepare index {prepare}");
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_child_result_parser_is_fail_closed() {
+            let source = include_str!("../window_compat_tests/part02_tests.rs");
+            assert!(source.contains("fn parse_native_owner_result("));
+            let parser = source
+                .rsplit("fn parse_native_owner_result(")
+                .next()
+                .expect("native owner result parser")
+                .split("fn spawn_bounded_native_owner_child")
+                .next()
+                .expect("bounded parser source");
+            for contract in [
+                "unknown result field",
+                "duplicate result field",
+                "missing result field",
+                "invalid result field elapsed_ms",
+            ] {
+                assert!(
+                    parser.contains(contract),
+                    "strict result parser must reject: {contract}"
+                );
+            }
+        }
+
+        #[test]
+        fn exact_gpu_stop_stage_is_private_and_production_completes_a_normal_frame() {
+            let main = include_str!("../main.rs");
+            assert!(
+                main.contains("mod stage7_attribution;"),
+                "the tiny inactive scheduling gate must compile for real production entries"
+            );
+            let attribution = include_str!("../stage7_attribution.rs");
+            let controller = attribution
+                .find("pub(crate) struct AttributionStageController")
+                .expect("private attribution controller");
+            let prefix = &attribution[controller.saturating_sub(180)..controller];
+            assert!(
+                prefix.contains("#[cfg(any(test, feature = \"diagnostic-tools\"))]"),
+                "the diagnostic controller and resource implementation must stay out of ordinary production"
+            );
+
+            let window_gpu = include_str!("../window_gpu.rs");
+            for helper in [
+                "fn stage7_fixture_font_catalog",
+                "fn stage7_fixture_font_config",
+                "fn stage7_text_config",
+            ] {
+                let declaration = window_gpu
+                    .split(helper)
+                    .next()
+                    .unwrap_or_else(|| panic!("Stage7 helper declaration {helper}"));
+                assert!(
+                    declaration.ends_with("#[cfg(any(test, feature = \"diagnostic-tools\"))]\n"),
+                    "{helper} must not compile into an ordinary production build"
+                );
+            }
+            let production = window_gpu
+                .split("R-SSH production composition test")
+                .nth(1)
+                .expect("production composition native check")
+                .split("production.shutdown_after_native_window_close")
+                .next()
+                .expect("bounded production composition check");
+            assert!(
+                production.contains("production.present("),
+                "production compatibility must complete a normal API frame"
+            );
+        }
+
+        #[cfg(target_os = "windows")]
+        const NATIVE_OWNER_ROLE: &str = "RSSH_STAGE7_NATIVE_OWNER_ROLE";
+        #[cfg(target_os = "windows")]
+        const NATIVE_OWNER_NONCE: &str = "RSSH_STAGE7_NATIVE_OWNER_NONCE";
+        #[cfg(target_os = "windows")]
+        const NATIVE_OWNER_STAGE: &str = "RSSH_STAGE7_NATIVE_OWNER_STAGE";
+        #[cfg(target_os = "windows")]
+        const NATIVE_OWNER_RESULT: &str = "RSSH_STAGE7_NATIVE_OWNER_RESULT";
+        #[cfg(target_os = "windows")]
+        const NATIVE_OWNER_CHILD_DEADLINE: Duration = Duration::from_secs(30);
+        #[cfg(target_os = "windows")]
+        const NATIVE_OWNER_WRAPPER_DEADLINE: Duration = Duration::from_secs(45);
+
+        #[cfg(target_os = "windows")]
+        fn native_owner_nonce(index: usize) -> String {
+            use std::hash::{BuildHasher, Hash, Hasher};
+
+            let state = std::collections::hash_map::RandomState::new();
+            let mut hasher = state.build_hasher();
+            std::process::id().hash(&mut hasher);
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+                .hash(&mut hasher);
+            index.hash(&mut hasher);
+            format!("{:016x}", hasher.finish())
+        }
+
+        #[cfg(target_os = "windows")]
+        #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+        struct NativeOwnerChildResult {
+            nonce: String,
+            stage: usize,
+            elapsed: Duration,
+        }
+
+        #[cfg(target_os = "windows")]
+        fn parse_native_owner_result(
+            line: &str,
+            expected_nonce: &str,
+            expected_stage: usize,
+            child_deadline: Duration,
+        ) -> Result<NativeOwnerChildResult, String> {
+            let payload = line
+                .strip_prefix(&format!("{NATIVE_OWNER_RESULT} "))
+                .ok_or_else(|| "invalid native owner result prefix".to_owned())?;
+            let mut fields = std::collections::BTreeMap::new();
+            for token in payload.split_whitespace() {
+                let (key, value) = token
+                    .split_once('=')
+                    .ok_or_else(|| format!("invalid result field {token}"))?;
+                if !matches!(key, "nonce" | "stage" | "elapsed_ms") {
+                    return Err(format!("unknown result field {key}"));
+                }
+                if fields.insert(key, value).is_some() {
+                    return Err(format!("duplicate result field {key}"));
+                }
+            }
+            for required in ["nonce", "stage", "elapsed_ms"] {
+                if !fields.contains_key(required) {
+                    return Err(format!("missing result field {required}"));
+                }
+            }
+            let nonce = fields["nonce"];
+            if nonce.is_empty() || nonce != expected_nonce {
+                return Err("invalid result field nonce".to_owned());
+            }
+            let stage = fields["stage"]
+                .parse::<usize>()
+                .map_err(|_| "invalid result field stage".to_owned())?;
+            if stage != expected_stage {
+                return Err("invalid result field stage".to_owned());
+            }
+            let elapsed_ms = fields["elapsed_ms"]
+                .parse::<u64>()
+                .map_err(|_| "invalid result field elapsed_ms".to_owned())?;
+            let elapsed = Duration::from_millis(elapsed_ms);
+            if elapsed < Duration::from_secs(5) || elapsed >= child_deadline {
+                return Err("invalid result field elapsed_ms".to_owned());
+            }
+            Ok(NativeOwnerChildResult {
+                nonce: nonce.to_owned(),
+                stage,
+                elapsed,
+            })
+        }
+
+        #[cfg(target_os = "windows")]
+        fn validate_native_owner_wall_clock(
+            parent_wall_elapsed: Duration,
+            child_reported_elapsed: Duration,
+            outer_deadline: Duration,
+        ) -> Result<(), &'static str> {
+            if parent_wall_elapsed < Duration::from_secs(5) {
+                return Err("parent wall clock is shorter than five-second hold");
+            }
+            if parent_wall_elapsed >= outer_deadline {
+                return Err("parent wall clock exceeded outer deadline");
+            }
+            if child_reported_elapsed > parent_wall_elapsed + Duration::from_millis(1) {
+                return Err("reported child elapsed exceeds parent wall clock");
+            }
+            if parent_wall_elapsed.saturating_sub(child_reported_elapsed)
+                > Duration::from_secs(15)
+            {
+                return Err("parent/child elapsed overhead exceeded tolerance");
+            }
+            Ok(())
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        fn exact_gpu_stop_stage_child_result_parser_rejects_malformed_protocol() {
+            let deadline = Duration::from_secs(30);
+            let valid = format!(
+                "{NATIVE_OWNER_RESULT} nonce=abc stage=2 elapsed_ms=5000"
+            );
+            assert_eq!(
+                parse_native_owner_result(&valid, "abc", 2, deadline)
+                    .expect("valid native child result")
+                    .elapsed,
+                Duration::from_secs(5)
+            );
+
+            for (line, expected) in [
+                (
+                    format!("{NATIVE_OWNER_RESULT} nonce=abc stage=2"),
+                    "missing result field elapsed_ms",
+                ),
+                (
+                    format!(
+                        "{NATIVE_OWNER_RESULT} nonce=abc stage=2 elapsed_ms=5000 extra=1"
+                    ),
+                    "unknown result field extra",
+                ),
+                (
+                    format!(
+                        "{NATIVE_OWNER_RESULT} nonce=abc nonce=abc stage=2 elapsed_ms=5000"
+                    ),
+                    "duplicate result field nonce",
+                ),
+                (
+                    format!("{NATIVE_OWNER_RESULT} nonce=abc stage=x elapsed_ms=5000"),
+                    "invalid result field stage",
+                ),
+                (
+                    format!("{NATIVE_OWNER_RESULT} nonce=abc stage=2 elapsed_ms=4999"),
+                    "invalid result field elapsed_ms",
+                ),
+                (
+                    format!("{NATIVE_OWNER_RESULT} nonce=abc stage=2 elapsed_ms=30000"),
+                    "invalid result field elapsed_ms",
+                ),
+            ] {
+                assert_eq!(
+                    parse_native_owner_result(&line, "abc", 2, deadline)
+                        .expect_err("malformed child result must fail closed"),
+                    expected
+                );
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        fn exact_gpu_stop_stage_parent_validates_observed_wall_clock() {
+            let outer_deadline = Duration::from_secs(45);
+            validate_native_owner_wall_clock(
+                Duration::from_millis(5_400),
+                Duration::from_millis(5_000),
+                outer_deadline,
+            )
+            .expect("bounded parent overhead");
+
+            for (parent, reported, expected) in [
+                (
+                    Duration::from_millis(4_999),
+                    Duration::from_millis(5_000),
+                    "parent wall clock is shorter than five-second hold",
+                ),
+                (
+                    outer_deadline,
+                    Duration::from_millis(5_000),
+                    "parent wall clock exceeded outer deadline",
+                ),
+                (
+                    Duration::from_millis(5_000),
+                    Duration::from_millis(5_500),
+                    "reported child elapsed exceeds parent wall clock",
+                ),
+                (
+                    Duration::from_secs(25),
+                    Duration::from_secs(5),
+                    "parent/child elapsed overhead exceeded tolerance",
+                ),
+            ] {
+                assert_eq!(
+                    validate_native_owner_wall_clock(parent, reported, outer_deadline)
+                        .expect_err("invalid parent wall clock must fail closed"),
+                    expected
+                );
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        fn spawn_bounded_native_owner_child(
+            index: usize,
+            nonce: &str,
+        ) -> BoundedNativeOwnerChild {
+            const CHILD_TEST: &str = "window::tests::exact_gpu_stop_stage::exact_gpu_stop_stage_native_owner_child";
+            const WRAPPER_DEADLINE_MS: u64 = 45_000;
+            const WRAPPER_DEADLINE: Duration = Duration::from_millis(WRAPPER_DEADLINE_MS);
+            const WRAPPER_SCRIPT: &str = r#"
+. $env:RSSH_STAGE7_PROCESS_HARNESS
+$arguments = @($env:RSSH_STAGE7_CHILD_TEST, '--exact', '--ignored', '--nocapture')
+$null = Invoke-BoundedProcess -Phase 'Stage 7 native owner child' -FilePath $env:RSSH_STAGE7_CHILD_EXE -ArgumentList $arguments -TimeoutSeconds 30
+"#;
+            let child_executable =
+                std::env::current_exe().expect("current native test executable");
+            let harness = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scripts/ci/process-harness.ps1");
+            let mut command = std::process::Command::new("pwsh.exe");
+            command
+                .args(["-NoProfile", "-NonInteractive", "-Command", WRAPPER_SCRIPT])
+                .env_remove("RSSH_STAGE7_NATIVE_OWNER_CHILD_INDEX")
+                .env_remove(NATIVE_OWNER_ROLE)
+                .env_remove(NATIVE_OWNER_NONCE)
+                .env_remove(NATIVE_OWNER_STAGE)
+                .env("RSSH_STAGE7_PROCESS_HARNESS", harness)
+                .env("RSSH_STAGE7_CHILD_EXE", child_executable)
+                .env("RSSH_STAGE7_CHILD_TEST", CHILD_TEST)
+                .env(NATIVE_OWNER_ROLE, "child")
+                .env(NATIVE_OWNER_NONCE, nonce)
+                .env(NATIVE_OWNER_STAGE, index.to_string())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let started = std::time::Instant::now();
+            let child = command.spawn().expect("spawn native attribution child");
+            collect_bounded_wrapper_output(
+                child,
+                started,
+                WRAPPER_DEADLINE,
+                &format!("native attribution process-harness wrapper {index}"),
+            )
+            .unwrap_or_else(|error| panic!("{error}"))
+        }
+
+        #[cfg(target_os = "windows")]
+        fn collect_bounded_wrapper_output(
+            mut child: std::process::Child,
+            started: std::time::Instant,
+            deadline: Duration,
+            label: &str,
+        ) -> Result<BoundedNativeOwnerChild, String> {
+            loop {
+                if child
+                    .try_wait()
+                    .map_err(|error| format!("poll {label}: {error}"))?
+                    .is_some()
+                {
+                    break;
+                }
+                if started.elapsed() >= deadline {
+                    child
+                        .kill()
+                        .map_err(|error| format!("kill {label}: {error}"))?;
+                    child
+                        .wait()
+                        .map_err(|error| format!("reap {label}: {error}"))?;
+                    return Err(format!("{label} exceeded {deadline:?}"));
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let output = child
+                .wait_with_output()
+                .map_err(|error| format!("collect {label} output: {error}"))?;
+            Ok(BoundedNativeOwnerChild {
+                output,
+                wall_elapsed: started.elapsed(),
+            })
+        }
+
+        #[cfg(target_os = "windows")]
+        struct BoundedNativeOwnerChild {
+            output: std::process::Output,
+            wall_elapsed: Duration,
+        }
+
+        #[cfg(target_os = "windows")]
+        fn windows_process_is_alive(process_id: u32) -> bool {
+            const SCRIPT: &str = r#"
+$process = Get-Process -Id ([int]$env:RSSH_STAGE7_PROBE_PID) -ErrorAction SilentlyContinue
+if ($null -ne $process) { exit 0 }
+exit 1
+"#;
+            std::process::Command::new("pwsh.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+                .env("RSSH_STAGE7_PROBE_PID", process_id.to_string())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map_or(true, |status| status.success())
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        fn exact_gpu_stop_stage_wrapper_reaps_descendants_on_timeout() {
+            const OUTER_DEADLINE: Duration = Duration::from_secs(35);
+            const SCRIPT: &str = r#"
+. $env:RSSH_STAGE7_PROCESS_HARNESS
+Assert-BoundedProcessHarness
+"#;
+            let harness = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scripts/ci/process-harness.ps1");
+            let mut child = std::process::Command::new("pwsh.exe")
+                .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+                .env("RSSH_STAGE7_PROCESS_HARNESS", harness)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("spawn process-harness descendant cleanup self-test");
+            let started = std::time::Instant::now();
+            loop {
+                if child.try_wait().expect("poll process-harness self-test").is_some() {
+                    break;
+                }
+                if started.elapsed() >= OUTER_DEADLINE {
+                    child.kill().expect("kill bounded process-harness wrapper");
+                    child.wait().expect("reap bounded process-harness wrapper");
+                    panic!("process-harness descendant self-test exceeded {OUTER_DEADLINE:?}");
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            let output = child
+                .wait_with_output()
+                .expect("collect process-harness self-test output");
+            assert!(
+                output.status.success(),
+                "process-harness must kill and verify its timed-out grandchild: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        fn exact_gpu_stop_stage_outer_kill_reaps_the_wrapper_descendant_tree() {
+            const SCRIPT: &str = r#"
+. $env:RSSH_STAGE7_PROCESS_HARNESS
+$descendant = '$PID | Set-Content -LiteralPath $env:RSSH_STAGE7_DESCENDANT_PID -Encoding ascii; Start-Sleep -Seconds 60'
+$null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $descendant) -TimeoutSeconds 60
+"#;
+            let sentinel = std::env::temp_dir().join(format!(
+                "rssh-stage7-descendant-{}-{}.pid",
+                std::process::id(),
+                native_owner_nonce(99)
+            ));
+            let harness = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scripts/ci/process-harness.ps1");
+            let mut command = std::process::Command::new("pwsh.exe");
+            command
+                .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+                .env("RSSH_STAGE7_PROCESS_HARNESS", harness)
+                .env("RSSH_STAGE7_DESCENDANT_PID", &sentinel)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped());
+            let started = std::time::Instant::now();
+            let mut child = Some(command.spawn().expect("spawn outer-kill wrapper"));
+            while !sentinel.exists() && started.elapsed() < Duration::from_secs(8) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if !sentinel.exists() {
+                let mut wrapper = child.take().expect("live outer-kill wrapper");
+                let _ = wrapper.kill();
+                let _ = wrapper.wait();
+                panic!("bounded descendant did not publish its PID sentinel");
+            }
+            let error = collect_bounded_wrapper_output(
+                child.take().expect("live outer-kill wrapper"),
+                started,
+                Duration::from_secs(2),
+                "outer-kill descendant probe",
+            )
+            .err()
+            .expect("the test-only outer deadline must fire");
+            assert!(error.contains("exceeded"), "unexpected outer error: {error}");
+
+            let descendant_pid = std::fs::read_to_string(&sentinel)
+                .expect("read descendant PID sentinel")
+                .trim()
+                .parse::<u32>()
+                .expect("numeric descendant PID");
+            let reaped_deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while windows_process_is_alive(descendant_pid)
+                && std::time::Instant::now() < reaped_deadline
+            {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert!(
+                !windows_process_is_alive(descendant_pid),
+                "outer kill left descendant PID {descendant_pid} alive"
+            );
+            std::fs::remove_file(&sentinel).expect("remove descendant PID sentinel");
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        #[ignore = "launched only by the bounded eight-stage attribution parent"]
+        fn exact_gpu_stop_stage_native_owner_child() {
+            assert_eq!(
+                std::env::var(NATIVE_OWNER_ROLE).as_deref(),
+                Ok("child"),
+                "child role must be explicit"
+            );
+            let nonce = std::env::var(NATIVE_OWNER_NONCE).expect("child nonce");
+            assert!(!nonce.is_empty());
+            let index = std::env::var(NATIVE_OWNER_STAGE)
+                .expect("child stage")
+                .parse::<usize>()
+                .expect("numeric child stage");
+            let stage = *GpuAttributionStage::ORDERED
+                .get(index)
+                .expect("valid native attribution child stage index");
+            let started = std::time::Instant::now();
+            let resources = crate::window_gpu::run_stage7_native_attribution_for_test(stage)
+                .unwrap_or_else(|error| panic!("native {stage:?} owner composition: {error}"));
+            let elapsed = started.elapsed();
+            resources.validate_at(stage).unwrap_or_else(|violations| {
+                panic!("native {stage:?} owner snapshot: {violations:?}")
+            });
+            assert!(elapsed >= Duration::from_secs(5));
+            assert!(elapsed < Duration::from_secs(30));
+            assert_eq!(resources.config_load_count, 0);
+            assert_eq!(resources.config_watcher_count, 0);
+            assert_eq!(resources.pty_start_count, 0);
+            assert_eq!(resources.ssh_start_count, 0);
+            assert_eq!(resources.post_ready_task_count, 0);
+            println!(
+                "{NATIVE_OWNER_RESULT} nonce={nonce} stage={index} elapsed_ms={}",
+                elapsed.as_millis()
+            );
+        }
+
+        #[cfg(target_os = "windows")]
+        #[test]
+        fn exact_gpu_stop_stage_real_owner_reaches_full_frame_without_product_services() {
+            let mut results = std::collections::BTreeSet::new();
+            for (index, stage) in GpuAttributionStage::ORDERED.into_iter().enumerate() {
+                let nonce = native_owner_nonce(index);
+                let bounded = spawn_bounded_native_owner_child(index, &nonce);
+                let output = &bounded.output;
+                assert!(
+                    output.status.success(),
+                    "native {stage:?} child exited {}: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let lines = stdout
+                    .lines()
+                    .filter(|line| line.starts_with(NATIVE_OWNER_RESULT))
+                    .collect::<Vec<_>>();
+                assert_eq!(lines.len(), 1, "native {stage:?} result: {stdout}");
+                let line = lines[0];
+                let result = parse_native_owner_result(
+                    line,
+                    &nonce,
+                    index,
+                    NATIVE_OWNER_CHILD_DEADLINE,
+                )
+                    .unwrap_or_else(|error| panic!("native {stage:?} result protocol: {error}"));
+                validate_native_owner_wall_clock(
+                    bounded.wall_elapsed,
+                    result.elapsed,
+                    NATIVE_OWNER_WRAPPER_DEADLINE,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "native {stage:?} parent wall {:?} versus child {:?}: {error}",
+                        bounded.wall_elapsed, result.elapsed
+                    )
+                });
+                assert!(results.insert(result), "duplicate child result {line}");
+                println!("{line}");
+            }
+            assert_eq!(results.len(), GpuAttributionStage::ORDERED.len());
+        }
+    }

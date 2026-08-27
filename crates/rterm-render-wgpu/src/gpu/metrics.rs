@@ -1,3 +1,241 @@
+/// Exact owner boundary reached by the staged windowed GPU initializer.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum GpuInitializationStage {
+    InstanceSurface,
+    AdapterDevice,
+    ConfiguredSurfaceClear,
+    LayerPipelines,
+}
+
+impl GpuInitializationStage {
+    pub const ORDERED: [Self; 4] = [
+        Self::InstanceSurface,
+        Self::AdapterDevice,
+        Self::ConfiguredSurfaceClear,
+        Self::LayerPipelines,
+    ];
+}
+
+/// Project-owned resources materialized by the R-Term GPU initializer.
+///
+/// Driver allocations are deliberately excluded. Every field describes an
+/// object or explicit byte allocation owned by this crate.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct GpuInitializationResourceSnapshot {
+    pub instance_count: u64,
+    pub surface_count: u64,
+    pub adapter_count: u64,
+    pub device_count: u64,
+    pub queue_count: u64,
+    pub surface_configure_count: u64,
+    pub surface_acquire_count: u64,
+    pub clear_present_count: u64,
+    pub pipeline_count: u64,
+    pub pipeline_layout_count: u64,
+    pub materialized_buffer_count: u64,
+    pub instance_buffer_bytes: u64,
+    pub upload_buffer_bytes: u64,
+    pub total_allocated_buffer_bytes: u64,
+    pub total_allocated_texture_bytes: u64,
+    pub glyph_atlas_bytes: u64,
+    pub raster_cache_bytes: u64,
+    pub image_texture_bytes: u64,
+    pub base_text_renderer_materialization_count: u64,
+    pub cursor_text_renderer_materialization_count: u64,
+    pub backend: Option<String>,
+    pub adapter_name: Option<String>,
+}
+
+impl GpuInitializationResourceSnapshot {
+    /// Merges disjoint owner facts into one cumulative snapshot.
+    #[must_use]
+    pub fn merged(mut self, owned: &Self) -> Self {
+        self.instance_count = self.instance_count.saturating_add(owned.instance_count);
+        self.surface_count = self.surface_count.saturating_add(owned.surface_count);
+        self.adapter_count = self.adapter_count.saturating_add(owned.adapter_count);
+        self.device_count = self.device_count.saturating_add(owned.device_count);
+        self.queue_count = self.queue_count.saturating_add(owned.queue_count);
+        self.surface_configure_count = self
+            .surface_configure_count
+            .saturating_add(owned.surface_configure_count);
+        self.surface_acquire_count = self
+            .surface_acquire_count
+            .saturating_add(owned.surface_acquire_count);
+        self.clear_present_count = self
+            .clear_present_count
+            .saturating_add(owned.clear_present_count);
+        self.pipeline_count = self.pipeline_count.saturating_add(owned.pipeline_count);
+        self.pipeline_layout_count = self
+            .pipeline_layout_count
+            .saturating_add(owned.pipeline_layout_count);
+        self.materialized_buffer_count = self
+            .materialized_buffer_count
+            .saturating_add(owned.materialized_buffer_count);
+        self.instance_buffer_bytes = self
+            .instance_buffer_bytes
+            .saturating_add(owned.instance_buffer_bytes);
+        self.upload_buffer_bytes = self
+            .upload_buffer_bytes
+            .saturating_add(owned.upload_buffer_bytes);
+        self.total_allocated_buffer_bytes = self
+            .total_allocated_buffer_bytes
+            .saturating_add(owned.total_allocated_buffer_bytes);
+        self.total_allocated_texture_bytes = self
+            .total_allocated_texture_bytes
+            .saturating_add(owned.total_allocated_texture_bytes);
+        self.glyph_atlas_bytes = self
+            .glyph_atlas_bytes
+            .saturating_add(owned.glyph_atlas_bytes);
+        self.raster_cache_bytes = self
+            .raster_cache_bytes
+            .saturating_add(owned.raster_cache_bytes);
+        self.image_texture_bytes = self
+            .image_texture_bytes
+            .saturating_add(owned.image_texture_bytes);
+        self.base_text_renderer_materialization_count = self
+            .base_text_renderer_materialization_count
+            .saturating_add(owned.base_text_renderer_materialization_count);
+        self.cursor_text_renderer_materialization_count = self
+            .cursor_text_renderer_materialization_count
+            .saturating_add(owned.cursor_text_renderer_materialization_count);
+        if self.backend.is_none() {
+            self.backend.clone_from(&owned.backend);
+        }
+        if self.adapter_name.is_none() {
+            self.adapter_name.clone_from(&owned.adapter_name);
+        }
+        self
+    }
+
+    /// Validates the cumulative R-Term ownership matrix at an exact hold.
+    ///
+    /// # Errors
+    ///
+    /// Returns every missing, fabricated, or later-stage resource instead of
+    /// accepting a partial snapshot.
+    pub fn validate_at(&self, stage: GpuInitializationStage) -> Result<(), Vec<String>> {
+        let mut violations = Vec::new();
+        require_exact(&mut violations, "instance_count", self.instance_count, 1);
+        require_exact(&mut violations, "surface_count", self.surface_count, 1);
+
+        let has_device = stage >= GpuInitializationStage::AdapterDevice;
+        for (name, actual) in [
+            ("adapter_count", self.adapter_count),
+            ("device_count", self.device_count),
+            ("queue_count", self.queue_count),
+        ] {
+            require_exact(&mut violations, name, actual, u64::from(has_device));
+        }
+        if has_device {
+            require_identity(&mut violations, "backend", self.backend.as_deref());
+            require_identity(
+                &mut violations,
+                "adapter_name",
+                self.adapter_name.as_deref(),
+            );
+        } else {
+            forbid_identity(&mut violations, "backend", self.backend.as_deref());
+            forbid_identity(
+                &mut violations,
+                "adapter_name",
+                self.adapter_name.as_deref(),
+            );
+        }
+
+        let has_clear = stage >= GpuInitializationStage::ConfiguredSurfaceClear;
+        for (name, actual) in [
+            ("surface_configure_count", self.surface_configure_count),
+            ("surface_acquire_count", self.surface_acquire_count),
+            ("clear_present_count", self.clear_present_count),
+        ] {
+            require_exact(&mut violations, name, actual, u64::from(has_clear));
+        }
+
+        let has_layers = stage >= GpuInitializationStage::LayerPipelines;
+        require_exact(
+            &mut violations,
+            "pipeline_count",
+            self.pipeline_count,
+            if has_layers { 2 } else { 0 },
+        );
+        require_exact(
+            &mut violations,
+            "pipeline_layout_count",
+            self.pipeline_layout_count,
+            if has_layers { 2 } else { 0 },
+        );
+        require_exact(
+            &mut violations,
+            "materialized_buffer_count",
+            self.materialized_buffer_count,
+            u64::from(has_layers),
+        );
+        require_exact(
+            &mut violations,
+            "total_allocated_buffer_bytes",
+            self.total_allocated_buffer_bytes,
+            if has_layers { 8 } else { 0 },
+        );
+        require_exact(
+            &mut violations,
+            "instance_buffer_bytes",
+            self.instance_buffer_bytes,
+            0,
+        );
+        require_exact(
+            &mut violations,
+            "upload_buffer_bytes",
+            self.upload_buffer_bytes,
+            0,
+        );
+        require_exact(
+            &mut violations,
+            "total_allocated_texture_bytes",
+            self.total_allocated_texture_bytes,
+            0,
+        );
+        for (name, actual) in [
+            ("glyph_atlas_bytes", self.glyph_atlas_bytes),
+            ("raster_cache_bytes", self.raster_cache_bytes),
+            ("image_texture_bytes", self.image_texture_bytes),
+            (
+                "base_text_renderer_materialization_count",
+                self.base_text_renderer_materialization_count,
+            ),
+            (
+                "cursor_text_renderer_materialization_count",
+                self.cursor_text_renderer_materialization_count,
+            ),
+        ] {
+            require_exact(&mut violations, name, actual, 0);
+        }
+
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(violations)
+        }
+    }
+}
+
+fn require_exact(violations: &mut Vec<String>, name: &str, actual: u64, expected: u64) {
+    if actual != expected {
+        violations.push(format!("{name} must be {expected}, got {actual}"));
+    }
+}
+
+fn require_identity(violations: &mut Vec<String>, name: &str, actual: Option<&str>) {
+    if actual.is_none_or(str::is_empty) {
+        violations.push(format!("{name} is required"));
+    }
+}
+
+fn forbid_identity(violations: &mut Vec<String>, name: &str, actual: Option<&str>) {
+    if actual.is_some() {
+        violations.push(format!("{name} must be absent"));
+    }
+}
+
 /// Stable, machine-readable facts about the selected GPU and presentation path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GpuPresentationMetrics {
