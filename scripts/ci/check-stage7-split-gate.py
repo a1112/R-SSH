@@ -3894,6 +3894,102 @@ def validate_runner_fingerprint(
             )
 
 
+def validate_external_source_evidence(
+    artifact: dict[str, Any],
+    artifact_type: str,
+    label: str,
+    violations: list[str],
+) -> None:
+    """Validate the optional rich evidence emitted by the Stage 8 proof tool.
+
+    Historical local proof fixtures intentionally contain only the frozen minimal
+    fields.  Rich fields are therefore validated as a closed bundle only when the
+    ``mode`` discriminator is present.
+    """
+
+    if "mode" not in artifact:
+        return
+    mode = artifact.get("mode")
+    expected_mode = "synthesize" if artifact_type == "local-two-bare-git-source-proof" else "canonical"
+    if mode != expected_mode:
+        violations.append(f"{label}: external-source proof mode does not match artifact type")
+    for field in (
+        "candidate_ref",
+        "source_switch_ref",
+        "rollback_ref",
+        "candidate_tree_sha256",
+        "metadata_sha256",
+        "metadata_raw_sha256",
+        "lockfile_sha256",
+    ):
+        value = artifact.get(field)
+        valid = is_full_sha(value) if field.endswith("_ref") else is_sha256(value)
+        if not valid:
+            violations.append(f"{label}: rich source proof field {field} must be an immutable digest")
+    source_refs = artifact.get("source_refs")
+    if not isinstance(source_refs, list) or len(source_refs) != 2 or not all(is_full_sha(item) for item in source_refs):
+        violations.append(f"{label}: rich source proof source_refs must contain two full SHAs")
+    if artifact.get("immutable") is not True or artifact.get("bare_repository_count") != 2:
+        violations.append(f"{label}: rich source proof must bind two immutable bare repositories")
+    remotes = artifact.get("bare_repositories")
+    if not isinstance(remotes, dict) or set(remotes) != {"candidate", "consumer"}:
+        violations.append(f"{label}: rich source proof must identify candidate and consumer remotes")
+    else:
+        identities: set[str] = set()
+        for role, value in remotes.items():
+            if not isinstance(value, dict) or not isinstance(value.get("identity"), str) or not is_sha256(value["identity"]):
+                violations.append(f"{label}: bare repository {role} identity must be a SHA-256")
+            else:
+                identities.add(value["identity"])
+        if len(identities) != 2:
+            violations.append(f"{label}: candidate and consumer bare repositories must be distinct")
+    commands = artifact.get("commands")
+    switch_index = artifact.get("source_switch_command_count")
+    if not isinstance(commands, list) or not commands or not isinstance(switch_index, int) or not 0 <= switch_index < len(commands):
+        violations.append(f"{label}: rich source proof command boundary is invalid")
+    else:
+        for index, command in enumerate(commands):
+            if not isinstance(command, dict) or not isinstance(command.get("argv"), list):
+                violations.append(f"{label}: command {index} is not a closed command record")
+                continue
+            argv = command["argv"]
+            if index >= switch_index and "--locked" not in argv:
+                violations.append(f"{label}: post-switch command {index} is not --locked")
+            if index >= switch_index and "generate-lockfile" in argv:
+                violations.append(f"{label}: post-switch cargo generate-lockfile is forbidden")
+    metadata = artifact.get("metadata")
+    sources = metadata.get("rterm_sources") if isinstance(metadata, dict) else None
+    candidate_ref = artifact.get("candidate_ref")
+    if not isinstance(sources, dict) or len(sources) != 7 or not all(
+        isinstance(value, str) and value.startswith("git+") and is_full_sha(candidate_ref) and f"#{candidate_ref}" in value
+        for value in sources.values()
+    ):
+        violations.append(f"{label}: metadata must bind all seven R-Term packages to candidate_ref")
+    vendors = artifact.get("vendor_resolutions")
+    consumer_root = artifact.get("consumer_root")
+    if not isinstance(vendors, dict) or set(vendors) != {"glyphon", "gpu-allocator"} or not isinstance(consumer_root, str):
+        violations.append(f"{label}: vendor resolutions must contain both consumer-root packages")
+    else:
+        root_path = Path(consumer_root).resolve()
+        for name, value in vendors.items():
+            manifest_path = value.get("manifest_path") if isinstance(value, dict) else None
+            if not isinstance(manifest_path, str):
+                violations.append(f"{label}: vendor resolution {name} lacks a manifest path")
+                continue
+            try:
+                Path(manifest_path).resolve().relative_to(root_path)
+            except ValueError:
+                violations.append(f"{label}: vendor resolution {name} escapes consumer_root")
+    baseline = artifact.get("baseline")
+    rollback = artifact.get("rollback")
+    if not isinstance(baseline, dict) or not isinstance(rollback, dict):
+        violations.append(f"{label}: baseline and rollback hashes are required")
+    elif baseline.get("manifest_sha256") != rollback.get("manifest_sha256") or baseline.get("lockfile_sha256") != rollback.get("lockfile_sha256"):
+        violations.append(f"{label}: rollback does not restore baseline lockfile and manifest hashes")
+    if mode == "canonical" and artifact.get("r1_ref") != candidate_ref:
+        violations.append(f"{label}: canonical r1_ref must equal candidate_ref")
+
+
 def validate_result_artifact(
     artifact_type: str,
     artifact: dict[str, Any],
@@ -3927,6 +4023,31 @@ def validate_result_artifact(
                 "source_refs",
                 "immutable",
                 "git_object_store_proof",
+                "mode",
+                "candidate_ref",
+                "candidate_tree_sha256",
+                "source_switch_ref",
+                "rollback_ref",
+                "candidate_repository",
+                "consumer_repository",
+                "consumer_root",
+                "consumer_workspace",
+                "consumer_manifest",
+                "consumer_lockfile",
+                "bare_repositories",
+                "baseline",
+                "source_switch",
+                "rollback",
+                "source_switch_command_count",
+                "commands",
+                "metadata",
+                "metadata_sha256",
+                "metadata_raw_sha256",
+                "vendor_resolutions",
+                "worktree_hashes",
+                "lockfile_sha256",
+                "post_commit_cargo_generate_lockfile",
+                "bare_remote_count",
             },
             "rterm-extraction-manifest": {"owned_projection_inventory"},
             "source-to-filtered-history-map": {
@@ -3939,6 +4060,35 @@ def validate_result_artifact(
                 "tree_projection_sha256",
                 "bootstrap_projection_sha256",
                 "git_object_store_proof",
+                "immutable",
+                "mode",
+                "candidate_ref",
+                "r1_ref",
+                "candidate_tree_sha256",
+                "source_switch_ref",
+                "rollback_ref",
+                "source_refs",
+                "candidate_repository",
+                "consumer_repository",
+                "consumer_root",
+                "consumer_workspace",
+                "consumer_manifest",
+                "consumer_lockfile",
+                "bare_repositories",
+                "baseline",
+                "source_switch",
+                "rollback",
+                "source_switch_command_count",
+                "commands",
+                "metadata",
+                "metadata_sha256",
+                "metadata_raw_sha256",
+                "vendor_resolutions",
+                "worktree_hashes",
+                "lockfile_sha256",
+                "post_commit_cargo_generate_lockfile",
+                "bare_remote_count",
+                "bare_repository_count",
             },
             "windows-release-build-provenance": {"profile", "locked"},
             "windows-loopback-native-ssh": {"coverage"},
@@ -3962,6 +4112,7 @@ def validate_result_artifact(
     else:
         for name, rule in rules.items():
             validate_claim_rule(name, claims.get(name), rule, manifest, label, violations)
+    validate_external_source_evidence(artifact, artifact_type, label, violations)
     if artifact_type == "runner-fingerprint":
         validate_runner_fingerprint(artifact, label, violations)
     elif artifact_type == "font-catalog-fingerprint":

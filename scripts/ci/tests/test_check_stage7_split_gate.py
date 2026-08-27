@@ -26,6 +26,8 @@ SCHEMA_PATH = REPO / "scripts/ci/stage7-evidence-manifest.schema.json"
 CHECKER_PATH = REPO / "scripts/ci/check-stage7-split-gate.py"
 ASSEMBLER_PATH = REPO / "scripts/ci/assemble-stage7-evidence.py"
 ATTRIBUTION_RUNNER_PATH = REPO / "scripts/ci/run-stage7-attribution-matrix.ps1"
+EXTERNAL_SOURCE_PROOF_PATH = REPO / "scripts/ci/prove-rterm-external-source.py"
+EXTERNAL_SOURCE_CONTRACT_PATH = REPO / "scripts/ci/rterm-external-source-proof.json"
 PYTHON = Path(sys.executable)
 SOURCE_SHA = subprocess.run(
     ["git", "rev-parse", "HEAD"],
@@ -1108,6 +1110,30 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn("run-stage7-font-proof.ps1", workflow)
         self.assertIn("run-stage7-attribution-matrix.ps1", workflow)
         self.assertIn("actions/upload-artifact", workflow)
+
+    def test_external_source_proof_contract_is_immutable_and_locked(self) -> None:
+        self.assertTrue(EXTERNAL_SOURCE_PROOF_PATH.is_file())
+        proof = EXTERNAL_SOURCE_PROOF_PATH.read_text(encoding="utf-8")
+        contract = json.loads(EXTERNAL_SOURCE_CONTRACT_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(contract["schema"], "rssh.stage7/rterm-external-source-proof/v1")
+        self.assertEqual(len(contract["candidate"]["package_paths"]), 7)
+        self.assertEqual(len(contract["consumer"]["dependencies"]), 7)
+        self.assertIn("--synthesize", proof)
+        self.assertIn("--candidate-repo", proof)
+        self.assertIn("--candidate-ref", proof)
+        self.assertIn('"--locked"', proof)
+        self.assertIn('"generate-lockfile"', proof)
+        self.assertIn('"--no-local"', proof)
+        self.assertIn('"revert"', proof)
+        for field in (
+            "mode",
+            "candidate_ref",
+            "source_switch_ref",
+            "rollback_ref",
+            "bare_repositories",
+            "vendor_resolutions",
+        ):
+            self.assertIn(field, proof)
 
     def _valid_attribution_payload(self) -> tuple[dict, dict]:
         policy = self.contract["artifact_policies"]["attribution-matrix-raw"]
