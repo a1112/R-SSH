@@ -4,7 +4,7 @@ use std::{
     collections::HashSet,
     io::{Read, Write},
     process::{Command, Stdio},
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -261,6 +261,171 @@ fn diagnostic_ssh1_without_fixture_coordinates_is_rejected_before_opening_a_wind
         String::from_utf8_lossy(&output.stderr).contains("ssh1 diagnostic requires --ssh-host"),
         "unexpected error: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn attribution_stage_cli_reaches_the_private_owner_path() {
+    let _test_lock = diagnostic_gui_test_lock();
+    let run_id = format!("attribution-cpu-window-{}", std::process::id());
+    let mut command = Command::new(RSSH_APP_EXECUTABLE);
+    command.args([
+        "diagnostic-gui",
+        "--run-id",
+        run_id.as_str(),
+        "--scenario",
+        "empty-window",
+        "--hold-ms",
+        "1",
+        "--renderer",
+        "cpu",
+        "--attribution-stage",
+        "cpu-window",
+    ]);
+
+    let output = ChildGuard::spawn(command, Duration::from_secs(20))
+        .expect("spawn cpu-window attribution diagnostic")
+        .wait()
+        .expect("cpu-window attribution diagnostic exits within its bounded hold");
+    let stdout = String::from_utf8(output.stdout).expect("diagnostic stdout is UTF-8");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "cpu-window attribution diagnostic failed\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let ready = stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix(MARKER_PREFIX))
+        .map(|json| serde_json::from_str::<serde_json::Value>(json).expect("valid marker JSON"))
+        .filter(|record| record["kind"] == "attribution_stage_ready")
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ready.len(),
+        1,
+        "expected exactly one owner marker: {stdout}"
+    );
+    assert_eq!(ready[0]["requested_stage"], "cpu-window");
+    assert_eq!(ready[0]["final_stage"], "cpu-window");
+    assert_eq!(
+        ready[0]["resource_summary_schema"],
+        "rssh.project-owned-resources/v1"
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the integration test keeps the owner lifetime and shutdown assertions together"
+)]
+fn attribution_stage_owner_ready_precedes_hold_and_owners_live_until_shutdown() {
+    let _test_lock = diagnostic_gui_test_lock();
+    let run_id = format!("attribution-owner-hold-{}", std::process::id());
+    let mut child = Command::new(RSSH_APP_EXECUTABLE)
+        .args([
+            "diagnostic-gui",
+            "--run-id",
+            run_id.as_str(),
+            "--scenario",
+            "empty-window",
+            "--hold-ms",
+            "10000",
+            "--renderer",
+            "cpu",
+            "--attribution-stage",
+            "cpu-window",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn attribution owner hold diagnostic");
+    let stdout = child.stdout.take().expect("piped stdout");
+    let (sender, receiver) = mpsc::channel();
+    let stdout_thread = thread::spawn(move || {
+        let reader = std::io::BufReader::new(stdout);
+        for line in std::io::BufRead::lines(reader) {
+            if sender.send(line.expect("read marker line")).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut records = Vec::new();
+    loop {
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            drop(receiver);
+            let _ = stdout_thread.join();
+            panic!("owner readiness timed out");
+        }
+        let line = match receiver.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) => line,
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                let status = child.wait().expect("reap early diagnostic exit");
+                let _ = stdout_thread.join();
+                panic!("diagnostic exited before owner readiness: {status}");
+            }
+        };
+        let Some(json) = line.strip_prefix(MARKER_PREFIX) else {
+            continue;
+        };
+        let record: serde_json::Value = serde_json::from_str(json).expect("valid marker JSON");
+        let kind = record["kind"].as_str().expect("typed marker kind");
+        if matches!(
+            kind,
+            "scenario_ready"
+                | "config_ready"
+                | "transport_started"
+                | "transport_ready"
+                | "gpu_ready"
+                | "font_ownership_ready"
+        ) {
+            let _ = child.kill();
+            let _ = child.wait();
+            drop(receiver);
+            let _ = stdout_thread.join();
+            panic!("product/later marker preceded attribution owner readiness: {record:#}");
+        }
+        let is_ready = kind == "attribution_stage_ready";
+        records.push(record);
+        if is_ready {
+            break;
+        }
+    }
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "owner dropped at readiness"
+    );
+    thread::sleep(Duration::from_millis(200));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "owner process exited before launcher shutdown"
+    );
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(b"shutdown\n")
+        .expect("request owner shutdown");
+    let exit_deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll owner shutdown") {
+            break status;
+        }
+        assert!(Instant::now() < exit_deadline, "owner ignored shutdown");
+        thread::sleep(Duration::from_millis(20));
+    };
+    stdout_thread.join().expect("stdout reader exits");
+    assert!(status.success(), "attribution owner exited unsuccessfully");
+    assert_eq!(
+        records
+            .iter()
+            .filter(|record| record["kind"] == "attribution_stage_ready")
+            .count(),
+        1
     );
 }
 

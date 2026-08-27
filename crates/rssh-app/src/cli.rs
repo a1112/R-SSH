@@ -43,6 +43,7 @@ pub struct DiagnosticGuiOptions {
     pub gpu_backend: Option<rssh_diagnostics::DiagnosticGpuBackend>,
     pub font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
     pub font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+    pub attribution_stage: Option<rssh_diagnostics::DiagnosticAttributionStage>,
     pub columns: u16,
     pub rows: u16,
     pub ssh_host: Option<IpAddr>,
@@ -512,6 +513,10 @@ where
     }
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "the private diagnostic parser keeps every option and cross-field validation explicit"
+)]
 fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
     let mut run_id = None;
     let mut scenario = None;
@@ -520,6 +525,7 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
     let mut gpu_backend = None;
     let mut font_mode = None;
     let mut font_specimen = None;
+    let mut attribution_stage = None;
     let mut columns = DEFAULT_SSH_COLUMNS;
     let mut rows = DEFAULT_SSH_ROWS;
     let mut ssh_host = None;
@@ -552,6 +558,7 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
             "--gpu-backend" => gpu_backend = Some(value.parse()?),
             "--font-mode" => font_mode = Some(value.parse()?),
             "--font-specimen" => font_specimen = Some(value.parse()?),
+            "--attribution-stage" => attribution_stage = Some(value.parse()?),
             "--cols" => columns = parse_dimension(Some(&args[index]), "--cols")?,
             "--rows" => rows = parse_dimension(Some(&args[index]), "--rows")?,
             "--ssh-host" => {
@@ -588,6 +595,12 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
     if font_mode.is_some() && scenario != rssh_diagnostics::Scenario::EmptyWindow {
         return Err("font proof requires the empty-window scenario".to_owned());
     }
+    if attribution_stage.is_some() && scenario != rssh_diagnostics::Scenario::EmptyWindow {
+        return Err("attribution stage requires the empty-window scenario".to_owned());
+    }
+    if attribution_stage.is_some() && font_mode.is_some() {
+        return Err("--attribution-stage cannot be combined with font proof options".to_owned());
+    }
     if scenario == rssh_diagnostics::Scenario::Ssh1 {
         if ssh_host.is_none() || ssh_port.is_none() || ssh_user.as_deref().is_none_or(str::is_empty)
         {
@@ -606,6 +619,7 @@ fn parse_diagnostic_gui(args: &[String]) -> Result<AppCommand, String> {
         gpu_backend,
         font_mode,
         font_specimen,
+        attribution_stage,
         columns,
         rows,
         ssh_host,
@@ -5153,6 +5167,84 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("--gpu-backend cannot be used with --renderer cpu"));
+    }
+
+    #[test]
+    fn diagnostic_attribution_stage_parses_exact_private_values_and_rejects_mixes() {
+        use rssh_diagnostics::DiagnosticAttributionStage;
+
+        for (value, expected) in [
+            ("cpu-window", DiagnosticAttributionStage::CpuWindow),
+            (
+                "instance-surface",
+                DiagnosticAttributionStage::InstanceSurface,
+            ),
+            ("adapter-device", DiagnosticAttributionStage::AdapterDevice),
+            (
+                "configured-surface-clear",
+                DiagnosticAttributionStage::ConfiguredSurfaceClear,
+            ),
+            (
+                "layer-pipelines",
+                DiagnosticAttributionStage::LayerPipelines,
+            ),
+            (
+                "fixture-font-text",
+                DiagnosticAttributionStage::FixtureFontText,
+            ),
+            (
+                "platform-font-index",
+                DiagnosticAttributionStage::PlatformFontIndex,
+            ),
+            ("full-frame", DiagnosticAttributionStage::FullFrame),
+        ] {
+            let AppCommand::DiagnosticGui(options) = parse_args([
+                "rssh-app",
+                "diagnostic-gui",
+                "--run-id",
+                "attribution-stage",
+                "--scenario",
+                "empty-window",
+                "--hold-ms",
+                "250",
+                "--attribution-stage",
+                value,
+            ])
+            .unwrap() else {
+                panic!("expected diagnostic GUI command");
+            };
+            assert_eq!(options.attribution_stage, Some(expected));
+        }
+
+        let invalid = parse_args([
+            "rssh-app",
+            "diagnostic-gui",
+            "--run-id",
+            "attribution-stage",
+            "--scenario",
+            "empty-window",
+            "--hold-ms",
+            "250",
+            "--attribution-stage",
+            "fixture_font_text",
+        ])
+        .unwrap_err();
+        assert!(invalid.contains("unsupported diagnostic attribution stage"));
+
+        let ssh1 = parse_args([
+            "rssh-app",
+            "diagnostic-gui",
+            "--run-id",
+            "attribution-stage",
+            "--scenario",
+            "ssh1",
+            "--hold-ms",
+            "250",
+            "--attribution-stage",
+            "cpu-window",
+        ])
+        .unwrap_err();
+        assert!(ssh1.contains("attribution stage requires the empty-window scenario"));
     }
 
     #[test]

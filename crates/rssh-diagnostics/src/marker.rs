@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    ConnectionState, DiagnosticGpuBackend, RendererKind, Scenario, SchemaVersion, StartupMilestones,
+    ConnectionState, DiagnosticAttributionStage, DiagnosticGpuBackend,
+    ProjectOwnedResourceMetricsV1, ProjectOwnedResourceSchemaVersion, RendererKind, Scenario,
+    SchemaVersion, StartupMilestones,
 };
 
 pub const MARKER_PREFIX: &str = "rssh_diagnostic ";
@@ -40,6 +42,7 @@ pub enum MarkerKind {
     TransportReady,
     GpuReady,
     FontOwnershipReady,
+    AttributionStageReady,
     ScenarioReady,
     SamplingStarted,
     SamplingFinished,
@@ -79,6 +82,9 @@ pub struct CollectedMarkers {
     pub gpu_adapter_vendor_id: Option<u32>,
     pub gpu_adapter_device_id: Option<u32>,
     pub gpu_adapter_type: Option<String>,
+    pub final_attribution_stage: Option<DiagnosticAttributionStage>,
+    pub resource_summary_schema: Option<ProjectOwnedResourceSchemaVersion>,
+    pub resource_summary: Option<ProjectOwnedResourceMetricsV1>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +102,7 @@ pub enum MarkerError {
         observed_ms: u64,
     },
     Duplicate(MarkerKind),
+    AttributionProtocol(String),
 }
 
 impl Display for MarkerError {
@@ -118,6 +125,12 @@ impl Display for MarkerError {
                 "marker elapsed time decreased from {previous_ms} ms to {observed_ms} ms"
             ),
             Self::Duplicate(kind) => write!(formatter, "duplicate marker {kind:?}"),
+            Self::AttributionProtocol(message) => {
+                write!(
+                    formatter,
+                    "attribution marker protocol violation: {message}"
+                )
+            }
         }
     }
 }
@@ -130,11 +143,27 @@ pub struct MarkerCollector {
     seen: HashSet<MarkerKind>,
     last_elapsed_ms: Option<u64>,
     trace: CollectedMarkers,
+    requested_attribution_stage: Option<DiagnosticAttributionStage>,
 }
 
 impl MarkerCollector {
     #[must_use]
     pub fn new(identity: MarkerIdentity) -> Self {
+        Self::new_with_attribution(identity, None)
+    }
+
+    #[must_use]
+    pub fn new_attribution(
+        identity: MarkerIdentity,
+        requested_stage: DiagnosticAttributionStage,
+    ) -> Self {
+        Self::new_with_attribution(identity, Some(requested_stage))
+    }
+
+    fn new_with_attribution(
+        identity: MarkerIdentity,
+        requested_attribution_stage: Option<DiagnosticAttributionStage>,
+    ) -> Self {
         Self {
             identity,
             seen: HashSet::new(),
@@ -149,7 +178,11 @@ impl MarkerCollector {
                 gpu_adapter_vendor_id: None,
                 gpu_adapter_device_id: None,
                 gpu_adapter_type: None,
+                final_attribution_stage: None,
+                resource_summary_schema: None,
+                resource_summary: None,
             },
+            requested_attribution_stage,
         }
     }
 
@@ -179,6 +212,8 @@ impl MarkerCollector {
         if self.seen.contains(&record.kind) {
             return Err(MarkerError::Duplicate(record.kind));
         }
+
+        self.validate_attribution_protocol(&record)?;
 
         self.apply(&record);
         self.seen.insert(record.kind);
@@ -214,6 +249,73 @@ impl MarkerCollector {
             ));
         }
         Ok(())
+    }
+
+    fn validate_attribution_protocol(&self, record: &MarkerRecord) -> Result<(), MarkerError> {
+        let Some(requested_stage) = self.requested_attribution_stage else {
+            if record.kind == MarkerKind::AttributionStageReady {
+                return Err(MarkerError::AttributionProtocol(
+                    "unexpected attribution_stage_ready without a requested stage".to_owned(),
+                ));
+            }
+            return Ok(());
+        };
+        if self.seen.contains(&MarkerKind::ProcessExited) {
+            return Err(MarkerError::AttributionProtocol(
+                "marker observed after process_exited".to_owned(),
+            ));
+        }
+        if self.seen.contains(&MarkerKind::AttributionStageReady)
+            && record.kind != MarkerKind::ProcessExited
+        {
+            return Err(MarkerError::AttributionProtocol(format!(
+                "later marker {:?} followed attribution_stage_ready",
+                record.kind
+            )));
+        }
+        match record.kind {
+            MarkerKind::ProcessStarted if self.seen.is_empty() => Ok(()),
+            MarkerKind::WindowCreated
+                if self.seen.contains(&MarkerKind::ProcessStarted)
+                    && !self.seen.contains(&MarkerKind::FirstPresent) =>
+            {
+                Ok(())
+            }
+            MarkerKind::FirstPresent
+                if self.seen.contains(&MarkerKind::WindowCreated)
+                    && !self.seen.contains(&MarkerKind::AttributionStageReady) =>
+            {
+                Ok(())
+            }
+            MarkerKind::AttributionStageReady if self.seen.contains(&MarkerKind::FirstPresent) => {
+                let payload = attribution_ready_payload(record)?;
+                if payload.requested_stage != requested_stage
+                    || payload.final_stage != requested_stage
+                {
+                    return Err(MarkerError::AttributionProtocol(format!(
+                        "requested/final stage must both equal {}",
+                        requested_stage.as_str()
+                    )));
+                }
+                if payload.resource_summary_schema != ProjectOwnedResourceSchemaVersion::V1 {
+                    return Err(MarkerError::AttributionProtocol(
+                        "resource summary schema is not v1".to_owned(),
+                    ));
+                }
+                payload
+                    .resource_summary
+                    .validate_at(requested_stage)
+                    .map_err(|violations| MarkerError::AttributionProtocol(violations.join("; ")))
+            }
+            MarkerKind::ProcessExited if self.seen.contains(&MarkerKind::AttributionStageReady) => {
+                Ok(())
+            }
+            _ => Err(MarkerError::AttributionProtocol(format!(
+                "out-of-order or forbidden marker {:?} for {}",
+                record.kind,
+                requested_stage.as_str()
+            ))),
+        }
     }
 
     fn apply(&mut self, record: &MarkerRecord) {
@@ -266,6 +368,18 @@ impl MarkerCollector {
             MarkerKind::FontOwnershipReady => {
                 self.trace.milestones.font_ownership_ready_ms = Some(record.elapsed_ms);
             }
+            MarkerKind::AttributionStageReady => {
+                if let Ok(payload) = attribution_ready_payload(record) {
+                    self.trace.final_renderer = record.renderer;
+                    self.trace.gpu_backend = payload.resource_summary.backend;
+                    self.trace
+                        .gpu_adapter_name
+                        .clone_from(&payload.resource_summary.adapter_name);
+                    self.trace.final_attribution_stage = Some(payload.final_stage);
+                    self.trace.resource_summary_schema = Some(payload.resource_summary_schema);
+                    self.trace.resource_summary = Some(payload.resource_summary);
+                }
+            }
             MarkerKind::ScenarioReady => {
                 self.trace.milestones.scenario_ready_ms = Some(record.elapsed_ms);
             }
@@ -283,6 +397,26 @@ impl MarkerCollector {
             self.trace.connection_state = record.connection_state;
         }
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AttributionStageReadyPayload {
+    requested_stage: DiagnosticAttributionStage,
+    final_stage: DiagnosticAttributionStage,
+    resource_summary_schema: ProjectOwnedResourceSchemaVersion,
+    resource_summary: ProjectOwnedResourceMetricsV1,
+}
+
+fn attribution_ready_payload(
+    record: &MarkerRecord,
+) -> Result<AttributionStageReadyPayload, MarkerError> {
+    let object = record.extra.clone().into_iter().collect();
+    serde_json::from_value(Value::Object(object)).map_err(|error| {
+        MarkerError::AttributionProtocol(format!(
+            "invalid attribution_stage_ready payload: {error}"
+        ))
+    })
 }
 
 fn marker_u32(extra: &HashMap<String, Value>, key: &str) -> Option<u32> {

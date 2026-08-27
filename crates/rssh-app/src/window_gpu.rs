@@ -1,11 +1,20 @@
 use std::{cell::RefCell, error::Error, io, sync::Arc};
 
+#[cfg(feature = "diagnostic-tools")]
+use std::{collections::HashMap, sync::mpsc};
+
 #[cfg(any(test, feature = "diagnostic-tools"))]
 use std::time::Duration;
 
 #[cfg(feature = "diagnostic-tools")]
 use std::time::Instant;
 
+#[cfg(feature = "diagnostic-tools")]
+use rssh_diagnostics::{
+    ConnectionState as DiagnosticConnectionState, DiagnosticAttributionStage,
+    MarkerKind as DiagnosticMarkerKind, ProjectOwnedResourceMetricsV1,
+    ProjectOwnedResourceSchemaVersion, RendererKind as DiagnosticRendererKind,
+};
 use rssh_diagnostics::{DiagnosticFontResourceSummary, DiagnosticGpuBackend};
 use rterm_render_core::{DamageRegion, RenderGeometry, TerminalRenderSnapshot};
 use rterm_render_cpu::TextPaintConfig;
@@ -20,6 +29,10 @@ use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
 use crate::platform_fonts::{
     CatalogActivation, FontCatalogMode, PlatformFontRepository, production_font_catalog_mode,
+};
+#[cfg(feature = "diagnostic-tools")]
+use crate::{
+    diagnostic_markers::DiagnosticMarkerHandle, stage7_attribution::AttributionStageController,
 };
 #[cfg(any(test, feature = "diagnostic-tools"))]
 use crate::{
@@ -137,6 +150,18 @@ pub(crate) struct Stage7WindowAttributionRuntime<'a> {
     renderer: Option<GpuLayerRenderer>,
     font_repository: Option<PlatformFontRepository>,
     resources: ProjectOwnedResourceSnapshot,
+    #[cfg(feature = "diagnostic-tools")]
+    diagnostic_hold: Option<Stage7DiagnosticHold>,
+    #[cfg(feature = "diagnostic-tools")]
+    diagnostic_hold_error: Option<String>,
+}
+
+#[cfg(feature = "diagnostic-tools")]
+struct Stage7DiagnosticHold {
+    requested_stage: DiagnosticAttributionStage,
+    duration: Duration,
+    markers: DiagnosticMarkerHandle,
+    shutdown: mpsc::Receiver<Result<(), String>>,
 }
 
 #[allow(
@@ -176,6 +201,101 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
             renderer: None,
             font_repository: None,
             resources: ProjectOwnedResourceSnapshot::default(),
+            #[cfg(feature = "diagnostic-tools")]
+            diagnostic_hold: None,
+            #[cfg(feature = "diagnostic-tools")]
+            diagnostic_hold_error: None,
+        }
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
+    fn with_diagnostic_hold(mut self, hold: Stage7DiagnosticHold) -> Self {
+        self.diagnostic_hold = Some(hold);
+        self
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
+    fn take_diagnostic_hold_error(&mut self) -> Option<String> {
+        self.diagnostic_hold_error.take()
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
+    fn hold_diagnostic(&mut self) {
+        let Some(hold) = self.diagnostic_hold.take() else {
+            return;
+        };
+        let result = (|| -> Result<(), Box<dyn Error>> {
+            let summary = diagnostic_resource_summary(&self.resources)?;
+            summary
+                .validate_at(hold.requested_stage)
+                .map_err(|violations| {
+                    io::Error::other(format!(
+                        "attribution resource summary failed at {}: {}",
+                        hold.requested_stage,
+                        violations.join("; ")
+                    ))
+                })?;
+            let renderer =
+                if hold.requested_stage >= DiagnosticAttributionStage::ConfiguredSurfaceClear {
+                    DiagnosticRendererKind::Gpu
+                } else {
+                    DiagnosticRendererKind::Cpu
+                };
+            let extra = HashMap::from([
+                (
+                    "requested_stage".to_owned(),
+                    serde_json::to_value(hold.requested_stage)?,
+                ),
+                (
+                    "final_stage".to_owned(),
+                    serde_json::to_value(hold.requested_stage)?,
+                ),
+                (
+                    "resource_summary_schema".to_owned(),
+                    serde_json::to_value(ProjectOwnedResourceSchemaVersion::V1)?,
+                ),
+                (
+                    "resource_summary".to_owned(),
+                    serde_json::to_value(&summary)?,
+                ),
+            ]);
+            if !hold.markers.emit_with_extra(
+                DiagnosticMarkerKind::AttributionStageReady,
+                Some(renderer),
+                Some(DiagnosticConnectionState::NotStarted),
+                extra,
+            )? {
+                return Err(
+                    io::Error::other("attribution_stage_ready marker was not unique").into(),
+                );
+            }
+
+            let deadline = Instant::now()
+                .checked_add(hold.duration)
+                .ok_or_else(|| io::Error::other("attribution hold deadline overflow"))?;
+            loop {
+                let now = Instant::now();
+                if now >= deadline {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(now);
+                match hold
+                    .shutdown
+                    .recv_timeout(remaining.min(Duration::from_millis(100)))
+                {
+                    Ok(Ok(())) => break,
+                    Ok(Err(message)) => return Err(io::Error::other(message).into()),
+                    Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                        // EOF is not an implicit shutdown. Keep the owner live for the
+                        // bounded absolute hold so an absent launcher cannot shorten it.
+                    }
+                }
+            }
+            Self::audit_disabled_product_service_entries()?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.diagnostic_hold_error = Some(error.to_string());
         }
     }
 
@@ -214,6 +334,16 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
             .map_err(|_| io::Error::other("CPU bootstrap retained capacity exceeds u64"))?;
         self.resources.cpu_surface_count = 1;
         self.resources.cpu_present_count = 1;
+        #[cfg(feature = "diagnostic-tools")]
+        if let Some(hold) = self.diagnostic_hold.as_ref()
+            && !hold.markers.emit(
+                DiagnosticMarkerKind::FirstPresent,
+                Some(DiagnosticRendererKind::Cpu),
+                Some(DiagnosticConnectionState::NotStarted),
+            )?
+        {
+            return Err(io::Error::other("first_present marker was not unique").into());
+        }
         Ok(())
     }
 
@@ -423,6 +553,11 @@ impl AttributionStageRuntime for Stage7WindowAttributionRuntime<'_> {
     }
 
     fn hold(&mut self, duration: Duration) {
+        #[cfg(feature = "diagnostic-tools")]
+        if self.diagnostic_hold.is_some() {
+            self.hold_diagnostic();
+            return;
+        }
         std::thread::sleep(duration);
         Self::audit_disabled_product_service_entries()
             .expect("product services remain disabled after the attribution hold");
@@ -455,6 +590,59 @@ fn project_owned_u64(value: usize, label: &str) -> Result<u64, Box<dyn Error>> {
     u64::try_from(value).map_err(|_| io::Error::other(format!("{label} exceeds u64")).into())
 }
 
+#[cfg(feature = "diagnostic-tools")]
+fn diagnostic_resource_summary(
+    source: &ProjectOwnedResourceSnapshot,
+) -> Result<ProjectOwnedResourceMetricsV1, Box<dyn Error>> {
+    let backend = source
+        .backend
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .map(|backend| backend.parse::<DiagnosticGpuBackend>())
+        .transpose()
+        .map_err(io::Error::other)?;
+    Ok(ProjectOwnedResourceMetricsV1 {
+        cpu_staging_bytes: source.cpu_staging_bytes,
+        cpu_surface_count: source.cpu_surface_count,
+        cpu_present_count: source.cpu_present_count,
+        instance_count: source.instance_count,
+        surface_count: source.surface_count,
+        adapter_count: source.adapter_count,
+        device_count: source.device_count,
+        queue_count: source.queue_count,
+        surface_configure_count: source.surface_configure_count,
+        surface_acquire_count: source.surface_acquire_count,
+        clear_present_count: source.clear_present_count,
+        pipeline_count: source.pipeline_count,
+        pipeline_layout_count: source.pipeline_layout_count,
+        materialized_buffer_count: source.materialized_buffer_count,
+        retained_font_bytes: source.retained_font_bytes,
+        inactive_font_bytes: source.inactive_font_bytes,
+        indexed_font_count: source.indexed_font_count,
+        active_font_count: source.active_font_count,
+        catalog_builds: source.catalog_builds,
+        catalog_generation: source.catalog_generation,
+        glyph_atlas_bytes: source.glyph_atlas_bytes,
+        raster_cache_bytes: source.raster_cache_bytes,
+        image_texture_bytes: source.image_texture_bytes,
+        snapshot_bytes: source.snapshot_bytes,
+        instance_buffer_bytes: source.instance_buffer_bytes,
+        upload_buffer_bytes: source.upload_buffer_bytes,
+        total_allocated_buffer_bytes: source.total_allocated_buffer_bytes,
+        total_allocated_texture_bytes: source.total_allocated_texture_bytes,
+        base_text_renderer_materialization_count: source.base_text_renderer_materialization_count,
+        cursor_text_renderer_materialization_count: source
+            .cursor_text_renderer_materialization_count,
+        config_load_count: source.config_load_count,
+        config_watcher_count: source.config_watcher_count,
+        pty_start_count: source.pty_start_count,
+        ssh_start_count: source.ssh_start_count,
+        post_ready_task_count: source.post_ready_task_count,
+        backend,
+        adapter_name: source.adapter_name.clone(),
+    })
+}
+
 #[cfg(any(test, feature = "diagnostic-tools"))]
 fn merge_gpu_resources(
     destination: &mut ProjectOwnedResourceSnapshot,
@@ -484,6 +672,171 @@ fn merge_gpu_resources(
         source.cursor_text_renderer_materialization_count;
     destination.backend.clone_from(&source.backend);
     destination.adapter_name.clone_from(&source.adapter_name);
+}
+
+#[cfg(feature = "diagnostic-tools")]
+const fn diagnostic_attribution_stage(stage: DiagnosticAttributionStage) -> GpuAttributionStage {
+    match stage {
+        DiagnosticAttributionStage::CpuWindow => GpuAttributionStage::CpuWindow,
+        DiagnosticAttributionStage::InstanceSurface => GpuAttributionStage::InstanceSurface,
+        DiagnosticAttributionStage::AdapterDevice => GpuAttributionStage::AdapterDevice,
+        DiagnosticAttributionStage::ConfiguredSurfaceClear => {
+            GpuAttributionStage::ConfiguredSurfaceClear
+        }
+        DiagnosticAttributionStage::LayerPipelines => GpuAttributionStage::LayerPipelines,
+        DiagnosticAttributionStage::FixtureFontText => GpuAttributionStage::FixtureFontText,
+        DiagnosticAttributionStage::PlatformFontIndex => GpuAttributionStage::PlatformFontIndex,
+        DiagnosticAttributionStage::FullFrame => GpuAttributionStage::FullFrame,
+    }
+}
+
+/// Runs the private Stage 7 attribution owner without constructing the normal
+/// window manager or scheduling any product service.
+#[cfg(feature = "diagnostic-tools")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the private native owner keeps window, CPU surface, GPU stages, and teardown in one auditable scope"
+)]
+pub(crate) fn run_stage7_native_attribution(
+    requested_stage: DiagnosticAttributionStage,
+    diagnostic_backend: Option<DiagnosticGpuBackend>,
+    hold_duration: Duration,
+    markers: DiagnosticMarkerHandle,
+    shutdown: mpsc::Receiver<Result<(), String>>,
+) -> Result<(), Box<dyn Error>> {
+    use winit::{
+        application::ApplicationHandler,
+        event::WindowEvent,
+        event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+        window::{WindowAttributes, WindowId},
+    };
+
+    struct NativeAttributionApp {
+        requested_stage: DiagnosticAttributionStage,
+        stop_stage: GpuAttributionStage,
+        diagnostic_backend: Option<DiagnosticGpuBackend>,
+        hold_duration: Duration,
+        markers: DiagnosticMarkerHandle,
+        shutdown: Option<mpsc::Receiver<Result<(), String>>>,
+        result: Option<Result<(), String>>,
+    }
+
+    impl ApplicationHandler for NativeAttributionApp {
+        fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+            if self.result.is_some() {
+                event_loop.exit();
+                return;
+            }
+            let result = (|| -> Result<(), Box<dyn Error>> {
+                let size = PhysicalSize::new(320, 96);
+                let window = Arc::new(
+                    event_loop.create_window(
+                        WindowAttributes::default()
+                            .with_title("R-SSH Stage 7 attribution")
+                            .with_visible(false)
+                            .with_inner_size(size),
+                    )?,
+                );
+                let actual_size = window.request_inner_size(size).unwrap_or(size);
+                if !self.markers.emit(
+                    DiagnosticMarkerKind::WindowCreated,
+                    None,
+                    Some(DiagnosticConnectionState::NotStarted),
+                )? {
+                    return Err(io::Error::other("window_created marker was not unique").into());
+                }
+                let frame_len = usize::try_from(actual_size.width)
+                    .ok()
+                    .and_then(|width| {
+                        usize::try_from(actual_size.height)
+                            .ok()
+                            .and_then(|height| width.checked_mul(height))
+                    })
+                    .and_then(|pixels| pixels.checked_mul(4))
+                    .ok_or_else(|| io::Error::other("native attribution frame overflow"))?;
+                let cpu_rgba = {
+                    let mut terminal =
+                        rssh_terminal::Terminal::new(rssh_core::TerminalSize::new(1, 1));
+                    terminal.feed(b"R");
+                    let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+                    let mut rgba = vec![0_u8; frame_len];
+                    rterm_render_cpu::PixelRenderer::new().render(
+                        &snapshot,
+                        &mut rgba,
+                        actual_size.width,
+                        actual_size.height,
+                        16,
+                        24,
+                    );
+                    rgba
+                };
+                let mut cpu_surface =
+                    WindowBootstrapSurface::new(event_loop, Arc::clone(&window), actual_size)?;
+                let shutdown = self.shutdown.take().ok_or_else(|| {
+                    io::Error::other("attribution shutdown receiver was already consumed")
+                })?;
+                let mut runtime = Stage7WindowAttributionRuntime::new(
+                    &mut cpu_surface,
+                    cpu_rgba,
+                    event_loop.owned_display_handle(),
+                    window,
+                    actual_size,
+                    false,
+                    false,
+                    self.diagnostic_backend,
+                )
+                .with_diagnostic_hold(Stage7DiagnosticHold {
+                    requested_stage: self.requested_stage,
+                    duration: self.hold_duration,
+                    markers: self.markers.clone(),
+                    shutdown,
+                });
+                let report = AttributionStageController::new(self.stop_stage)
+                    .run(&mut runtime)
+                    .map_err(|error| io::Error::other(error.to_string()))?;
+                if report.held_stage != self.stop_stage {
+                    return Err(
+                        io::Error::other("attribution controller held the wrong stage").into(),
+                    );
+                }
+                if let Some(error) = runtime.take_diagnostic_hold_error() {
+                    return Err(io::Error::other(error).into());
+                }
+                Ok(())
+            })();
+            self.result = Some(result.map_err(|error| error.to_string()));
+            event_loop.exit();
+        }
+
+        fn window_event(
+            &mut self,
+            _event_loop: &ActiveEventLoop,
+            _window_id: WindowId,
+            _event: WindowEvent,
+        ) {
+        }
+    }
+
+    let event_loop = EventLoop::builder()
+        .build()
+        .map_err(|error| io::Error::other(format!("create attribution event loop: {error}")))?;
+    event_loop.set_control_flow(ControlFlow::Wait);
+    let mut app = NativeAttributionApp {
+        requested_stage,
+        stop_stage: diagnostic_attribution_stage(requested_stage),
+        diagnostic_backend,
+        hold_duration,
+        markers,
+        shutdown: Some(shutdown),
+        result: None,
+    };
+    event_loop
+        .run_app(&mut app)
+        .map_err(|error| io::Error::other(format!("run attribution event loop: {error}")))?;
+    app.result
+        .take()
+        .ok_or_else(|| io::Error::other("attribution event loop returned no result"))?
+        .map_err(|error| io::Error::other(error).into())
 }
 
 #[cfg(all(test, target_os = "windows"))]

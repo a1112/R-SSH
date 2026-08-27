@@ -1,6 +1,6 @@
 use rssh_diagnostics::{
-    MarkerCollector, MarkerDisposition, MarkerError, MarkerIdentity, MarkerKind, RendererKind,
-    Scenario,
+    DiagnosticAttributionStage, MarkerCollector, MarkerDisposition, MarkerError, MarkerIdentity,
+    MarkerKind, ProjectOwnedResourceMetricsV1, RendererKind, Scenario,
 };
 
 const FIRST_PRESENT: &str = concat!(
@@ -213,4 +213,129 @@ fn unknown_schema_and_marker_kind_are_protocol_errors() {
         collector().push_line(&wrong_kind),
         Err(MarkerError::Malformed { .. })
     ));
+}
+
+#[test]
+fn attribution_stage_ready_is_a_typed_singleton_protocol_marker() {
+    let resources = ProjectOwnedResourceMetricsV1 {
+        cpu_staging_bytes: 4,
+        cpu_surface_count: 1,
+        cpu_present_count: 1,
+        ..ProjectOwnedResourceMetricsV1::default()
+    };
+    let ready = serde_json::json!({
+        "schema": "rssh.diagnostics/v2",
+        "run_id": "r1",
+        "pid": 42,
+        "scenario": "empty_window",
+        "kind": "attribution_stage_ready",
+        "elapsed_ms": 50,
+        "renderer": "cpu",
+        "requested_stage": "cpu-window",
+        "final_stage": "cpu-window",
+        "resource_summary_schema": "rssh.project-owned-resources/v1",
+        "resource_summary": &resources,
+    });
+    let line = format!("rssh_diagnostic {ready}");
+    let mut collector = MarkerCollector::new_attribution(
+        MarkerIdentity::new("r1", 42, Scenario::EmptyWindow),
+        DiagnosticAttributionStage::CpuWindow,
+    );
+    for line in [
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"process_started","elapsed_ms":0}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"window_created","elapsed_ms":1}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"first_present","elapsed_ms":2,"renderer":"cpu"}"#,
+    ] {
+        collector.push_line(line).unwrap();
+    }
+
+    let MarkerDisposition::Accepted(record) = collector
+        .push_line(&line)
+        .expect("typed attribution_stage_ready marker")
+    else {
+        panic!("attribution stage marker was ignored");
+    };
+    assert_eq!(
+        serde_json::to_value(record.kind).unwrap(),
+        "attribution_stage_ready"
+    );
+
+    assert_eq!(
+        collector.trace().final_attribution_stage,
+        Some(DiagnosticAttributionStage::CpuWindow)
+    );
+    assert_eq!(
+        collector.trace().resource_summary.as_ref(),
+        Some(&resources)
+    );
+
+    let duplicate = collector.push_line(&line).unwrap_err();
+    assert!(
+        duplicate.to_string().contains("duplicate marker"),
+        "singleton marker failed with the wrong error: {duplicate}"
+    );
+}
+
+#[test]
+fn attribution_stage_protocol_rejects_order_later_activity_and_unknown_resources() {
+    let identity = || MarkerIdentity::new("r1", 42, Scenario::EmptyWindow);
+    let ready = |resources: serde_json::Value| {
+        format!(
+            "rssh_diagnostic {}",
+            serde_json::json!({
+                "schema": "rssh.diagnostics/v2",
+                "run_id": "r1",
+                "pid": 42,
+                "scenario": "empty_window",
+                "kind": "attribution_stage_ready",
+                "elapsed_ms": 3,
+                "renderer": "cpu",
+                "requested_stage": "cpu-window",
+                "final_stage": "cpu-window",
+                "resource_summary_schema": "rssh.project-owned-resources/v1",
+                "resource_summary": resources,
+            })
+        )
+    };
+    let valid_resources = serde_json::to_value(ProjectOwnedResourceMetricsV1 {
+        cpu_staging_bytes: 4,
+        cpu_surface_count: 1,
+        cpu_present_count: 1,
+        ..ProjectOwnedResourceMetricsV1::default()
+    })
+    .unwrap();
+
+    let mut out_of_order =
+        MarkerCollector::new_attribution(identity(), DiagnosticAttributionStage::CpuWindow);
+    assert!(
+        out_of_order
+            .push_line(&ready(valid_resources.clone()))
+            .is_err()
+    );
+
+    let mut unknown_resources = valid_resources.clone();
+    unknown_resources["driver_private_bytes"] = serde_json::json!(1);
+    let mut unknown =
+        MarkerCollector::new_attribution(identity(), DiagnosticAttributionStage::CpuWindow);
+    for line in [
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"process_started","elapsed_ms":0}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"window_created","elapsed_ms":1}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"first_present","elapsed_ms":2,"renderer":"cpu"}"#,
+    ] {
+        unknown.push_line(line).unwrap();
+    }
+    assert!(unknown.push_line(&ready(unknown_resources)).is_err());
+
+    let mut later =
+        MarkerCollector::new_attribution(identity(), DiagnosticAttributionStage::CpuWindow);
+    for line in [
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"process_started","elapsed_ms":0}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"window_created","elapsed_ms":1}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"first_present","elapsed_ms":2,"renderer":"cpu"}"#,
+    ] {
+        later.push_line(line).unwrap();
+    }
+    later.push_line(&ready(valid_resources)).unwrap();
+    let config_after_ready = r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"config_ready","elapsed_ms":4}"#;
+    assert!(later.push_line(config_after_ready).is_err());
 }

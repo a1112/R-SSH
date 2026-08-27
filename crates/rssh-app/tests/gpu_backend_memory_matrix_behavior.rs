@@ -1753,6 +1753,7 @@ fn serialized_font_proof_results() -> String {
                 requested_gpu_backend: None,
                 requested_font_mode: Some(mode),
                 requested_font_specimen: Some(specimen),
+                requested_attribution_stage: None,
             };
             let base: u64 = match mode {
                 DiagnosticFontMode::CurrentCopied => 300 * 1024 * 1024,

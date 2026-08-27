@@ -4,11 +4,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::{
-    DiagnosticFontMode, DiagnosticFontSpecimen, DiagnosticGpuBackend, DiagnosticRendererMode,
-    MarkerKind, RunConfiguration, Scenario,
+    DiagnosticAttributionStage, DiagnosticFontMode, DiagnosticFontSpecimen, DiagnosticGpuBackend,
+    DiagnosticRendererMode, MarkerKind, RunConfiguration, Scenario,
 };
 
-pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--renderer auto|cpu|gpu] [--gpu-backend dx12|vulkan|gl] [--font-mode current|shared|lazy --font-specimen ascii|cjk|emoji] [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
+pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--renderer auto|cpu|gpu] [--gpu-backend dx12|vulkan|gl] [--font-mode current|shared|lazy --font-specimen ascii|cjk|emoji] [--attribution-stage cpu-window|instance-surface|adapter-device|configured-surface-clear|layer-pipelines|fixture-font-text|platform-font-index|full-frame] [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LauncherOptions {
@@ -24,6 +24,7 @@ pub struct LauncherOptions {
     pub gpu_backend: Option<DiagnosticGpuBackend>,
     pub font_mode: Option<DiagnosticFontMode>,
     pub font_specimen: Option<DiagnosticFontSpecimen>,
+    pub attribution_stage: Option<DiagnosticAttributionStage>,
     pub json: bool,
 }
 
@@ -35,6 +36,10 @@ impl LauncherOptions {
     /// Returns an error for help, missing or repeated required arguments, unknown
     /// arguments, invalid scenario/value syntax, zero sampling values, or an app path
     /// that is not an existing file.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the launcher parser keeps each private diagnostic option and validation branch explicit"
+    )]
     pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, LauncherCliError> {
         let mut arguments = args.into_iter();
         let _program = arguments.next();
@@ -50,6 +55,7 @@ impl LauncherOptions {
         let mut gpu_backend = None;
         let mut font_mode = None;
         let mut font_specimen = None;
+        let mut attribution_stage = None;
         let mut json = false;
 
         while let Some(argument) = arguments.next() {
@@ -115,6 +121,13 @@ impl LauncherOptions {
                 "--font-specimen" => {
                     parse_font_specimen_option(&mut arguments, &mut font_specimen)?;
                 }
+                "--attribution-stage" => {
+                    let value = next_value(&mut arguments, "--attribution-stage")?;
+                    let parsed = value
+                        .parse()
+                        .map_err(|_| LauncherCliError::InvalidAttributionStage(value))?;
+                    assign_once(&mut attribution_stage, parsed, "--attribution-stage")?;
+                }
                 "--json" => json = true,
                 _ => return Err(LauncherCliError::UnknownArgument(argument)),
             }
@@ -123,6 +136,12 @@ impl LauncherOptions {
         let app = validate_app(app)?;
         let scenario = scenario.ok_or(LauncherCliError::MissingArgument("--scenario"))?;
         let renderer = validate_options(scenario, renderer, gpu_backend, font_mode, font_specimen)?;
+        if attribution_stage.is_some() && scenario != Scenario::EmptyWindow {
+            return Err(LauncherCliError::AttributionRequiresEmptyWindow);
+        }
+        if attribution_stage.is_some() && font_mode.is_some() {
+            return Err(LauncherCliError::AttributionWithFontProof);
+        }
         Ok(Self {
             app,
             scenario,
@@ -136,6 +155,7 @@ impl LauncherOptions {
             gpu_backend,
             font_mode,
             font_specimen,
+            attribution_stage,
             json,
         })
     }
@@ -152,6 +172,7 @@ impl LauncherOptions {
             requested_gpu_backend: self.gpu_backend,
             requested_font_mode: self.font_mode,
             requested_font_specimen: self.font_specimen,
+            requested_attribution_stage: self.attribution_stage,
             ..RunConfiguration::default()
         }
     }
@@ -280,10 +301,13 @@ pub enum LauncherCliError {
     InvalidGpuBackend(String),
     InvalidFontMode(String),
     InvalidFontSpecimen(String),
+    InvalidAttributionStage(String),
     CpuRendererWithGpuBackend,
     IncompleteFontProofOptions,
     CpuRendererWithFontProof,
     FontProofRequiresEmptyWindow,
+    AttributionRequiresEmptyWindow,
+    AttributionWithFontProof,
     InvalidPositiveValue { option: &'static str, value: String },
     AppDoesNotExist(PathBuf),
 }
@@ -318,6 +342,10 @@ impl Display for LauncherCliError {
                 formatter,
                 "invalid value '{value}' for --font-specimen; expected ascii, cjk, or emoji"
             ),
+            Self::InvalidAttributionStage(value) => write!(
+                formatter,
+                "invalid value '{value}' for --attribution-stage; expected cpu-window, instance-surface, adapter-device, configured-surface-clear, layer-pipelines, fixture-font-text, platform-font-index, or full-frame"
+            ),
             Self::CpuRendererWithGpuBackend => {
                 formatter.write_str("--gpu-backend cannot be used with --renderer cpu")
             }
@@ -329,6 +357,11 @@ impl Display for LauncherCliError {
             Self::FontProofRequiresEmptyWindow => {
                 formatter.write_str("font proof requires the empty-window scenario")
             }
+            Self::AttributionRequiresEmptyWindow => {
+                formatter.write_str("attribution stage requires the empty-window scenario")
+            }
+            Self::AttributionWithFontProof => formatter
+                .write_str("--attribution-stage cannot be combined with font proof options"),
             Self::InvalidPositiveValue { option, value } => {
                 write!(
                     formatter,
@@ -545,7 +578,9 @@ impl LauncherStateMachine {
 
     #[must_use]
     pub const fn readiness_marker(&self) -> MarkerKind {
-        if self.configuration.requested_font_mode.is_some()
+        if self.configuration.requested_attribution_stage.is_some() {
+            MarkerKind::AttributionStageReady
+        } else if self.configuration.requested_font_mode.is_some()
             && self.configuration.requested_font_specimen.is_some()
         {
             MarkerKind::FontOwnershipReady

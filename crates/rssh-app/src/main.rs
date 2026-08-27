@@ -109,7 +109,11 @@ where
         }
         #[cfg(feature = "diagnostic-tools")]
         AppCommand::DiagnosticGui(options) => {
-            window::run_diagnostic_gui(&options, process_started_at)?;
+            if options.attribution_stage.is_some() {
+                window::run_attribution_diagnostic_gui(&options, process_started_at)?;
+            } else {
+                window::run_diagnostic_gui(&options, process_started_at)?;
+            }
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),

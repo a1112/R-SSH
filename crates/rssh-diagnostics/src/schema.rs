@@ -170,6 +170,70 @@ impl FromStr for DiagnosticFontSpecimen {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiagnosticAttributionStage {
+    CpuWindow,
+    InstanceSurface,
+    AdapterDevice,
+    ConfiguredSurfaceClear,
+    LayerPipelines,
+    FixtureFontText,
+    PlatformFontIndex,
+    FullFrame,
+}
+
+impl DiagnosticAttributionStage {
+    pub const ORDERED: [Self; 8] = [
+        Self::CpuWindow,
+        Self::InstanceSurface,
+        Self::AdapterDevice,
+        Self::ConfiguredSurfaceClear,
+        Self::LayerPipelines,
+        Self::FixtureFontText,
+        Self::PlatformFontIndex,
+        Self::FullFrame,
+    ];
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CpuWindow => "cpu-window",
+            Self::InstanceSurface => "instance-surface",
+            Self::AdapterDevice => "adapter-device",
+            Self::ConfiguredSurfaceClear => "configured-surface-clear",
+            Self::LayerPipelines => "layer-pipelines",
+            Self::FixtureFontText => "fixture-font-text",
+            Self::PlatformFontIndex => "platform-font-index",
+            Self::FullFrame => "full-frame",
+        }
+    }
+}
+
+impl Display for DiagnosticAttributionStage {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for DiagnosticAttributionStage {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "cpu-window" => Ok(Self::CpuWindow),
+            "instance-surface" => Ok(Self::InstanceSurface),
+            "adapter-device" => Ok(Self::AdapterDevice),
+            "configured-surface-clear" => Ok(Self::ConfiguredSurfaceClear),
+            "layer-pipelines" => Ok(Self::LayerPipelines),
+            "fixture-font-text" => Ok(Self::FixtureFontText),
+            "platform-font-index" => Ok(Self::PlatformFontIndex),
+            "full-frame" => Ok(Self::FullFrame),
+            _ => Err(format!("unsupported diagnostic attribution stage: {value}")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod font_mode_tests {
     use super::*;
@@ -338,6 +402,8 @@ pub struct RunConfiguration {
     pub requested_font_mode: Option<DiagnosticFontMode>,
     #[serde(default)]
     pub requested_font_specimen: Option<DiagnosticFontSpecimen>,
+    #[serde(default)]
+    pub requested_attribution_stage: Option<DiagnosticAttributionStage>,
 }
 
 impl Serialize for RunConfiguration {
@@ -357,7 +423,8 @@ impl Serialize for RunConfiguration {
             + usize::from(serialize_renderer)
             + usize::from(self.requested_gpu_backend.is_some())
             + usize::from(self.requested_font_mode.is_some())
-            + usize::from(self.requested_font_specimen.is_some());
+            + usize::from(self.requested_font_specimen.is_some())
+            + usize::from(self.requested_attribution_stage.is_some());
         let mut configuration = serializer.serialize_struct("RunConfiguration", field_count)?;
         configuration.serialize_field("stabilization_ms", &self.stabilization_ms)?;
         configuration.serialize_field("sample_interval_ms", &self.sample_interval_ms)?;
@@ -377,6 +444,9 @@ impl Serialize for RunConfiguration {
         if let Some(specimen) = self.requested_font_specimen {
             configuration.serialize_field("requested_font_specimen", &specimen)?;
         }
+        if let Some(stage) = self.requested_attribution_stage {
+            configuration.serialize_field("requested_attribution_stage", &stage)?;
+        }
         configuration.end()
     }
 }
@@ -394,6 +464,7 @@ impl Default for RunConfiguration {
             requested_gpu_backend: None,
             requested_font_mode: None,
             requested_font_specimen: None,
+            requested_attribution_stage: None,
         }
     }
 }
@@ -558,6 +629,453 @@ pub struct DiagnosticFontResourceSummary {
     pub font_index_policy_version: Option<u32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProjectOwnedResourceSchemaVersion {
+    #[serde(rename = "rssh.project-owned-resources/v1")]
+    V1,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectOwnedResourceMetricsV1 {
+    pub cpu_staging_bytes: u64,
+    pub cpu_surface_count: u64,
+    pub cpu_present_count: u64,
+    pub instance_count: u64,
+    pub surface_count: u64,
+    pub adapter_count: u64,
+    pub device_count: u64,
+    pub queue_count: u64,
+    pub surface_configure_count: u64,
+    pub surface_acquire_count: u64,
+    pub clear_present_count: u64,
+    pub pipeline_count: u64,
+    pub pipeline_layout_count: u64,
+    pub materialized_buffer_count: u64,
+    pub retained_font_bytes: u64,
+    pub inactive_font_bytes: u64,
+    pub indexed_font_count: u64,
+    pub active_font_count: u64,
+    pub catalog_builds: u64,
+    pub catalog_generation: u64,
+    pub glyph_atlas_bytes: u64,
+    pub raster_cache_bytes: u64,
+    pub image_texture_bytes: u64,
+    pub snapshot_bytes: u64,
+    pub instance_buffer_bytes: u64,
+    pub upload_buffer_bytes: u64,
+    pub total_allocated_buffer_bytes: u64,
+    pub total_allocated_texture_bytes: u64,
+    pub base_text_renderer_materialization_count: u64,
+    pub cursor_text_renderer_materialization_count: u64,
+    pub config_load_count: u64,
+    pub config_watcher_count: u64,
+    pub pty_start_count: u64,
+    pub ssh_start_count: u64,
+    pub post_ready_task_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<DiagnosticGpuBackend>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_name: Option<String>,
+}
+
+impl ProjectOwnedResourceMetricsV1 {
+    #[must_use]
+    pub fn numeric_fields(&self) -> [(&'static str, u64); 35] {
+        [
+            ("cpu_staging_bytes", self.cpu_staging_bytes),
+            ("cpu_surface_count", self.cpu_surface_count),
+            ("cpu_present_count", self.cpu_present_count),
+            ("instance_count", self.instance_count),
+            ("surface_count", self.surface_count),
+            ("adapter_count", self.adapter_count),
+            ("device_count", self.device_count),
+            ("queue_count", self.queue_count),
+            ("surface_configure_count", self.surface_configure_count),
+            ("surface_acquire_count", self.surface_acquire_count),
+            ("clear_present_count", self.clear_present_count),
+            ("pipeline_count", self.pipeline_count),
+            ("pipeline_layout_count", self.pipeline_layout_count),
+            ("materialized_buffer_count", self.materialized_buffer_count),
+            ("retained_font_bytes", self.retained_font_bytes),
+            ("inactive_font_bytes", self.inactive_font_bytes),
+            ("indexed_font_count", self.indexed_font_count),
+            ("active_font_count", self.active_font_count),
+            ("catalog_builds", self.catalog_builds),
+            ("catalog_generation", self.catalog_generation),
+            ("glyph_atlas_bytes", self.glyph_atlas_bytes),
+            ("raster_cache_bytes", self.raster_cache_bytes),
+            ("image_texture_bytes", self.image_texture_bytes),
+            ("snapshot_bytes", self.snapshot_bytes),
+            ("instance_buffer_bytes", self.instance_buffer_bytes),
+            ("upload_buffer_bytes", self.upload_buffer_bytes),
+            (
+                "total_allocated_buffer_bytes",
+                self.total_allocated_buffer_bytes,
+            ),
+            (
+                "total_allocated_texture_bytes",
+                self.total_allocated_texture_bytes,
+            ),
+            (
+                "base_text_renderer_materialization_count",
+                self.base_text_renderer_materialization_count,
+            ),
+            (
+                "cursor_text_renderer_materialization_count",
+                self.cursor_text_renderer_materialization_count,
+            ),
+            ("config_load_count", self.config_load_count),
+            ("config_watcher_count", self.config_watcher_count),
+            ("pty_start_count", self.pty_start_count),
+            ("ssh_start_count", self.ssh_start_count),
+            ("post_ready_task_count", self.post_ready_task_count),
+        ]
+    }
+
+    /// Validates the exact cumulative project-owned resource boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns every violated field invariant when a resource row includes a
+    /// later-stage counter, omits a required counter, or has invalid ownership
+    /// identity for the requested boundary.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the closed v1 matrix validates every resource boundary explicitly"
+    )]
+    pub fn validate_at(&self, stage: DiagnosticAttributionStage) -> Result<(), Vec<String>> {
+        let mut violations = Vec::new();
+        let fields = self.numeric_fields();
+        let allowed = attribution_allowed_nonzero_fields(stage);
+        for (field, value) in fields {
+            if value != 0 && !allowed.contains(&field) {
+                violations.push(format!(
+                    "{field} must remain zero at {}, got {value}",
+                    stage.as_str()
+                ));
+            }
+        }
+        require_attribution_positive(&mut violations, "cpu_staging_bytes", self.cpu_staging_bytes);
+        require_attribution_exact(
+            &mut violations,
+            "cpu_surface_count",
+            self.cpu_surface_count,
+            1,
+        );
+        require_attribution_exact(
+            &mut violations,
+            "cpu_present_count",
+            self.cpu_present_count,
+            1,
+        );
+        if stage >= DiagnosticAttributionStage::InstanceSurface {
+            require_attribution_exact(&mut violations, "instance_count", self.instance_count, 1);
+            require_attribution_exact(&mut violations, "surface_count", self.surface_count, 1);
+        }
+        if stage >= DiagnosticAttributionStage::AdapterDevice {
+            require_attribution_exact(&mut violations, "adapter_count", self.adapter_count, 1);
+            require_attribution_exact(&mut violations, "device_count", self.device_count, 1);
+            require_attribution_exact(&mut violations, "queue_count", self.queue_count, 1);
+            if self.backend.is_none() {
+                violations.push("backend is required from adapter-device onward".to_owned());
+            }
+            if self.adapter_name.as_deref().is_none_or(str::is_empty) {
+                violations.push("adapter_name is required from adapter-device onward".to_owned());
+            }
+        } else if self.backend.is_some() || self.adapter_name.is_some() {
+            violations
+                .push("backend and adapter_name must be absent before adapter-device".to_owned());
+        }
+        if stage >= DiagnosticAttributionStage::ConfiguredSurfaceClear {
+            require_attribution_exact(
+                &mut violations,
+                "surface_configure_count",
+                self.surface_configure_count,
+                1,
+            );
+            require_attribution_exact(
+                &mut violations,
+                "clear_present_count",
+                self.clear_present_count,
+                1,
+            );
+            let expected_acquires = if stage >= DiagnosticAttributionStage::FullFrame {
+                3
+            } else if stage >= DiagnosticAttributionStage::FixtureFontText {
+                2
+            } else {
+                1
+            };
+            require_attribution_exact(
+                &mut violations,
+                "surface_acquire_count",
+                self.surface_acquire_count,
+                expected_acquires,
+            );
+        }
+        if stage >= DiagnosticAttributionStage::LayerPipelines {
+            require_attribution_exact(&mut violations, "pipeline_count", self.pipeline_count, 2);
+            require_attribution_exact(
+                &mut violations,
+                "pipeline_layout_count",
+                self.pipeline_layout_count,
+                2,
+            );
+            require_attribution_exact(
+                &mut violations,
+                "materialized_buffer_count",
+                self.materialized_buffer_count,
+                1,
+            );
+            require_attribution_exact(
+                &mut violations,
+                "instance_buffer_bytes",
+                self.instance_buffer_bytes,
+                0,
+            );
+            require_attribution_exact(
+                &mut violations,
+                "upload_buffer_bytes",
+                self.upload_buffer_bytes,
+                0,
+            );
+            require_attribution_exact(
+                &mut violations,
+                "total_allocated_buffer_bytes",
+                self.total_allocated_buffer_bytes,
+                8,
+            );
+        }
+        if stage >= DiagnosticAttributionStage::FixtureFontText {
+            for (field, value) in [
+                ("retained_font_bytes", self.retained_font_bytes),
+                ("active_font_count", self.active_font_count),
+                ("catalog_builds", self.catalog_builds),
+                ("catalog_generation", self.catalog_generation),
+                ("glyph_atlas_bytes", self.glyph_atlas_bytes),
+            ] {
+                require_attribution_positive(&mut violations, field, value);
+            }
+            match self.glyph_atlas_bytes.checked_add(self.image_texture_bytes) {
+                Some(expected) => require_attribution_exact(
+                    &mut violations,
+                    "total_allocated_texture_bytes",
+                    self.total_allocated_texture_bytes,
+                    expected,
+                ),
+                None => violations.push("project-owned texture byte total overflowed".to_owned()),
+            }
+            let expected_renderers = if stage >= DiagnosticAttributionStage::FullFrame {
+                2
+            } else {
+                1
+            };
+            require_attribution_exact(
+                &mut violations,
+                "base_text_renderer_materialization_count",
+                self.base_text_renderer_materialization_count,
+                expected_renderers,
+            );
+            require_attribution_exact(
+                &mut violations,
+                "cursor_text_renderer_materialization_count",
+                self.cursor_text_renderer_materialization_count,
+                expected_renderers,
+            );
+        }
+        if stage >= DiagnosticAttributionStage::PlatformFontIndex {
+            require_attribution_positive(
+                &mut violations,
+                "indexed_font_count",
+                self.indexed_font_count,
+            );
+            require_attribution_exact(
+                &mut violations,
+                "inactive_font_bytes",
+                self.inactive_font_bytes,
+                0,
+            );
+        }
+        if stage >= DiagnosticAttributionStage::FullFrame {
+            require_attribution_positive(&mut violations, "snapshot_bytes", self.snapshot_bytes);
+        }
+        if violations.is_empty() {
+            Ok(())
+        } else {
+            Err(violations)
+        }
+    }
+}
+
+fn require_attribution_exact(
+    violations: &mut Vec<String>,
+    field: &str,
+    actual: u64,
+    expected: u64,
+) {
+    if actual != expected {
+        violations.push(format!("{field} must be {expected}, got {actual}"));
+    }
+}
+
+fn require_attribution_positive(violations: &mut Vec<String>, field: &str, actual: u64) {
+    if actual == 0 {
+        violations.push(format!("{field} must be positive"));
+    }
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "the closed v1 matrix explicitly names every resource permitted at each boundary"
+)]
+fn attribution_allowed_nonzero_fields(
+    stage: DiagnosticAttributionStage,
+) -> &'static [&'static str] {
+    match stage {
+        DiagnosticAttributionStage::CpuWindow => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+        ],
+        DiagnosticAttributionStage::InstanceSurface => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+            "instance_count",
+            "surface_count",
+        ],
+        DiagnosticAttributionStage::AdapterDevice => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+            "instance_count",
+            "surface_count",
+            "adapter_count",
+            "device_count",
+            "queue_count",
+        ],
+        DiagnosticAttributionStage::ConfiguredSurfaceClear => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+            "instance_count",
+            "surface_count",
+            "adapter_count",
+            "device_count",
+            "queue_count",
+            "surface_configure_count",
+            "surface_acquire_count",
+            "clear_present_count",
+        ],
+        DiagnosticAttributionStage::LayerPipelines => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+            "instance_count",
+            "surface_count",
+            "adapter_count",
+            "device_count",
+            "queue_count",
+            "surface_configure_count",
+            "surface_acquire_count",
+            "clear_present_count",
+            "pipeline_count",
+            "pipeline_layout_count",
+            "materialized_buffer_count",
+            "total_allocated_buffer_bytes",
+        ],
+        DiagnosticAttributionStage::FixtureFontText => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+            "instance_count",
+            "surface_count",
+            "adapter_count",
+            "device_count",
+            "queue_count",
+            "surface_configure_count",
+            "surface_acquire_count",
+            "clear_present_count",
+            "pipeline_count",
+            "pipeline_layout_count",
+            "materialized_buffer_count",
+            "retained_font_bytes",
+            "active_font_count",
+            "catalog_builds",
+            "catalog_generation",
+            "glyph_atlas_bytes",
+            "raster_cache_bytes",
+            "instance_buffer_bytes",
+            "upload_buffer_bytes",
+            "total_allocated_buffer_bytes",
+            "total_allocated_texture_bytes",
+            "base_text_renderer_materialization_count",
+            "cursor_text_renderer_materialization_count",
+        ],
+        DiagnosticAttributionStage::PlatformFontIndex => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+            "instance_count",
+            "surface_count",
+            "adapter_count",
+            "device_count",
+            "queue_count",
+            "surface_configure_count",
+            "surface_acquire_count",
+            "clear_present_count",
+            "pipeline_count",
+            "pipeline_layout_count",
+            "materialized_buffer_count",
+            "retained_font_bytes",
+            "indexed_font_count",
+            "active_font_count",
+            "catalog_builds",
+            "catalog_generation",
+            "glyph_atlas_bytes",
+            "raster_cache_bytes",
+            "instance_buffer_bytes",
+            "upload_buffer_bytes",
+            "total_allocated_buffer_bytes",
+            "total_allocated_texture_bytes",
+            "base_text_renderer_materialization_count",
+            "cursor_text_renderer_materialization_count",
+        ],
+        DiagnosticAttributionStage::FullFrame => &[
+            "cpu_staging_bytes",
+            "cpu_surface_count",
+            "cpu_present_count",
+            "instance_count",
+            "surface_count",
+            "adapter_count",
+            "device_count",
+            "queue_count",
+            "surface_configure_count",
+            "surface_acquire_count",
+            "clear_present_count",
+            "pipeline_count",
+            "pipeline_layout_count",
+            "materialized_buffer_count",
+            "retained_font_bytes",
+            "indexed_font_count",
+            "active_font_count",
+            "catalog_builds",
+            "catalog_generation",
+            "glyph_atlas_bytes",
+            "raster_cache_bytes",
+            "image_texture_bytes",
+            "snapshot_bytes",
+            "instance_buffer_bytes",
+            "upload_buffer_bytes",
+            "total_allocated_buffer_bytes",
+            "total_allocated_texture_bytes",
+            "base_text_renderer_materialization_count",
+            "cursor_text_renderer_materialization_count",
+        ],
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DiagnosticsResult {
     pub schema: SchemaVersion,
@@ -571,6 +1089,12 @@ pub struct DiagnosticsResult {
     pub process: ProcessSummary,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font_resources: Option<DiagnosticFontResourceSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_attribution_stage: Option<DiagnosticAttributionStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_summary_schema: Option<ProjectOwnedResourceSchemaVersion>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_summary: Option<ProjectOwnedResourceMetricsV1>,
     pub failures: Vec<DiagnosticFailure>,
 }
 
@@ -627,6 +1151,9 @@ impl DiagnosticsResult {
                 teardown_ms: Some(0),
             },
             font_resources: None,
+            final_attribution_stage: None,
+            resource_summary_schema: None,
+            resource_summary: None,
             failures: Vec::new(),
         }
     }
@@ -659,6 +1186,44 @@ impl DiagnosticsResult {
         if self.memory.unit != "bytes" {
             return Err(SchemaValidationError::MemoryUnit(self.memory.unit.clone()));
         }
+        let evidence_present = self.final_attribution_stage.is_some()
+            || self.resource_summary_schema.is_some()
+            || self.resource_summary.is_some();
+        match self.configuration.requested_attribution_stage {
+            None if evidence_present => {
+                return Err(SchemaValidationError::Attribution(
+                    "unrequested attribution evidence is forbidden".to_owned(),
+                ));
+            }
+            None => {}
+            Some(_) if !self.failures.is_empty() && !evidence_present => {}
+            Some(requested) => {
+                let final_stage = self.final_attribution_stage.ok_or_else(|| {
+                    SchemaValidationError::Attribution(
+                        "final_attribution_stage is required".to_owned(),
+                    )
+                })?;
+                if final_stage != requested {
+                    return Err(SchemaValidationError::Attribution(format!(
+                        "final attribution stage {} does not match requested {}",
+                        final_stage.as_str(),
+                        requested.as_str()
+                    )));
+                }
+                if self.resource_summary_schema != Some(ProjectOwnedResourceSchemaVersion::V1) {
+                    return Err(SchemaValidationError::Attribution(
+                        "resource_summary_schema must be rssh.project-owned-resources/v1"
+                            .to_owned(),
+                    ));
+                }
+                let summary = self.resource_summary.as_ref().ok_or_else(|| {
+                    SchemaValidationError::Attribution("resource_summary is required".to_owned())
+                })?;
+                summary.validate_at(final_stage).map_err(|violations| {
+                    SchemaValidationError::Attribution(violations.join("; "))
+                })?;
+            }
+        }
         Ok(())
     }
 }
@@ -668,6 +1233,7 @@ pub enum SchemaValidationError {
     ZeroConfiguration(&'static str),
     SampleCount { expected: u32, observed: u32 },
     MemoryUnit(String),
+    Attribution(String),
 }
 
 impl Display for SchemaValidationError {
@@ -683,6 +1249,7 @@ impl Display for SchemaValidationError {
             Self::MemoryUnit(unit) => {
                 write!(formatter, "memory unit must be bytes, observed {unit}")
             }
+            Self::Attribution(message) => formatter.write_str(message),
         }
     }
 }

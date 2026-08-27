@@ -1,3 +1,61 @@
+#[cfg(feature = "diagnostic-tools")]
+pub(crate) fn run_attribution_diagnostic_gui(
+    options: &DiagnosticGuiOptions,
+    process_started_at: Instant,
+) -> Result<(), Box<dyn Error>> {
+    let stage = options
+        .attribution_stage
+        .ok_or_else(|| io::Error::other("attribution diagnostic is missing its typed stage"))?;
+    let markers = DiagnosticMarkerHandle::new(
+        options.run_id.clone(),
+        options.scenario,
+        process_started_at,
+    );
+    if !markers.emit(DiagnosticMarkerKind::ProcessStarted, None, None)? {
+        return Err(io::Error::other("process_started marker was not unique").into());
+    }
+    let (shutdown_sender, shutdown_receiver) = mpsc::channel();
+    thread::Builder::new()
+        .name("rssh-attribution-stdin".to_owned())
+        .spawn(move || {
+            let mut line = String::new();
+            match io::stdin().read_line(&mut line) {
+                Ok(0) => {}
+                Ok(_) if line.trim() == "shutdown" => {
+                    let _ = shutdown_sender.send(Ok(()));
+                }
+                Ok(_) => {
+                    let _ = shutdown_sender.send(Err(
+                        "attribution diagnostic stdin accepted only 'shutdown'".to_owned(),
+                    ));
+                }
+                Err(error) => {
+                    let _ = shutdown_sender.send(Err(format!(
+                        "read attribution diagnostic stdin: {error}"
+                    )));
+                }
+            }
+        })?;
+
+    let owner_result = crate::window_gpu::run_stage7_native_attribution(
+        stage,
+        options.gpu_backend,
+        Duration::from_millis(options.hold_ms).max(Duration::from_secs(5)),
+        markers.clone(),
+        shutdown_receiver,
+    );
+    owner_result?;
+    let exited = markers.emit(
+        DiagnosticMarkerKind::ProcessExited,
+        None,
+        Some(DiagnosticConnectionState::NotStarted),
+    );
+    if !exited? {
+        return Err(io::Error::other("process_exited marker was not unique").into());
+    }
+    Ok(())
+}
+
 fn gpu_ready_extra(metrics: &GpuPresentationMetrics) -> HashMap<String, serde_json::Value> {
     HashMap::from([
         (

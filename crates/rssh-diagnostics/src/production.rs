@@ -130,7 +130,11 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
         }
     };
 
-    let mut collector = MarkerCollector::new(MarkerIdentity::new(run_id, pid, options.scenario));
+    let marker_identity = MarkerIdentity::new(run_id, pid, options.scenario);
+    let mut collector = match options.attribution_stage {
+        Some(stage) => MarkerCollector::new_attribution(marker_identity, stage),
+        None => MarkerCollector::new(marker_identity),
+    };
     let mut font_resources = None;
     let mut state = LauncherStateMachine::new(options.configuration());
     let _ = state.child_started(pid);
@@ -154,7 +158,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
             let cleanup_started = Instant::now();
             let status = force_reap(&mut child);
             join_pipe_threads(stdout_thread, stderr_thread);
-            drain_late_markers(&line_receiver, &mut collector);
+            let _ = drain_late_markers(&line_receiver, &mut collector);
             let fixture_failure = stop_fixture(fixture).err();
             let mut failure =
                 failure_with_tails(failure, &stdout_tail, &stderr_tail, secret.as_deref());
@@ -177,7 +181,22 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
     };
 
     join_pipe_threads(stdout_thread, stderr_thread);
-    drain_late_markers(&line_receiver, &mut collector);
+    if let Err(mut failure) = drain_late_markers(&line_receiver, &mut collector) {
+        if let Err(fixture_failure) = stop_fixture(fixture) {
+            failure.message = format!("{}; fixture teardown: {fixture_failure}", failure.message);
+        }
+        return failed_execution_with_trace(
+            run,
+            options,
+            metric,
+            pid,
+            failure_with_tails(failure, &stdout_tail, &stderr_tail, secret.as_deref()),
+            exit_kind,
+            exit_status.code(),
+            Some(teardown_ms),
+            collector.trace().clone(),
+        );
+    }
     if let Err(error) = stop_fixture(fixture) {
         return failed_execution_with_trace(
             run,
@@ -478,10 +497,16 @@ fn drain_available_markers(
     Ok(())
 }
 
-fn drain_late_markers(lines: &mpsc::Receiver<String>, collector: &mut MarkerCollector) {
+fn drain_late_markers(
+    lines: &mpsc::Receiver<String>,
+    collector: &mut MarkerCollector,
+) -> Result<(), RunFailure> {
     while let Ok(line) = lines.try_recv() {
-        let _ = collector.push_line(&line);
+        collector
+            .push_line(&line)
+            .map_err(|error| RunFailure::new("marker_invalid", "reap", error.to_string()))?;
     }
+    Ok(())
 }
 
 #[expect(
@@ -512,7 +537,9 @@ fn successful_result(
     let last_sample = samples.last().map(|sample| sample.elapsed_ms);
     milestones.sampling_started_ms = first_sample;
     milestones.sampling_finished_ms = last_sample;
-    let readiness_evidence = if options.font_mode.is_some() && options.font_specimen.is_some() {
+    let readiness_evidence = if options.attribution_stage.is_some() {
+        "validated attribution_stage_ready marker from the requested owner"
+    } else if options.font_mode.is_some() && options.font_specimen.is_some() {
         "validated font_ownership_ready marker after a complete GPU frame"
     } else {
         "validated scenario_ready marker after a presented frame"
@@ -553,6 +580,9 @@ fn successful_result(
             teardown_ms: Some(teardown_ms),
         },
         font_resources,
+        final_attribution_stage: trace.final_attribution_stage,
+        resource_summary_schema: trace.resource_summary_schema,
+        resource_summary: trace.resource_summary,
         failures: Vec::new(),
     };
     result.validate().map_err(|error| {
@@ -632,6 +662,9 @@ fn failed_execution_with_trace(
                 teardown_ms,
             },
             font_resources: None,
+            final_attribution_stage: None,
+            resource_summary_schema: None,
+            resource_summary: None,
             failures: vec![failure.into_schema()],
         },
         success: false,
@@ -697,6 +730,9 @@ pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> V
             "--font-specimen".to_owned(),
             specimen.to_string(),
         ]);
+    }
+    if let Some(stage) = options.attribution_stage {
+        arguments.extend(["--attribution-stage".to_owned(), stage.as_str().to_owned()]);
     }
     arguments.extend([
         "--cols".to_owned(),
@@ -1031,6 +1067,9 @@ fn empty_trace() -> CollectedMarkers {
         gpu_adapter_vendor_id: None,
         gpu_adapter_device_id: None,
         gpu_adapter_type: None,
+        final_attribution_stage: None,
+        resource_summary_schema: None,
+        resource_summary: None,
     }
 }
 
@@ -1067,6 +1106,7 @@ mod tests {
             gpu_backend: Some(DiagnosticGpuBackend::Dx12),
             font_mode: None,
             font_specimen: None,
+            attribution_stage: None,
             json: true,
         }
     }
@@ -1082,6 +1122,9 @@ mod tests {
             gpu_adapter_vendor_id: Some(0x10de),
             gpu_adapter_device_id: Some(0x2684),
             gpu_adapter_type: Some("discrete-gpu".to_owned()),
+            final_attribution_stage: None,
+            resource_summary_schema: None,
+            resource_summary: None,
         }
     }
 
@@ -1204,6 +1247,7 @@ mod tests {
             gpu_backend: Some(DiagnosticGpuBackend::Dx12),
             font_mode: None,
             font_specimen: None,
+            attribution_stage: None,
             json: true,
         };
 
@@ -1245,6 +1289,7 @@ mod tests {
             gpu_backend: None,
             font_mode: None,
             font_specimen: None,
+            attribution_stage: None,
             json: true,
         };
 
@@ -1258,5 +1303,135 @@ mod tests {
             Some("auto")
         );
         assert!(!arguments.iter().any(|argument| argument == "--gpu-backend"));
+    }
+
+    #[test]
+    fn attribution_stage_is_forwarded_and_captured_in_the_final_launcher_result() {
+        use crate::{
+            DiagnosticAttributionStage, ProjectOwnedResourceMetricsV1,
+            ProjectOwnedResourceSchemaVersion,
+        };
+
+        let options = LauncherOptions {
+            renderer: DiagnosticRendererMode::Cpu,
+            gpu_backend: None,
+            attribution_stage: Some(DiagnosticAttributionStage::CpuWindow),
+            ..fixture_options()
+        };
+        let arguments = diagnostic_arguments(&options, "attribution-run");
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--attribution-stage", "cpu-window"]),
+            "attribution stage was not forwarded: {arguments:?}"
+        );
+
+        let resources = ProjectOwnedResourceMetricsV1 {
+            cpu_staging_bytes: 4,
+            cpu_surface_count: 1,
+            cpu_present_count: 1,
+            ..ProjectOwnedResourceMetricsV1::default()
+        };
+        let mut trace = empty_trace();
+        trace.final_attribution_stage = Some(DiagnosticAttributionStage::CpuWindow);
+        trace.resource_summary_schema = Some(ProjectOwnedResourceSchemaVersion::V1);
+        trace.resource_summary = Some(resources.clone());
+        trace.first_renderer = Some(crate::RendererKind::Cpu);
+        trace.final_renderer = Some(crate::RendererKind::Cpu);
+
+        let result = successful_result(
+            RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+            &options,
+            MemoryMetric::WindowsPrivateWorkingSetBytes,
+            42,
+            vec![MemorySample {
+                sequence: 0,
+                elapsed_ms: 5_100,
+                bytes: 1,
+            }],
+            ProcessExitKind::Requested,
+            Some(0),
+            1,
+            trace,
+            None,
+        )
+        .expect("complete attribution launcher result");
+        assert_eq!(
+            result.configuration.requested_attribution_stage,
+            Some(DiagnosticAttributionStage::CpuWindow)
+        );
+        assert_eq!(
+            result.final_attribution_stage,
+            Some(DiagnosticAttributionStage::CpuWindow)
+        );
+        assert_eq!(
+            result.resource_summary_schema,
+            Some(ProjectOwnedResourceSchemaVersion::V1)
+        );
+        assert_eq!(result.resource_summary, Some(resources));
+        assert_eq!(
+            result.readiness.evidence,
+            ["validated attribution_stage_ready marker from the requested owner"]
+        );
+    }
+
+    #[test]
+    fn attribution_stage_late_service_marker_is_not_discarded_during_final_drain() {
+        use crate::{DiagnosticAttributionStage, ProjectOwnedResourceMetricsV1};
+
+        let mut collector = MarkerCollector::new_attribution(
+            MarkerIdentity::new("late-stage", 42, Scenario::EmptyWindow),
+            DiagnosticAttributionStage::CpuWindow,
+        );
+        let identity = |kind: &str, elapsed_ms: u64| {
+            format!(
+                "{MARKER_PREFIX}{}",
+                serde_json::json!({
+                    "schema": "rssh.diagnostics/v2",
+                    "run_id": "late-stage",
+                    "pid": 42,
+                    "scenario": "empty_window",
+                    "kind": kind,
+                    "elapsed_ms": elapsed_ms,
+                })
+            )
+        };
+        collector
+            .push_line(&identity("process_started", 0))
+            .unwrap();
+        collector.push_line(&identity("window_created", 1)).unwrap();
+        let first = identity("first_present", 2)
+            .replace("\"elapsed_ms\":2", "\"elapsed_ms\":2,\"renderer\":\"cpu\"");
+        collector.push_line(&first).unwrap();
+        let resources = ProjectOwnedResourceMetricsV1 {
+            cpu_staging_bytes: 4,
+            cpu_surface_count: 1,
+            cpu_present_count: 1,
+            ..ProjectOwnedResourceMetricsV1::default()
+        };
+        let ready = format!(
+            "{MARKER_PREFIX}{}",
+            serde_json::json!({
+                "schema": "rssh.diagnostics/v2",
+                "run_id": "late-stage",
+                "pid": 42,
+                "scenario": "empty_window",
+                "kind": "attribution_stage_ready",
+                "elapsed_ms": 3,
+                "renderer": "cpu",
+                "requested_stage": "cpu-window",
+                "final_stage": "cpu-window",
+                "resource_summary_schema": "rssh.project-owned-resources/v1",
+                "resource_summary": resources,
+            })
+        );
+        collector.push_line(&ready).unwrap();
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send(identity("transport_started", 4)).unwrap();
+        drop(sender);
+        let failure = drain_late_markers(&receiver, &mut collector)
+            .expect_err("late transport activity must fail the completed attribution run");
+        assert_eq!(failure.code, "marker_invalid");
     }
 }
