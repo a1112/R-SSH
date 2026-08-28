@@ -427,6 +427,11 @@ impl WindowedGpuDevice {
         &self.context.initialization_resources
     }
 
+    #[must_use]
+    pub const fn metrics(&self) -> &GpuPresentationMetrics {
+        &self.context.metrics
+    }
+
     /// Configures the retained surface without acquiring or presenting it.
     ///
     /// # Errors

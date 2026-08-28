@@ -435,7 +435,9 @@ function Assert-StageRecord([string] $Backend, [string] $Stage, [object] $Record
     } elseif ($Record.configuration.requested_gpu_backend -cne $Backend) {
         throw "requested GPU backend mismatch"
     }
-    if ($Record.renderer.final -cne "gpu") { throw "attribution stage must finish on GPU" }
+    $stageIndex = [Array]::IndexOf($stages, $Stage)
+    $expectedRenderer = if ($stageIndex -ge 3) { "gpu" } else { "cpu" }
+    if ($Record.renderer.final -cne $expectedRenderer) { throw "attribution stage final renderer mismatch" }
     if ($Record.final_attribution_stage -cne $Stage -or $Record.resource_summary_schema -cne $resourceSummarySchema) { throw "owner attribution stage/schema mismatch" }
     if (-not @($Record.readiness.evidence | ForEach-Object { [string] $_ } | Where-Object { $_ -match "attribution_stage_ready" })) { throw "exact owner-produced attribution_stage_ready evidence is missing" }
     if ($Record.memory.metric -cne "windows_private_working_set_bytes" -or $Record.memory.unit -cne "bytes" -or $Record.memory.samples.Count -ne $samplesPerProcess) { throw "memory sample schema mismatch" }
@@ -445,7 +447,6 @@ function Assert-StageRecord([string] $Backend, [string] $Stage, [object] $Record
         if ((Get-RequiredUInt64 $sample.sequence "memory.samples[$index].sequence") -ne [UInt64] $index) { throw "memory sample sequence mismatch" }
         $samples.Add((Get-RequiredUInt64 $sample.bytes "memory.samples[$index].bytes"))
     }
-    $stageIndex = [Array]::IndexOf($stages, $Stage)
     if ($stageIndex -ge 2) {
         if ($Record.renderer.backend -notin @("dx12", "vulkan", "gl") -or $Record.renderer.adapter_name -isnot [string] -or [string]::IsNullOrWhiteSpace($Record.renderer.adapter_name) -or -not (Test-ProductionAdapterType $Record.renderer.adapter_type)) { throw "GPU adapter identity is missing or invalid" }
         $expectedBackend = if ($Backend -eq "auto") { [string] $Record.renderer.backend } else { $Backend }

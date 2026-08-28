@@ -149,6 +149,7 @@ pub(crate) struct Stage7WindowAttributionRuntime<'a> {
     context: Option<GpuContext>,
     renderer: Option<GpuLayerRenderer>,
     font_repository: Option<PlatformFontRepository>,
+    gpu_identity: Option<GpuPresentationMetrics>,
     resources: ProjectOwnedResourceSnapshot,
     #[cfg(feature = "diagnostic-tools")]
     diagnostic_hold: Option<Stage7DiagnosticHold>,
@@ -200,6 +201,7 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
             context: None,
             renderer: None,
             font_repository: None,
+            gpu_identity: None,
             resources: ProjectOwnedResourceSnapshot::default(),
             #[cfg(feature = "diagnostic-tools")]
             diagnostic_hold: None,
@@ -241,7 +243,7 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
                 } else {
                     DiagnosticRendererKind::Cpu
                 };
-            let extra = HashMap::from([
+            let mut extra = HashMap::from([
                 (
                     "requested_stage".to_owned(),
                     serde_json::to_value(hold.requested_stage)?,
@@ -259,6 +261,12 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
                     serde_json::to_value(&summary)?,
                 ),
             ]);
+            if hold.requested_stage >= DiagnosticAttributionStage::AdapterDevice {
+                let identity = self.gpu_identity.as_ref().ok_or_else(|| {
+                    io::Error::other("adapter identity owner is unavailable at adapter-device")
+                })?;
+                extra.extend(stage7_attribution_identity_extra(identity));
+            }
             if !hold.markers.emit_with_extra(
                 DiagnosticMarkerKind::AttributionStageReady,
                 Some(renderer),
@@ -372,6 +380,7 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
             .ok_or_else(|| io::Error::other("InstanceSurface owner is unavailable"))?;
         let device = pollster::block_on(prepared.select_device())?;
         merge_gpu_resources(&mut self.resources, device.initialization_resources());
+        self.gpu_identity = Some(device.metrics().clone());
         self.device = Some(device);
         Ok(())
     }
@@ -521,6 +530,26 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
         }
         merge_gpu_resources(&mut self.resources, &current);
     }
+}
+
+#[cfg(feature = "diagnostic-tools")]
+fn stage7_attribution_identity_extra(
+    metrics: &GpuPresentationMetrics,
+) -> HashMap<String, serde_json::Value> {
+    HashMap::from([
+        (
+            "gpu_adapter_vendor_id".to_owned(),
+            serde_json::json!(metrics.adapter_vendor_id),
+        ),
+        (
+            "gpu_adapter_device_id".to_owned(),
+            serde_json::json!(metrics.adapter_device_id),
+        ),
+        (
+            "gpu_adapter_type".to_owned(),
+            serde_json::json!(metrics.adapter_type),
+        ),
+    ])
 }
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
@@ -2231,6 +2260,31 @@ mod tests {
             diagnostic_font_catalog_mode(Some(DiagnosticFontMode::Lazy)),
             FontCatalogMode::Lazy
         );
+    }
+
+    #[test]
+    fn stage7_attribution_ready_marker_owns_complete_adapter_identity() {
+        let mut metrics = GpuPresentationMetrics::uninitialized();
+        metrics.backend = "Vulkan".to_owned();
+        metrics.adapter_name = "fixture-adapter".to_owned();
+        metrics.adapter_vendor_id = 4318;
+        metrics.adapter_device_id = 9860;
+        metrics.adapter_type = "discrete-gpu".to_owned();
+
+        let extra = stage7_attribution_identity_extra(&metrics);
+        let mut keys = extra.keys().map(String::as_str).collect::<Vec<_>>();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            [
+                "gpu_adapter_device_id",
+                "gpu_adapter_type",
+                "gpu_adapter_vendor_id",
+            ]
+        );
+        assert_eq!(extra["gpu_adapter_vendor_id"], 4318);
+        assert_eq!(extra["gpu_adapter_device_id"], 9860);
+        assert_eq!(extra["gpu_adapter_type"], "discrete-gpu");
     }
 
     #[test]

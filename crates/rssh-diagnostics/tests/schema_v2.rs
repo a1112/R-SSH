@@ -286,6 +286,10 @@ fn attribution_stage_result_has_complete_closed_v1_resources_without_changing_le
 
     let value = serde_json::to_value(result).unwrap();
     assert_eq!(
+        value["configuration"]["requested_renderer"], "auto",
+        "an attribution record must bind the explicit renderer request"
+    );
+    assert_eq!(
         value["configuration"]["requested_attribution_stage"],
         "cpu-window"
     );

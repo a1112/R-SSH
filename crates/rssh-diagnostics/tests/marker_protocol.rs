@@ -1,6 +1,6 @@
 use rssh_diagnostics::{
-    DiagnosticAttributionStage, MarkerCollector, MarkerDisposition, MarkerError, MarkerIdentity,
-    MarkerKind, ProjectOwnedResourceMetricsV1, RendererKind, Scenario,
+    DiagnosticAttributionStage, DiagnosticGpuBackend, MarkerCollector, MarkerDisposition,
+    MarkerError, MarkerIdentity, MarkerKind, ProjectOwnedResourceMetricsV1, RendererKind, Scenario,
 };
 
 const FIRST_PRESENT: &str = concat!(
@@ -274,6 +274,61 @@ fn attribution_stage_ready_is_a_typed_singleton_protocol_marker() {
         duplicate.to_string().contains("duplicate marker"),
         "singleton marker failed with the wrong error: {duplicate}"
     );
+}
+
+#[test]
+fn attribution_adapter_stage_carries_identity_without_a_forbidden_gpu_ready_marker() {
+    let resources = ProjectOwnedResourceMetricsV1 {
+        cpu_staging_bytes: 4,
+        cpu_surface_count: 1,
+        cpu_present_count: 1,
+        instance_count: 1,
+        surface_count: 1,
+        adapter_count: 1,
+        device_count: 1,
+        queue_count: 1,
+        backend: Some(DiagnosticGpuBackend::Dx12),
+        adapter_name: Some("fixture-adapter".to_owned()),
+        ..ProjectOwnedResourceMetricsV1::default()
+    };
+    let ready = serde_json::json!({
+        "schema": "rssh.diagnostics/v2",
+        "run_id": "r1",
+        "pid": 42,
+        "scenario": "empty_window",
+        "kind": "attribution_stage_ready",
+        "elapsed_ms": 50,
+        "renderer": "cpu",
+        "requested_stage": "adapter-device",
+        "final_stage": "adapter-device",
+        "resource_summary_schema": "rssh.project-owned-resources/v1",
+        "resource_summary": &resources,
+        "gpu_adapter_vendor_id": 4318,
+        "gpu_adapter_device_id": 9860,
+        "gpu_adapter_type": "discrete-gpu",
+    });
+    let mut collector = MarkerCollector::new_attribution(
+        MarkerIdentity::new("r1", 42, Scenario::EmptyWindow),
+        DiagnosticAttributionStage::AdapterDevice,
+    );
+    for line in [
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"process_started","elapsed_ms":0}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"window_created","elapsed_ms":1}"#,
+        r#"rssh_diagnostic {"schema":"rssh.diagnostics/v2","run_id":"r1","pid":42,"scenario":"empty_window","kind":"first_present","elapsed_ms":2,"renderer":"cpu"}"#,
+    ] {
+        collector.push_line(line).unwrap();
+    }
+
+    collector
+        .push_line(&format!("rssh_diagnostic {ready}"))
+        .expect("adapter attribution marker carries its own identity");
+    let trace = collector.trace();
+    assert_eq!(trace.final_renderer, Some(RendererKind::Cpu));
+    assert_eq!(trace.gpu_backend, Some(DiagnosticGpuBackend::Dx12));
+    assert_eq!(trace.gpu_adapter_name.as_deref(), Some("fixture-adapter"));
+    assert_eq!(trace.gpu_adapter_vendor_id, Some(4318));
+    assert_eq!(trace.gpu_adapter_device_id, Some(9860));
+    assert_eq!(trace.gpu_adapter_type.as_deref(), Some("discrete-gpu"));
 }
 
 #[test]

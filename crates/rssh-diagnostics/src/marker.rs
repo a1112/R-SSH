@@ -305,7 +305,10 @@ impl MarkerCollector {
                 payload
                     .resource_summary
                     .validate_at(requested_stage)
-                    .map_err(|violations| MarkerError::AttributionProtocol(violations.join("; ")))
+                    .map_err(|violations| {
+                        MarkerError::AttributionProtocol(violations.join("; "))
+                    })?;
+                payload.validate_adapter_identity(requested_stage)
             }
             MarkerKind::ProcessExited if self.seen.contains(&MarkerKind::AttributionStageReady) => {
                 Ok(())
@@ -375,6 +378,9 @@ impl MarkerCollector {
                     self.trace
                         .gpu_adapter_name
                         .clone_from(&payload.resource_summary.adapter_name);
+                    self.trace.gpu_adapter_vendor_id = payload.gpu_adapter_vendor_id;
+                    self.trace.gpu_adapter_device_id = payload.gpu_adapter_device_id;
+                    self.trace.gpu_adapter_type = payload.gpu_adapter_type;
                     self.trace.final_attribution_stage = Some(payload.final_stage);
                     self.trace.resource_summary_schema = Some(payload.resource_summary_schema);
                     self.trace.resource_summary = Some(payload.resource_summary);
@@ -406,6 +412,49 @@ struct AttributionStageReadyPayload {
     final_stage: DiagnosticAttributionStage,
     resource_summary_schema: ProjectOwnedResourceSchemaVersion,
     resource_summary: ProjectOwnedResourceMetricsV1,
+    #[serde(default)]
+    gpu_adapter_vendor_id: Option<u32>,
+    #[serde(default)]
+    gpu_adapter_device_id: Option<u32>,
+    #[serde(default)]
+    gpu_adapter_type: Option<String>,
+}
+
+impl AttributionStageReadyPayload {
+    fn validate_adapter_identity(
+        &self,
+        stage: DiagnosticAttributionStage,
+    ) -> Result<(), MarkerError> {
+        let identity_present = self.gpu_adapter_vendor_id.is_some()
+            || self.gpu_adapter_device_id.is_some()
+            || self.gpu_adapter_type.is_some();
+        if stage < DiagnosticAttributionStage::AdapterDevice {
+            return if identity_present {
+                Err(MarkerError::AttributionProtocol(
+                    "GPU adapter identity is forbidden before adapter-device".to_owned(),
+                ))
+            } else {
+                Ok(())
+            };
+        }
+        let adapter_type = self.gpu_adapter_type.as_deref().ok_or_else(|| {
+            MarkerError::AttributionProtocol(
+                "complete GPU adapter identity is required from adapter-device".to_owned(),
+            )
+        })?;
+        if self.gpu_adapter_vendor_id.is_none()
+            || self.gpu_adapter_device_id.is_none()
+            || !matches!(
+                adapter_type,
+                "other" | "integrated-gpu" | "discrete-gpu" | "virtual-gpu" | "cpu"
+            )
+        {
+            return Err(MarkerError::AttributionProtocol(
+                "GPU adapter identity is incomplete or differs from resource_summary".to_owned(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn attribution_ready_payload(

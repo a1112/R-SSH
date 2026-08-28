@@ -1202,6 +1202,21 @@ fn stage7_attribution_what_if_freezes_interleaved_stage_backend_sampling() {
 }
 
 #[test]
+fn stage7_attribution_requires_gpu_only_after_the_first_gpu_present() {
+    let runner = fs::read_to_string(repo_path("scripts/ci/run-stage7-attribution-matrix.ps1"))
+        .expect("read Stage 7 attribution runner");
+
+    assert!(
+        runner.contains("$expectedRenderer = if ($stageIndex -ge 3) { \"gpu\" } else { \"cpu\" }"),
+        "the runner must derive renderer identity from the actual stage boundary"
+    );
+    assert!(
+        !runner.contains("if ($Record.renderer.final -cne \"gpu\")"),
+        "pre-present stages must not be rejected for retaining the CPU renderer"
+    );
+}
+
+#[test]
 fn matrix_accepts_strict_cpu_and_gpu_records_and_emits_exact_current_evidence() {
     let fixture = MatrixFixture::new("valid", "valid");
     let output = fixture.run();

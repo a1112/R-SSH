@@ -418,7 +418,8 @@ impl Serialize for RunConfiguration {
             self.requested_font_mode.is_some() && self.requested_font_specimen.is_some();
         let serialize_renderer = self.requested_renderer != DiagnosticRendererMode::Auto
             || self.requested_gpu_backend.is_some()
-            || font_proof;
+            || font_proof
+            || self.requested_attribution_stage.is_some();
         let field_count = 6
             + usize::from(serialize_renderer)
             + usize::from(self.requested_gpu_backend.is_some())
