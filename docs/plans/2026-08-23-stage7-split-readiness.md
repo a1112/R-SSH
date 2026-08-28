@@ -512,6 +512,7 @@ git commit -m "feat(diagnostics): report exact GPU attribution stages"
 
 **Files:**
 - Create: `scripts/ci/run-stage7-attribution-matrix.ps1`
+- Create: `scripts/ci/run-stage7-attribution-deterministic-tests.ps1`
 - Modify: `scripts/ci/collect-stage7-runner-fingerprint.ps1`
 - Modify: `scripts/ci/run-gpu-backend-memory-matrix.ps1`
 - Modify: `crates/rssh-app/tests/gpu_backend_memory_matrix_behavior.rs`
@@ -539,6 +540,8 @@ Build once with `--locked --release`, hash the source and both executables, then
 
 Write an atomic `artifact-manifest-fragment.json` that binds all raw stage records, the aggregate, source/binary hashes, runner fingerprint, resource-summary schema, and actual backend/adapter identities.
 
+Add a separate fail-closed deterministic proof runner for the approved Rust matrix behavior tests and Python gate attribution test. It binds the same immutable source, release binary hashes, and runner fingerprint, then emits the required `attribution-deterministic-tests` result and its own fragment without claiming hardware measurements.
+
 Reuse the machine cohort identity produced by Task 4. The font fragment remains the sole owner of the singleton artifact; the stage fragment references the same fingerprint identity and must not emit a second `runner-fingerprint` singleton.
 
 **Step 4: Wire a protected manual/default-branch job**
@@ -549,6 +552,7 @@ Hosted PR CI runs only deterministic contract tests. The protected Windows job r
 
 ```powershell
 pwsh -NoProfile -File scripts/ci/run-stage7-attribution-matrix.ps1 -WhatIf
+pwsh -NoProfile -File scripts/ci/run-stage7-attribution-deterministic-tests.ps1 -WhatIf
 cargo test --locked -p rssh-app --test gpu_backend_memory_matrix_behavior -j1
 python -m unittest scripts.ci.tests.test_check_stage7_split_gate -v
 ```
@@ -558,7 +562,7 @@ Expected: PASS; `-WhatIf` shows the complete interleaved schedule.
 **Step 6: Commit**
 
 ```powershell
-git add scripts/ci/run-stage7-attribution-matrix.ps1 scripts/ci/collect-stage7-runner-fingerprint.ps1 scripts/ci/run-gpu-backend-memory-matrix.ps1 scripts/ci/tests/test_check_stage7_split_gate.py crates/rssh-app/tests/gpu_backend_memory_matrix_behavior.rs .github/workflows/release.yml
+git add scripts/ci/run-stage7-attribution-matrix.ps1 scripts/ci/run-stage7-attribution-deterministic-tests.ps1 scripts/ci/collect-stage7-runner-fingerprint.ps1 scripts/ci/run-gpu-backend-memory-matrix.ps1 scripts/ci/tests/test_check_stage7_split_gate.py crates/rssh-app/tests/gpu_backend_memory_matrix_behavior.rs .github/workflows/release.yml
 git commit -m "test(perf): add cumulative GPU attribution evidence"
 ```
 
@@ -625,12 +629,13 @@ cargo build --locked --release -p rssh-diagnostics --bin rssh-bench-launcher
 Record the source and executable hashes before running proofs.
 The font proof runner performs its own locked release provenance-bound build in Step 2; this prewarm is not the font proof's exact-once build authority.
 
-**Step 2: Run the three Gate 0 proofs**
+**Step 2: Run the four Gate 0 proofs**
 
 ```powershell
 $gate0Root = 'L:\rssh-evidence\stage7-gate0'
 pwsh -NoProfile -File scripts/ci/run-stage7-font-proof.ps1 -Profile release -Warmups 5 -MeasuredRounds 30 -OutputDirectory "$gate0Root\font"
 pwsh -NoProfile -File scripts/ci/run-stage7-attribution-matrix.ps1 -Profile release -Warmups 5 -Samples 30 -OutputDirectory "$gate0Root\stages" -SkipBuild
+pwsh -NoProfile -File scripts/ci/run-stage7-attribution-deterministic-tests.ps1 -OutputDirectory "$gate0Root\tests"
 python scripts/ci/prove-rterm-external-source.py --contract scripts/ci/rterm-external-source-proof.json --synthesize --output "$gate0Root\external" --keep-on-failure
 ```
 
@@ -638,11 +643,11 @@ Expected: every proof exits 0 and retains raw evidence.
 
 **Step 3: Derive the state**
 
-Assemble the three runner fragments and request `attribution-ready` with the frozen interface:
+Assemble the four runner fragments and request `attribution-ready` with the frozen interface:
 
 ```powershell
 $gate0Root = 'L:\rssh-evidence\stage7-gate0'
-python scripts/ci/assemble-stage7-evidence.py --contract scripts/ci/stage7-split-contract.json --requested-state attribution-ready --evidence-root $gate0Root --fragment font/artifact-manifest-fragment.json --fragment stages/artifact-manifest-fragment.json --fragment external/artifact-manifest-fragment.json --output stage7-evidence-manifest.json
+python scripts/ci/assemble-stage7-evidence.py --contract scripts/ci/stage7-split-contract.json --requested-state attribution-ready --evidence-root $gate0Root --fragment font/artifact-manifest-fragment.json --fragment stages/artifact-manifest-fragment.json --fragment tests/artifact-manifest-fragment.json --fragment external/artifact-manifest-fragment.json --output stage7-evidence-manifest.json
 python scripts/ci/check-stage7-split-gate.py --contract scripts/ci/stage7-split-contract.json --requested-state attribution-ready --evidence-manifest "$gate0Root\stage7-evidence-manifest.json"
 ```
 
@@ -652,7 +657,7 @@ This evidence task does not modify implementation or tests. If a proof exposes a
 
 **Step 4: Independently recompute and document**
 
-Recompute every raw-file count, hash, representative, reduction, stage identity, source mapping, vendor path, and dirty-state assertion in a separate read-only command. Record host fingerprint and report-only first fallback latency without machine-unique paths.
+Recompute every raw-file count, hash, representative, reduction, stage identity, deterministic-suite result, source mapping, vendor path, and dirty-state assertion in a separate read-only command. Record host fingerprint and report-only first fallback latency without machine-unique paths.
 
 **Step 5: Verify and commit**
 

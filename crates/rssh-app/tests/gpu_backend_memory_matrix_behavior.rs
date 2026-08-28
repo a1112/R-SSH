@@ -1232,6 +1232,73 @@ fn stage7_attribution_zero_warmups_executes_no_warmup_rounds() {
 }
 
 #[test]
+fn stage7_attribution_deterministic_proof_has_a_real_gate0_runner() {
+    let output = Command::new("pwsh.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-File",
+            repo_path("scripts/ci/run-stage7-attribution-deterministic-tests.ps1")
+                .to_str()
+                .expect("UTF-8 deterministic runner path"),
+            "-WhatIf",
+        ])
+        .current_dir(repo_path("."))
+        .output()
+        .expect("execute attribution deterministic proof WhatIf contract");
+    assert!(
+        output.status.success(),
+        "attribution deterministic proof WhatIf failed: {}",
+        combined_output(&output)
+    );
+    let plan: Value = serde_json::from_slice(&output.stdout).expect("parse WhatIf plan JSON");
+    assert_eq!(
+        plan["schema"],
+        "rssh.stage7/attribution-deterministic-tests-plan/v1"
+    );
+    assert_eq!(plan["suite_id"], "stage7-attribution-deterministic-v1");
+    assert_eq!(
+        plan["commands"],
+        serde_json::json!([
+            [
+                "cargo",
+                "test",
+                "--locked",
+                "-p",
+                "rssh-app",
+                "--test",
+                "gpu_backend_memory_matrix_behavior",
+                "stage7_attribution",
+                "-j1"
+            ],
+            [
+                "python",
+                "-m",
+                "unittest",
+                "scripts.ci.tests.test_check_stage7_split_gate.Stage7SplitGateTests.test_attribution_matrix",
+                "-v"
+            ]
+        ])
+    );
+}
+
+#[test]
+fn stage7_gate0_plan_collects_and_assembles_the_deterministic_proof() {
+    let plan = fs::read_to_string(repo_path("docs/plans/2026-08-23-stage7-split-readiness.md"))
+        .expect("read Stage 7 plan");
+    let gate0 = plan
+        .split("### Task 9:")
+        .nth(1)
+        .expect("Task 9 section")
+        .split("### Task 10:")
+        .next()
+        .expect("Task 9 boundary");
+
+    assert!(gate0.contains("run-stage7-attribution-deterministic-tests.ps1"));
+    assert!(gate0.contains("--fragment tests/artifact-manifest-fragment.json"));
+}
+
+#[test]
 fn matrix_accepts_strict_cpu_and_gpu_records_and_emits_exact_current_evidence() {
     let fixture = MatrixFixture::new("valid", "valid");
     let output = fixture.run();
