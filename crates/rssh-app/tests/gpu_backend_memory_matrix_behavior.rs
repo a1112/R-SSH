@@ -1217,6 +1217,21 @@ fn stage7_attribution_requires_gpu_only_after_the_first_gpu_present() {
 }
 
 #[test]
+fn stage7_attribution_zero_warmups_executes_no_warmup_rounds() {
+    let runner = fs::read_to_string(repo_path("scripts/ci/run-stage7-attribution-matrix.ps1"))
+        .expect("read Stage 7 attribution runner");
+
+    assert!(
+        runner.contains("for ($round = 1; $round -le $Warmups; $round++)"),
+        "zero must be represented by an empty warmup loop"
+    );
+    assert!(
+        !runner.contains("foreach ($round in 1..$Warmups)"),
+        "PowerShell 1..0 expands to two values and must not drive warmups"
+    );
+}
+
+#[test]
 fn matrix_accepts_strict_cpu_and_gpu_records_and_emits_exact_current_evidence() {
     let fixture = MatrixFixture::new("valid", "valid");
     let output = fixture.run();

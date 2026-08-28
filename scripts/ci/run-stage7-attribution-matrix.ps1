@@ -572,7 +572,7 @@ $fatalProductFailure = $false
 # every matrix cell must be a bounded, fresh process.
 . (Join-Path $PSScriptRoot "process-harness.ps1")
 
-foreach ($round in 1..$Warmups) {
+for ($round = 1; $round -le $Warmups; $round++) {
     foreach ($backend in $backends) {
         foreach ($stage in $stages) {
             $key = "$backend/$stage"
