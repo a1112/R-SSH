@@ -222,6 +222,21 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
     }
 
     #[cfg(feature = "diagnostic-tools")]
+    fn shutdown_after_native_window_close(&mut self) -> bool {
+        let (backend, vendor_id) = self.gpu_identity.as_ref().map_or(("", 0), |identity| {
+            (identity.backend.as_str(), identity.adapter_vendor_id)
+        });
+        finalize_stage7_native_gpu_owners(
+            std::env::consts::OS,
+            backend,
+            vendor_id,
+            &mut self.renderer,
+            &mut self.device,
+            &mut self.context,
+        )
+    }
+
+    #[cfg(feature = "diagnostic-tools")]
     fn hold_diagnostic(&mut self) {
         let Some(hold) = self.diagnostic_hold.take() else {
             return;
@@ -820,15 +835,18 @@ pub(crate) fn run_stage7_native_attribution(
                     markers: self.markers.clone(),
                     shutdown,
                 });
-                let report = AttributionStageController::new(self.stop_stage)
+                let report_result = AttributionStageController::new(self.stop_stage)
                     .run(&mut runtime)
-                    .map_err(|error| io::Error::other(error.to_string()))?;
+                    .map_err(|error| io::Error::other(error.to_string()));
+                let hold_error = runtime.take_diagnostic_hold_error();
+                runtime.shutdown_after_native_window_close();
+                let report = report_result?;
                 if report.held_stage != self.stop_stage {
                     return Err(
                         io::Error::other("attribution controller held the wrong stage").into(),
                     );
                 }
-                if let Some(error) = runtime.take_diagnostic_hold_error() {
+                if let Some(error) = hold_error {
                     return Err(io::Error::other(error).into());
                 }
                 Ok(())
@@ -1298,6 +1316,33 @@ fn should_abandon_current_adapter_after_native_close(
     vendor_id: u32,
 ) -> bool {
     os == "windows" && backend.eq_ignore_ascii_case("vulkan") && vendor_id == 0x10de
+}
+
+fn finalize_stage7_native_gpu_owners<Renderer, Device, Context>(
+    os: &str,
+    backend: &str,
+    vendor_id: u32,
+    renderer: &mut Option<Renderer>,
+    device: &mut Option<Device>,
+    context: &mut Option<Context>,
+) -> bool {
+    let abandon = should_abandon_current_adapter_after_native_close(os, backend, vendor_id);
+    if abandon {
+        if let Some(renderer) = renderer.take() {
+            std::mem::forget(renderer);
+        }
+        if let Some(context) = context.take() {
+            std::mem::forget(context);
+        }
+        if let Some(device) = device.take() {
+            std::mem::forget(device);
+        }
+    } else {
+        drop(renderer.take());
+        drop(context.take());
+        drop(device.take());
+    }
+    abandon
 }
 
 fn gpu_context_options(
