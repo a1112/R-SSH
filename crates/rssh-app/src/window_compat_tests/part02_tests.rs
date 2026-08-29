@@ -6507,6 +6507,29 @@ return config
         }
 
         #[test]
+        fn stage7_native_close_runs_before_attribution_errors_are_propagated() {
+            let source = include_str!("../window_gpu.rs");
+            let native_owner = source
+                .split("pub(crate) fn run_stage7_native_attribution(")
+                .nth(1)
+                .expect("native attribution owner")
+                .split("#[cfg(all(test, target_os = \"windows\"))]")
+                .next()
+                .expect("bounded native attribution owner");
+            let shutdown = native_owner
+                .find("runtime.shutdown_after_native_window_close()")
+                .expect("Stage 7 native-close teardown");
+            let propagate = native_owner
+                .find("let report = report_result?")
+                .expect("controller result propagation after teardown");
+
+            assert!(
+                shutdown < propagate,
+                "native GPU owners must be finalized before controller errors leave the callback"
+            );
+        }
+
+        #[test]
         fn exact_gpu_stop_stage_uses_live_owner_lengths_and_rebuilds_current_resources() {
             let source = include_str!("../window_gpu.rs");
             assert!(

@@ -2900,6 +2900,78 @@ mod tests {
     }
 
     #[test]
+    fn stage7_native_close_retains_only_windows_nvidia_vulkan_gpu_owners() {
+        #[derive(Debug)]
+        struct TrackedDrop {
+            label: &'static str,
+            drops: Rc<RefCell<Vec<&'static str>>>,
+        }
+
+        impl Drop for TrackedDrop {
+            fn drop(&mut self) {
+                self.drops.borrow_mut().push(self.label);
+            }
+        }
+
+        let retained_drops = Rc::new(RefCell::new(Vec::new()));
+        let mut retained_renderer = Some(TrackedDrop {
+            label: "renderer",
+            drops: Rc::clone(&retained_drops),
+        });
+        let mut retained_device = Some(TrackedDrop {
+            label: "device",
+            drops: Rc::clone(&retained_drops),
+        });
+        let mut retained_context = Some(TrackedDrop {
+            label: "context",
+            drops: Rc::clone(&retained_drops),
+        });
+
+        assert!(finalize_stage7_native_gpu_owners(
+            "windows",
+            "Vulkan",
+            0x10de,
+            &mut retained_renderer,
+            &mut retained_device,
+            &mut retained_context,
+        ));
+        assert!(retained_drops.borrow().is_empty());
+        assert!(retained_renderer.is_none());
+        assert!(retained_device.is_none());
+        assert!(retained_context.is_none());
+
+        let released_drops = Rc::new(RefCell::new(Vec::new()));
+        let mut released_renderer = Some(TrackedDrop {
+            label: "renderer",
+            drops: Rc::clone(&released_drops),
+        });
+        let mut released_device = Some(TrackedDrop {
+            label: "device",
+            drops: Rc::clone(&released_drops),
+        });
+        let mut released_context = Some(TrackedDrop {
+            label: "context",
+            drops: Rc::clone(&released_drops),
+        });
+
+        assert!(!finalize_stage7_native_gpu_owners(
+            "windows",
+            "Dx12",
+            0x10de,
+            &mut released_renderer,
+            &mut released_device,
+            &mut released_context,
+        ));
+        assert_eq!(
+            released_drops.borrow().as_slice(),
+            ["renderer", "context", "device"]
+        );
+        assert!(released_renderer.is_none());
+        assert!(released_device.is_none());
+        assert!(released_context.is_none());
+    }
+
+    #[test]
     fn abandonment_workaround_requires_proven_adapter_and_explicit_final_shutdown() {
         assert!(should_abandon_recovered_window_surface(
             "windows", "Vulkan", 0x10de, true, true
