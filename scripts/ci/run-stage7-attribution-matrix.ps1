@@ -742,7 +742,6 @@ foreach ($backend in $backends) {
                 stabilization_ms = 5000
                 sample_interval_ms = 100
                 processes = @($process)
-                statistics = [ordered]@{ p50 = [UInt64] $process.representative; p95 = [UInt64] $process.representative; max = [UInt64] ($process.samples | Measure-Object -Maximum).Maximum }
             }
             if ($stageIndex -ge 2) {
                 $details = $identityByCell[$key].details
