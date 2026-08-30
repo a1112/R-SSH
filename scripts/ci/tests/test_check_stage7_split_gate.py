@@ -1111,6 +1111,19 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn("run-stage7-attribution-matrix.ps1", workflow)
         self.assertIn("actions/upload-artifact", workflow)
 
+    def test_attribution_process_shards_defer_statistics_to_the_aggregate(self) -> None:
+        source = ATTRIBUTION_RUNNER_PATH.read_text(encoding="utf-8")
+        start = source.index(
+            '$rawId = "attribution-matrix-raw/$backend/$stage/process-{0:D3}"'
+        )
+        end = source.index("if ($stageIndex -ge 2)", start)
+        process_shard = source[start:end]
+
+        self.assertIn("processes = @($process)", process_shard)
+        self.assertNotIn("statistics =", process_shard)
+        self.assertIn("$stats = New-Statistics -Processes $processes", source)
+        self.assertIn("group_statistics = @($groupStatistics)", source)
+
     def test_external_source_proof_contract_is_immutable_and_locked(self) -> None:
         self.assertTrue(EXTERNAL_SOURCE_PROOF_PATH.is_file())
         proof = EXTERNAL_SOURCE_PROOF_PATH.read_text(encoding="utf-8")
