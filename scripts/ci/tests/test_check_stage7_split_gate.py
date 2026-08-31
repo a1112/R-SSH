@@ -1111,6 +1111,38 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn("run-stage7-attribution-matrix.ps1", workflow)
         self.assertIn("actions/upload-artifact", workflow)
 
+    def test_attribution_ci_runs_the_complete_protected_gate(self) -> None:
+        workflow = (REPO / ".github/workflows/release.yml").read_text(
+            encoding="utf-8"
+        )
+        stage7_start = workflow.index("  stage7-attribution-matrix:")
+        stage7_end = workflow.index("\n  build-package:", stage7_start)
+        stage7_job = workflow[stage7_start:stage7_end]
+        package_end = workflow.index("\n  sign-windows:", stage7_end)
+        package_job = workflow[stage7_end:package_end]
+
+        self.assertIn("stage7_gate_only:", workflow)
+        self.assertIn("type: boolean", workflow)
+        self.assertIn("default: false", workflow)
+        self.assertGreaterEqual(workflow.count("inputs.stage7_gate_only"), 3)
+        self.assertIn("timeout-minutes: 360", stage7_job)
+        self.assertIn("environment: performance", stage7_job)
+        self.assertIn(
+            "runs-on: [self-hosted, Windows, X64, rssh-performance]", stage7_job
+        )
+        self.assertIn("run-stage7-attribution-deterministic-tests.ps1", stage7_job)
+        self.assertIn("prove-rterm-external-source.py", stage7_job)
+        self.assertIn("assemble-stage7-evidence.py", stage7_job)
+        self.assertIn("check-stage7-split-gate.py", stage7_job)
+        self.assertIn("--requested-state attribution-ready", stage7_job)
+        self.assertIn("--fragment font/artifact-manifest-fragment.json", stage7_job)
+        self.assertIn("--fragment stages/artifact-manifest-fragment.json", stage7_job)
+        self.assertIn("--fragment tests/artifact-manifest-fragment.json", stage7_job)
+        self.assertIn("--fragment external/artifact-manifest-fragment.json", stage7_job)
+        self.assertIn("if: always()", stage7_job)
+        self.assertIn("path: artifacts/stage7-gate0", stage7_job)
+        self.assertIn("inputs.stage7_gate_only != true", package_job)
+
     def test_attribution_process_shards_defer_statistics_to_the_aggregate(self) -> None:
         source = ATTRIBUTION_RUNNER_PATH.read_text(encoding="utf-8")
         start = source.index(
