@@ -1103,8 +1103,9 @@ class Stage7SplitGateTests(unittest.TestCase):
         )
         workflow = (REPO / ".github/workflows/release.yml").read_text(encoding="utf-8")
         self.assertIn("stage7-attribution-matrix:", workflow)
+        self.assertIn("github.event_name == 'workflow_dispatch'", workflow)
         self.assertIn(
-            "github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
+            "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)",
             workflow,
         )
         self.assertIn("run-stage7-font-proof.ps1", workflow)
@@ -1115,7 +1116,9 @@ class Stage7SplitGateTests(unittest.TestCase):
         workflow = (REPO / ".github/workflows/release.yml").read_text(
             encoding="utf-8"
         )
+        fixed_start = workflow.index("  fixed-performance:")
         stage7_start = workflow.index("  stage7-attribution-matrix:")
+        fixed_job = workflow[fixed_start:stage7_start]
         stage7_end = workflow.index("\n  build-package:", stage7_start)
         stage7_job = workflow[stage7_start:stage7_end]
         package_end = workflow.index("\n  sign-windows:", stage7_end)
@@ -1125,6 +1128,11 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn("type: boolean", workflow)
         self.assertIn("default: false", workflow)
         self.assertGreaterEqual(workflow.count("inputs.stage7_gate_only"), 3)
+        self.assertIn("inputs.stage7_gate_only != true", fixed_job)
+        self.assertNotIn("inputs.stage7_gate_only == true", fixed_job)
+        self.assertIn("needs: fixed-performance", stage7_job)
+        self.assertIn("if: always()", stage7_job)
+        self.assertIn("needs.fixed-performance.result == 'success'", stage7_job)
         self.assertIn("timeout-minutes: 360", stage7_job)
         self.assertIn("environment: performance", stage7_job)
         self.assertIn(

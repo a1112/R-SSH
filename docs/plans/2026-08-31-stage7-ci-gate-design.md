@@ -29,9 +29,10 @@ three gaps:
 ### 1. Extend the existing release workflow (selected)
 
 Add one explicit boolean manual-dispatch input for a Stage 7-only run. Permit
-the protected fixed-performance and Stage 7 jobs to run for the selected ref
-only when that input is true. Preserve the existing default-branch and tag
-behavior, and skip unrelated package jobs during a Stage 7-only dispatch.
+the protected Stage 7 job to run for the selected ref only when that input is
+true. Skip the unrelated legacy fixed-performance and package jobs during a
+Stage 7-only dispatch. Preserve their existing default-branch and tag release
+behavior.
 
 This keeps runner labels, environment protection, concurrency, toolchain, and
 artifact handling in one established workflow.
@@ -50,9 +51,10 @@ host isolation. It is unsuitable for authoritative evidence.
 ## Workflow Contract
 
 `workflow_dispatch` gains a `stage7_gate_only` Boolean input with a default of
-`false`. A non-default ref can reach the protected performance jobs only when
-this input is explicitly true. Tag releases and ordinary default-branch manual
-runs retain their existing behavior.
+`false`. A non-default ref can reach the protected Stage 7 proof job only when
+this input is explicitly true. The legacy fixed-performance job is skipped for
+Stage 7-only dispatches; ordinary default-branch and tag releases still require
+it, so none of its thresholds are bypassed or weakened.
 
 The Stage 7 job keeps:
 
@@ -98,7 +100,8 @@ available.
 Static contract tests parse the release workflow text and require:
 
 - the typed opt-in input with a false default;
-- guarded non-default-ref access to both prerequisite and Stage 7 jobs;
+- guarded non-default-ref access to Stage 7 while the release prerequisite is
+  skipped only for explicit Stage 7-only dispatches;
 - the fixed runner, protected environment, concurrency, and extended timeout;
 - all four proof commands, manifest assembly, final validation, and complete
   artifact upload;

@@ -4,7 +4,7 @@
 
 **Goal:** Allow the complete Stage 7 Gate 0 proof to run for an explicitly selected branch on the protected Windows performance runner and produce an authoritative `attribution-ready` decision.
 
-**Architecture:** Extend the existing release workflow with one false-by-default `stage7_gate_only` manual input. Reuse the fixed-performance prerequisite, protected environment, fixed-runner labels, and concurrency group; skip unrelated packaging for opt-in Stage 7 runs, then execute all four proof producers, assemble their fragments, validate the manifest, and upload the complete evidence root even on failure.
+**Architecture:** Extend the existing release workflow with one false-by-default `stage7_gate_only` manual input. Reuse the protected environment, fixed-runner labels, and concurrency group. Keep the fixed-performance prerequisite for ordinary releases, but skip that unrelated legacy gate and packaging for opt-in Stage 7-only runs. Execute all four proof producers, assemble their fragments, validate the manifest, and upload the complete evidence root even on failure.
 
 **Tech Stack:** GitHub Actions YAML, PowerShell, Python `unittest`, existing Stage 7 proof scripts.
 
@@ -26,6 +26,8 @@ self.assertIn("stage7_gate_only:", workflow)
 self.assertIn("type: boolean", workflow)
 self.assertIn("default: false", workflow)
 self.assertIn("inputs.stage7_gate_only", workflow)
+self.assertIn("inputs.stage7_gate_only != true", fixed_job)
+self.assertIn("needs.fixed-performance.result == 'success'", stage7_job)
 self.assertIn("timeout-minutes: 360", stage7_job)
 self.assertIn("environment: performance", stage7_job)
 self.assertIn("runs-on: [self-hosted, Windows, X64, rssh-performance]", stage7_job)
@@ -82,10 +84,10 @@ on:
 
 **Step 2: Guard branch access to the protected jobs**
 
-Extend the `fixed-performance` and `stage7-attribution-matrix` job conditions
-so a non-default branch is accepted only for a manual dispatch with
-`inputs.stage7_gate_only == true`. Preserve tag and ordinary default-branch
-behavior.
+Make `fixed-performance` skip explicit Stage 7-only dispatches. Give the Stage
+7 job `always()` dependency evaluation so `inputs.stage7_gate_only == true`
+can run after that skip, while ordinary default-branch dispatches still require
+`needs.fixed-performance.result == 'success'`. Preserve tag release behavior.
 
 Add this job condition to `build-package`:
 
@@ -179,8 +181,8 @@ Run:
 gh workflow run release.yml --ref codex/stage7-split-readiness -f stage7_gate_only=true
 ```
 
-Resolve the new run ID and verify the intended fixed-performance and Stage 7
-path is eligible. The protected environment may require approval.
+Resolve the new run ID and verify `fixed-performance` is skipped while the
+Stage 7 path is eligible. The protected environment may require approval.
 
 **Step 5: Monitor to the terminal decision**
 
