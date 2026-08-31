@@ -1599,6 +1599,66 @@
     }
 
     #[test]
+    fn window_manager_application_exit_applies_native_close_policy_to_every_gpu_owner() {
+        fn native_close_gpu_app() -> Box<NativeWindowApp> {
+            let mut app = NativeWindowApp::new(None);
+            app.gpu = Some(Box::new(
+                crate::window_gpu::WindowGpu::for_manager_close_test(true, false),
+            ));
+            Box::new(app)
+        }
+
+        let mut manager = NativeWindowManager::new_for_test(native_close_gpu_app());
+        manager.windows.insert(
+            winit::window::WindowId::from(1_u64),
+            native_close_gpu_app(),
+        );
+        manager.pending_apps.push(native_close_gpu_app());
+        manager.retired_apps.push(native_close_gpu_app());
+
+        manager.shutdown_gpu_for_application_exit();
+
+        let owners_left_for_unsafe_native_teardown = manager
+            .startup_app
+            .iter_mut()
+            .chain(manager.windows.values_mut())
+            .chain(manager.pending_apps.iter_mut())
+            .chain(manager.retired_apps.iter_mut())
+            .map(|app| {
+                app.gpu.as_mut().is_some_and(|gpu| {
+                    gpu.shutdown_after_native_window_close()
+                })
+            })
+            .filter(|left_for_unsafe_teardown| *left_for_unsafe_teardown)
+            .count();
+        assert_eq!(
+            owners_left_for_unsafe_native_teardown, 0,
+            "application exit must finalize every GPU owner with the native-close policy"
+        );
+    }
+
+    #[test]
+    fn direct_window_application_exit_uses_native_close_gpu_policy() {
+        let source = include_str!("../window_parts/part15.rs");
+        let direct_handler = source
+            .split("impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {")
+            .nth(1)
+            .expect("direct NativeWindowApp event handler");
+        let exiting = direct_handler
+            .split("fn exiting")
+            .nth(1)
+            .expect("direct application-exit callback")
+            .split("fn window_event")
+            .next()
+            .expect("bounded direct application-exit callback");
+
+        assert!(
+            exiting.contains("self.shutdown_gpu_after_native_window_close();"),
+            "direct application exit must apply the final native-close GPU policy"
+        );
+    }
+
+    #[test]
     fn window_pane_select_cancel_keys_exit_without_focusing() {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::SplitPane {

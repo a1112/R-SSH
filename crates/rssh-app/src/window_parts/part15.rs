@@ -3466,7 +3466,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        self.shutdown_gpu_for_window_close();
+        self.shutdown_gpu_after_native_window_close();
     }
 
     #[allow(clippy::too_many_lines)]

@@ -2900,16 +2900,16 @@ impl NativeWindowManager {
 
     fn shutdown_gpu_for_application_exit(&mut self) {
         if let Some(startup) = self.startup_app.as_mut() {
-            startup.shutdown_gpu_for_window_close();
+            startup.shutdown_gpu_after_native_window_close();
         }
         for app in self.windows.values_mut() {
-            app.shutdown_gpu_for_window_close();
+            app.shutdown_gpu_after_native_window_close();
         }
         for app in &mut self.pending_apps {
-            app.shutdown_gpu_for_window_close();
+            app.shutdown_gpu_after_native_window_close();
         }
         for app in &mut self.retired_apps {
-            app.shutdown_gpu_for_window_close();
+            app.shutdown_gpu_after_native_window_close();
         }
     }
 
