@@ -1123,6 +1123,14 @@ class Stage7SplitGateTests(unittest.TestCase):
         stage7_job = workflow[stage7_start:stage7_end]
         package_end = workflow.index("\n  sign-windows:", stage7_end)
         package_job = workflow[stage7_end:package_end]
+        external_start = stage7_job.index(
+            "      - name: Prove immutable external R-Term Git consumption"
+        )
+        external_end = stage7_job.index(
+            "      - name: Assemble the complete Stage 7 Gate 0 manifest",
+            external_start,
+        )
+        external_step = stage7_job[external_start:external_end]
 
         self.assertIn("stage7_gate_only:", workflow)
         self.assertIn("type: boolean", workflow)
@@ -1152,6 +1160,9 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn("$env:RSSH_STAGE7_EVIDENCE_ROOT/external", stage7_job)
         self.assertIn("run-stage7-attribution-deterministic-tests.ps1", stage7_job)
         self.assertIn("prove-rterm-external-source.py", stage7_job)
+        self.assertIn(
+            "CARGO_HOME: ${{ runner.temp }}/rssh-stage7-cargo-home", external_step
+        )
         self.assertIn("assemble-stage7-evidence.py", stage7_job)
         self.assertIn("check-stage7-split-gate.py", stage7_job)
         self.assertIn("--requested-state attribution-ready", stage7_job)

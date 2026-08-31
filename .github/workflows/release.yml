@@ -514,6 +514,8 @@ jobs:
 
       - name: Prove immutable external R-Term Git consumption
         shell: pwsh
+        env:
+          CARGO_HOME: ${{ runner.temp }}/rssh-stage7-cargo-home
         run: >
           python scripts/ci/prove-rterm-external-source.py
           --contract scripts/ci/rterm-external-source-proof.json
