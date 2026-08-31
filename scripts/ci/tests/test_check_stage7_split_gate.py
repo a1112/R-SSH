@@ -1130,6 +1130,12 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn(
             "runs-on: [self-hosted, Windows, X64, rssh-performance]", stage7_job
         )
+        self.assertNotIn("CARGO_TARGET_DIR: ${{ runner.temp }}", stage7_job)
+        self.assertNotIn("TEMP: ${{ runner.temp }}", stage7_job)
+        self.assertNotIn("TMP: ${{ runner.temp }}", stage7_job)
+        self.assertIn("Configure Stage 7 runner-local paths", stage7_job)
+        self.assertIn("$env:RUNNER_TEMP", stage7_job)
+        self.assertIn("$env:GITHUB_ENV", stage7_job)
         self.assertIn("run-stage7-attribution-deterministic-tests.ps1", stage7_job)
         self.assertIn("prove-rterm-external-source.py", stage7_job)
         self.assertIn("assemble-stage7-evidence.py", stage7_job)

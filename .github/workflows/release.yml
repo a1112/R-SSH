@@ -450,12 +450,6 @@ jobs:
     concurrency:
       group: stage7-attribution-${{ vars.RSSH_PERF_BASELINE_MACHINE_CLASS }}
       cancel-in-progress: false
-    env:
-      # Keep all locked-build outputs off the checkout so stale binaries and
-      # workspace storage cannot affect the protected benchmark.
-      CARGO_TARGET_DIR: ${{ runner.temp }}/rssh-stage7-target
-      TEMP: ${{ runner.temp }}/rssh-stage7-tmp
-      TMP: ${{ runner.temp }}/rssh-stage7-tmp
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -463,6 +457,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+
+      - name: Configure Stage 7 runner-local paths
+        shell: pwsh
+        run: |
+          # Keep all locked-build outputs off the checkout so stale binaries
+          # and workspace storage cannot affect the protected benchmark.
+          $targetDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-target"
+          $tempDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-tmp"
+          New-Item -ItemType Directory -Force -Path $targetDirectory, $tempDirectory | Out-Null
+          "CARGO_TARGET_DIR=$targetDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TEMP=$tempDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TMP=$tempDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Collect Stage 7 font cohort and runner fingerprint
         shell: pwsh
