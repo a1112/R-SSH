@@ -2,6 +2,12 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      stage7_gate_only:
+        description: Run the complete Stage 7 Gate 0 proof for this ref
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -12,7 +18,7 @@ permissions:
 jobs:
   fixed-performance:
     name: Fixed-runner performance budgets
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || (github.event_name == 'workflow_dispatch' && inputs.stage7_gate_only == true)
     runs-on: [self-hosted, Windows, X64, rssh-performance]
     environment: performance
     permissions:
@@ -434,10 +440,10 @@ jobs:
 
   stage7-attribution-matrix:
     name: Stage 7 cumulative GPU attribution matrix
-    if: github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) || (github.event_name == 'workflow_dispatch' && inputs.stage7_gate_only == true)
     needs: fixed-performance
     runs-on: [self-hosted, Windows, X64, rssh-performance]
-    timeout-minutes: 240
+    timeout-minutes: 360
     environment: performance
     permissions:
       contents: read
@@ -477,25 +483,53 @@ jobs:
           -OutputDirectory artifacts/stage7-gate0/stages
           -SkipBuild
 
-      - name: Upload Stage 7 raw and aggregate evidence
+      - name: Run Stage 7 deterministic attribution proofs
+        shell: pwsh
+        run: >
+          ./scripts/ci/run-stage7-attribution-deterministic-tests.ps1
+          -OutputDirectory artifacts/stage7-gate0/tests
+
+      - name: Prove immutable external R-Term Git consumption
+        shell: pwsh
+        run: >
+          python scripts/ci/prove-rterm-external-source.py
+          --contract scripts/ci/rterm-external-source-proof.json
+          --synthesize
+          --output artifacts/stage7-gate0/external
+          --keep-on-failure
+
+      - name: Assemble the complete Stage 7 Gate 0 manifest
+        shell: pwsh
+        run: >
+          python scripts/ci/assemble-stage7-evidence.py
+          --contract scripts/ci/stage7-split-contract.json
+          --requested-state attribution-ready
+          --evidence-root artifacts/stage7-gate0
+          --fragment font/artifact-manifest-fragment.json
+          --fragment stages/artifact-manifest-fragment.json
+          --fragment tests/artifact-manifest-fragment.json
+          --fragment external/artifact-manifest-fragment.json
+          --output stage7-evidence-manifest.json
+
+      - name: Validate the Stage 7 Gate 0 decision
+        shell: pwsh
+        run: >
+          python scripts/ci/check-stage7-split-gate.py
+          --contract scripts/ci/stage7-split-contract.json
+          --requested-state attribution-ready
+          --evidence-manifest artifacts/stage7-gate0/stage7-evidence-manifest.json
+
+      - name: Upload the complete Stage 7 Gate 0 evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stage7-attribution-matrix-windows-x64
           if-no-files-found: error
-          path: |
-            artifacts/stage7-gate0/font/raw
-            artifacts/stage7-gate0/font/font-ownership-raw.json
-            artifacts/stage7-gate0/font/font-ownership-aggregate.json
-            artifacts/stage7-gate0/font/font-catalog-fingerprint.json
-            artifacts/stage7-gate0/font/runner-fingerprint.json
-            artifacts/stage7-gate0/font/artifact-manifest-fragment.json
-            artifacts/stage7-gate0/stages/raw
-            artifacts/stage7-gate0/stages/attribution-matrix-aggregate.json
-            artifacts/stage7-gate0/stages/artifact-manifest-fragment.json
+          path: artifacts/stage7-gate0
 
   build-package:
     name: Build and test unsigned package (${{ matrix.runtime_target }})
+    if: github.event_name != 'workflow_dispatch' || inputs.stage7_gate_only != true
     needs: fixed-performance
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
