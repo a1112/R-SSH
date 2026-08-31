@@ -480,10 +480,12 @@ jobs:
           # and workspace storage cannot affect the protected benchmark.
           $targetDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-target"
           $tempDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-tmp"
-          New-Item -ItemType Directory -Force -Path $targetDirectory, $tempDirectory | Out-Null
+          $evidenceDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-evidence"
+          New-Item -ItemType Directory -Force -Path $targetDirectory, $tempDirectory, $evidenceDirectory | Out-Null
           "CARGO_TARGET_DIR=$targetDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "TEMP=$tempDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "TMP=$tempDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RSSH_STAGE7_EVIDENCE_ROOT=$evidenceDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Collect Stage 7 font cohort and runner fingerprint
         shell: pwsh
@@ -492,7 +494,7 @@ jobs:
           -Profile release
           -Warmups 5
           -MeasuredRounds 30
-          -OutputDirectory artifacts/stage7-gate0/font
+          -OutputDirectory "$env:RSSH_STAGE7_EVIDENCE_ROOT/font"
 
       - name: Collect Stage 7 cumulative attribution matrix
         shell: pwsh
@@ -501,14 +503,14 @@ jobs:
           -Profile release
           -Warmups 5
           -Samples 30
-          -OutputDirectory artifacts/stage7-gate0/stages
+          -OutputDirectory "$env:RSSH_STAGE7_EVIDENCE_ROOT/stages"
           -SkipBuild
 
       - name: Run Stage 7 deterministic attribution proofs
         shell: pwsh
         run: >
           ./scripts/ci/run-stage7-attribution-deterministic-tests.ps1
-          -OutputDirectory artifacts/stage7-gate0/tests
+          -OutputDirectory "$env:RSSH_STAGE7_EVIDENCE_ROOT/tests"
 
       - name: Prove immutable external R-Term Git consumption
         shell: pwsh
@@ -516,7 +518,7 @@ jobs:
           python scripts/ci/prove-rterm-external-source.py
           --contract scripts/ci/rterm-external-source-proof.json
           --synthesize
-          --output artifacts/stage7-gate0/external
+          --output "$env:RSSH_STAGE7_EVIDENCE_ROOT/external"
           --keep-on-failure
 
       - name: Assemble the complete Stage 7 Gate 0 manifest
@@ -525,7 +527,7 @@ jobs:
           python scripts/ci/assemble-stage7-evidence.py
           --contract scripts/ci/stage7-split-contract.json
           --requested-state attribution-ready
-          --evidence-root artifacts/stage7-gate0
+          --evidence-root "$env:RSSH_STAGE7_EVIDENCE_ROOT"
           --fragment font/artifact-manifest-fragment.json
           --fragment stages/artifact-manifest-fragment.json
           --fragment tests/artifact-manifest-fragment.json
@@ -538,7 +540,7 @@ jobs:
           python scripts/ci/check-stage7-split-gate.py
           --contract scripts/ci/stage7-split-contract.json
           --requested-state attribution-ready
-          --evidence-manifest artifacts/stage7-gate0/stage7-evidence-manifest.json
+          --evidence-manifest "$env:RSSH_STAGE7_EVIDENCE_ROOT/stage7-evidence-manifest.json"
 
       - name: Upload the complete Stage 7 Gate 0 evidence
         if: always()
@@ -546,7 +548,7 @@ jobs:
         with:
           name: stage7-attribution-matrix-windows-x64
           if-no-files-found: error
-          path: artifacts/stage7-gate0
+          path: ${{ runner.temp }}/rssh-stage7-evidence
 
   build-package:
     name: Build and test unsigned package (${{ matrix.runtime_target }})

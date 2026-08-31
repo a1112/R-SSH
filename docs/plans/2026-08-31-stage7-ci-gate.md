@@ -35,7 +35,9 @@ self.assertIn("run-stage7-attribution-deterministic-tests.ps1", stage7_job)
 self.assertIn("prove-rterm-external-source.py", stage7_job)
 self.assertIn("assemble-stage7-evidence.py", stage7_job)
 self.assertIn("check-stage7-split-gate.py", stage7_job)
-self.assertIn("artifacts/stage7-gate0", stage7_job)
+self.assertNotIn("artifacts/stage7-gate0", stage7_job)
+self.assertIn("RSSH_STAGE7_EVIDENCE_ROOT", stage7_job)
+self.assertIn("path: ${{ runner.temp }}/rssh-stage7-evidence", stage7_job)
 self.assertIn("if: always()", stage7_job)
 ```
 
@@ -102,13 +104,15 @@ existing deterministic-test, external-source, assembly, and validator commands
 with these output paths:
 
 ```text
-artifacts/stage7-gate0/tests
-artifacts/stage7-gate0/external
-artifacts/stage7-gate0/stage7-evidence-manifest.json
+$RUNNER_TEMP/rssh-stage7-evidence/tests
+$RUNNER_TEMP/rssh-stage7-evidence/external
+$RUNNER_TEMP/rssh-stage7-evidence/stage7-evidence-manifest.json
 ```
 
 Assembly must consume all four artifact-manifest fragments and request
-`attribution-ready`. Upload `artifacts/stage7-gate0` under the existing
+`attribution-ready`. Keep the complete evidence root outside the checkout so
+the proof producers' clean-tree checks include untracked files without being
+self-invalidating. Upload the runner-temporary evidence root under the existing
 `if: always()` step.
 
 **Step 4: Run the focused test to verify GREEN**

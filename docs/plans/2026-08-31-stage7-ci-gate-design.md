@@ -62,7 +62,9 @@ The Stage 7 job keeps:
 - the `rssh-performance` self-hosted Windows x64 labels;
 - read-only repository permissions and credential-free checkout;
 - the fixed machine-class concurrency group;
-- release/locked builds and runner-temporary target directories.
+- release/locked builds and runner-temporary target directories;
+- a complete evidence root under runner temp, outside the checkout, so proof
+  output cannot invalidate the mandatory clean-source-tree identity check.
 
 The timeout increases to six hours because the deterministic suite follows the
 font and 900-process attribution collections in the same immutable job.

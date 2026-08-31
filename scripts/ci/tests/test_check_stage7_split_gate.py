@@ -1144,6 +1144,12 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn("Configure Stage 7 runner-local paths", stage7_job)
         self.assertIn("$env:RUNNER_TEMP", stage7_job)
         self.assertIn("$env:GITHUB_ENV", stage7_job)
+        self.assertIn("RSSH_STAGE7_EVIDENCE_ROOT", stage7_job)
+        self.assertNotIn("artifacts/stage7-gate0", stage7_job)
+        self.assertIn("$env:RSSH_STAGE7_EVIDENCE_ROOT/font", stage7_job)
+        self.assertIn("$env:RSSH_STAGE7_EVIDENCE_ROOT/stages", stage7_job)
+        self.assertIn("$env:RSSH_STAGE7_EVIDENCE_ROOT/tests", stage7_job)
+        self.assertIn("$env:RSSH_STAGE7_EVIDENCE_ROOT/external", stage7_job)
         self.assertIn("run-stage7-attribution-deterministic-tests.ps1", stage7_job)
         self.assertIn("prove-rterm-external-source.py", stage7_job)
         self.assertIn("assemble-stage7-evidence.py", stage7_job)
@@ -1154,7 +1160,9 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.assertIn("--fragment tests/artifact-manifest-fragment.json", stage7_job)
         self.assertIn("--fragment external/artifact-manifest-fragment.json", stage7_job)
         self.assertIn("if: always()", stage7_job)
-        self.assertIn("path: artifacts/stage7-gate0", stage7_job)
+        self.assertIn(
+            "path: ${{ runner.temp }}/rssh-stage7-evidence", stage7_job
+        )
         self.assertIn("inputs.stage7_gate_only != true", package_job)
 
     def test_attribution_process_shards_defer_statistics_to_the_aggregate(self) -> None:
