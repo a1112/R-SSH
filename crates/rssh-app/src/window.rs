@@ -118,6 +118,8 @@ use rssh_diagnostics::{
     ConnectionState as DiagnosticConnectionState, MarkerKind as DiagnosticMarkerKind,
     RendererKind as DiagnosticRendererKind, Scenario as DiagnosticScenario,
 };
+const PRODUCT_GUI_PROBE_ENV: &str = "RSSH_STAGE7_PRODUCT_GUI_PROBE";
+const PRODUCT_GUI_PROBE_SCHEMA: &str = "rssh.stage7/product-gui-probe/v1";
 #[path = "window_config.rs"]
 mod window_config;
 use window_config::{
@@ -775,13 +777,17 @@ pub fn run_ssh_gui(
         options.renderer
     });
     app.set_benchmark_startup(options.benchmark_startup);
+    let product_markers = install_product_gui_probe(&mut app, options, process_started_at)?;
     if let Some(path) = &options.log {
         app.session_log = Some(Box::new(File::create(path)?) as Box<dyn Write + Send>);
     }
 
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
-    app.event_proxy = Some(event_proxy);
+    app.event_proxy = Some(event_proxy.clone());
+    if product_markers.is_some() {
+        spawn_diagnostic_stdin_shutdown_listener(event_proxy)?;
+    }
     app.set_command_palette_frecency_path(default_command_palette_frecency_path());
     app.set_char_select_recently_used_path(default_char_select_recently_used_path());
     let cli = validate_cli_config_overrides(&[])?;
@@ -795,12 +801,139 @@ pub fn run_ssh_gui(
         .with_config_lifecycle(lifecycle)
         .with_deferred_config();
     event_loop.run_app(&mut manager)?;
+    if let Some(markers) = product_markers {
+        manager.shutdown_runtime_owners();
+        manager.reap_retired_apps();
+        if !markers.emit(DiagnosticMarkerKind::ProcessExited, None, None)? {
+            return Err(io::Error::other("product probe process_exited marker was not unique").into());
+        }
+    }
     if options.console.metrics_json {
         println!("{}", manager.metrics_json_report()?);
     } else if options.console.metrics {
         print!("{}", manager.metrics_report());
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProductGuiProbe {
+    run_id: String,
+    scenario: DiagnosticScenario,
+    hold_duration: Duration,
+}
+
+fn install_product_gui_probe(
+    app: &mut NativeWindowApp,
+    options: &SshOptions,
+    process_started_at: Instant,
+) -> io::Result<Option<DiagnosticMarkerHandle>> {
+    let probe = match std::env::var(PRODUCT_GUI_PROBE_ENV) {
+        Ok(value) => Some(
+            parse_product_gui_probe(&value)
+                .map_err(|message| io::Error::new(io::ErrorKind::InvalidInput, message))?,
+        ),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(_)) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{PRODUCT_GUI_PROBE_ENV} must contain UTF-8 JSON"),
+            ));
+        }
+    };
+    let Some(probe) = probe else {
+        return Ok(None);
+    };
+    if options.benchmark_startup {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the product GUI residence probe cannot use --benchmark-startup",
+        ));
+    }
+
+    let markers =
+        DiagnosticMarkerHandle::new(probe.run_id, probe.scenario, process_started_at);
+    if !markers.emit(DiagnosticMarkerKind::ProcessStarted, None, None)? {
+        return Err(io::Error::other(
+            "product probe process_started marker was not unique",
+        ));
+    }
+    let pending_secret = if probe.scenario == DiagnosticScenario::Ssh1 {
+        Some(std::env::var("RSSH_DIAGNOSTIC_SSH_SECRET").map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "SSH1 product GUI probe requires its isolated secret channel",
+            )
+        })?)
+    } else {
+        None
+    };
+    app.set_product_gui_probe(
+        markers.clone(),
+        probe.scenario,
+        probe.hold_duration,
+        pending_secret,
+    );
+    Ok(Some(markers))
+}
+
+fn parse_product_gui_probe(value: &str) -> Result<ProductGuiProbe, String> {
+    let value: serde_json::Value = serde_json::from_str(value)
+        .map_err(|error| format!("invalid {PRODUCT_GUI_PROBE_ENV} JSON: {error}"))?;
+    let fields = value
+        .as_object()
+        .ok_or_else(|| format!("{PRODUCT_GUI_PROBE_ENV} must be a JSON object"))?;
+    let expected = ["schema", "run_id", "scenario", "hold_ms"];
+    if fields.len() != expected.len() || !expected.iter().all(|field| fields.contains_key(*field))
+    {
+        return Err(format!(
+            "{PRODUCT_GUI_PROBE_ENV} must contain only schema, run_id, scenario, and hold_ms"
+        ));
+    }
+    if fields.get("schema").and_then(serde_json::Value::as_str)
+        != Some(PRODUCT_GUI_PROBE_SCHEMA)
+    {
+        return Err(format!("{PRODUCT_GUI_PROBE_ENV} schema is unsupported"));
+    }
+    let run_id = fields
+        .get("run_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("{PRODUCT_GUI_PROBE_ENV} run_id must be a string"))?;
+    let mut run_id_characters = run_id.chars();
+    if run_id.len() > 128
+        || !run_id_characters
+            .next()
+            .is_some_and(|character| character.is_ascii_alphanumeric())
+        || !run_id_characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | '-')
+        })
+    {
+        return Err(format!(
+            "{PRODUCT_GUI_PROBE_ENV} run_id must be a stable ASCII identifier"
+        ));
+    }
+    let scenario = match fields
+        .get("scenario")
+        .and_then(serde_json::Value::as_str)
+    {
+        Some("empty-window") => DiagnosticScenario::EmptyWindow,
+        Some("ssh1") => DiagnosticScenario::Ssh1,
+        _ => {
+            return Err(format!(
+                "{PRODUCT_GUI_PROBE_ENV} scenario must be empty-window or ssh1"
+            ));
+        }
+    };
+    let hold_ms = fields
+        .get("hold_ms")
+        .and_then(serde_json::Value::as_u64)
+        .filter(|hold_ms| (5_000..=300_000).contains(hold_ms))
+        .ok_or_else(|| format!("{PRODUCT_GUI_PROBE_ENV} hold_ms must be from 5000 to 300000"))?;
+    Ok(ProductGuiProbe {
+        run_id: run_id.to_owned(),
+        scenario,
+        hold_duration: Duration::from_millis(hold_ms),
+    })
 }
 
 /// Runs a private GUI scenario for the cross-platform diagnostics launcher.
@@ -8012,5 +8145,33 @@ mod ssh_gui_startup_contract_tests {
             extra["gpu_adapter_type"],
             serde_json::json!("discrete-gpu")
         );
+    }
+
+    #[test]
+    fn product_gui_probe_accepts_the_closed_v1_descriptor() {
+        let probe = parse_product_gui_probe(
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":38000}"#,
+        )
+        .expect("closed product GUI descriptor");
+
+        assert_eq!(probe.run_id, "stage7-product-42");
+        assert_eq!(probe.scenario, DiagnosticScenario::Ssh1);
+        assert_eq!(probe.hold_duration, Duration::from_millis(38_000));
+    }
+
+    #[test]
+    fn product_gui_probe_rejects_unknown_or_secret_fields() {
+        for descriptor in [
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":38000,"secret":"forbidden"}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"not a stable id","scenario":"ssh1","hold_ms":38000}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"local","hold_ms":38000}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":4999}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":300001}"#,
+        ] {
+            assert!(
+                parse_product_gui_probe(descriptor).is_err(),
+                "accepted invalid product GUI descriptor: {descriptor}"
+            );
+        }
     }
 }

@@ -1416,6 +1416,7 @@ struct NativeDiagnosticGuiState {
     secret_prompt_presented: bool,
     font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
     font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+    scenario_ready_requires_gpu: bool,
 }
 
 enum NativeStartupMode {

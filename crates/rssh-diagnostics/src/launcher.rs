@@ -8,7 +8,7 @@ use crate::{
     DiagnosticRendererMode, MarkerKind, RunConfiguration, Scenario,
 };
 
-pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--renderer auto|cpu|gpu] [--gpu-backend dx12|vulkan|gl] [--font-mode current|shared|lazy --font-specimen ascii|cjk|emoji] [--attribution-stage cpu-window|instance-surface|adapter-device|configured-surface-clear|layer-pipelines|fixture-font-text|platform-font-index|full-frame] [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
+pub const LAUNCHER_USAGE: &str = "Usage: rssh-bench-launcher --app PATH --scenario empty-window|ssh1 [--renderer auto|cpu|gpu] [--product-gui] [--gpu-backend dx12|vulkan|gl] [--font-mode current|shared|lazy --font-specimen ascii|cjk|emoji] [--attribution-stage cpu-window|instance-surface|adapter-device|configured-surface-clear|layer-pipelines|fixture-font-text|platform-font-index|full-frame] [--stabilization-ms N] [--sample-interval-ms N] [--sample-count N] [--shutdown-timeout-ms N] [--cols N] [--rows N] [--json]";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LauncherOptions {
@@ -25,6 +25,7 @@ pub struct LauncherOptions {
     pub font_mode: Option<DiagnosticFontMode>,
     pub font_specimen: Option<DiagnosticFontSpecimen>,
     pub attribution_stage: Option<DiagnosticAttributionStage>,
+    pub product_gui: bool,
     pub json: bool,
 }
 
@@ -56,6 +57,7 @@ impl LauncherOptions {
         let mut font_mode = None;
         let mut font_specimen = None;
         let mut attribution_stage = None;
+        let mut product_gui = false;
         let mut json = false;
 
         while let Some(argument) = arguments.next() {
@@ -128,6 +130,12 @@ impl LauncherOptions {
                         .map_err(|_| LauncherCliError::InvalidAttributionStage(value))?;
                     assign_once(&mut attribution_stage, parsed, "--attribution-stage")?;
                 }
+                "--product-gui" => {
+                    if product_gui {
+                        return Err(LauncherCliError::RepeatedArgument("--product-gui"));
+                    }
+                    product_gui = true;
+                }
                 "--json" => json = true,
                 _ => return Err(LauncherCliError::UnknownArgument(argument)),
             }
@@ -141,6 +149,14 @@ impl LauncherOptions {
         }
         if attribution_stage.is_some() && font_mode.is_some() {
             return Err(LauncherCliError::AttributionWithFontProof);
+        }
+        if product_gui
+            && (renderer != DiagnosticRendererMode::Auto
+                || gpu_backend.is_some()
+                || font_mode.is_some()
+                || attribution_stage.is_some())
+        {
+            return Err(LauncherCliError::ProductGuiDiagnosticOverride);
         }
         Ok(Self {
             app,
@@ -156,6 +172,7 @@ impl LauncherOptions {
             font_mode,
             font_specimen,
             attribution_stage,
+            product_gui,
             json,
         })
     }
@@ -308,6 +325,7 @@ pub enum LauncherCliError {
     FontProofRequiresEmptyWindow,
     AttributionRequiresEmptyWindow,
     AttributionWithFontProof,
+    ProductGuiDiagnosticOverride,
     InvalidPositiveValue { option: &'static str, value: String },
     AppDoesNotExist(PathBuf),
 }
@@ -362,6 +380,9 @@ impl Display for LauncherCliError {
             }
             Self::AttributionWithFontProof => formatter
                 .write_str("--attribution-stage cannot be combined with font proof options"),
+            Self::ProductGuiDiagnosticOverride => formatter.write_str(
+                "--product-gui requires --renderer auto and forbids diagnostic backend, font, and attribution overrides",
+            ),
             Self::InvalidPositiveValue { option, value } => {
                 write!(
                     formatter,
@@ -490,6 +511,61 @@ mod font_mode_tests {
             .observe_marker(MarkerKind::ScenarioReady, 121)
             .unwrap();
         assert_eq!(state.next_deadline_ms(), Some(5_120));
+    }
+}
+
+#[cfg(test)]
+mod product_gui_tests {
+    use super::*;
+
+    fn fixture_app() -> String {
+        std::env::current_exe()
+            .expect("current test executable")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn parse(extra: &[&str]) -> Result<LauncherOptions, LauncherCliError> {
+        let mut args = vec![
+            "rssh-bench-launcher".to_owned(),
+            "--app".to_owned(),
+            fixture_app(),
+            "--scenario".to_owned(),
+            "empty-window".to_owned(),
+        ];
+        args.extend(extra.iter().map(|value| (*value).to_owned()));
+        LauncherOptions::parse(args)
+    }
+
+    #[test]
+    fn parses_product_gui_mode() {
+        let options =
+            parse(&["--renderer", "auto", "--product-gui"]).expect("private product GUI mode");
+
+        assert!(options.product_gui);
+        assert_eq!(options.renderer, DiagnosticRendererMode::Auto);
+        assert_eq!(options.configuration(), RunConfiguration::default());
+    }
+
+    #[test]
+    fn product_gui_rejects_diagnostic_overrides() {
+        for extra in [
+            vec!["--product-gui", "--renderer", "gpu"],
+            vec!["--product-gui", "--gpu-backend", "dx12"],
+            vec![
+                "--product-gui",
+                "--font-mode",
+                "lazy",
+                "--font-specimen",
+                "ascii",
+            ],
+            vec!["--product-gui", "--attribution-stage", "cpu-window"],
+        ] {
+            assert!(matches!(
+                parse(&extra),
+                Err(LauncherCliError::ProductGuiDiagnosticOverride)
+            ));
+        }
     }
 }
 

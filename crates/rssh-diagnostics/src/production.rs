@@ -1,6 +1,8 @@
 use std::{
     collections::VecDeque,
     io::{BufRead, BufReader, Read, Write},
+    net::SocketAddr,
+    path::Path,
     process::{Child, ChildStdout, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex, mpsc},
     thread,
@@ -25,6 +27,7 @@ const READINESS_TIMEOUT: Duration = Duration::from_secs(20);
 const PIPE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const OUTPUT_TAIL_LIMIT: usize = 64 * 1024;
 const FIXTURE_USER: &str = "rssh-diagnostics";
+const PRODUCT_GUI_PROBE_ENV: &str = "RSSH_STAGE7_PRODUCT_GUI_PROBE";
 
 #[derive(Debug)]
 pub struct LauncherExecution {
@@ -60,7 +63,21 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
             );
         }
     };
-    let mut command = diagnostic_command(options, &run_id, fixture.as_ref());
+    let mut command = match diagnostic_command(options, &run_id, fixture.as_ref()) {
+        Ok(command) => command,
+        Err(message) => {
+            let _ = stop_fixture(fixture);
+            return failed_execution(
+                run,
+                options,
+                metric,
+                0,
+                RunFailure::new("command_build_failed", "launch", message),
+                ProcessExitKind::Natural,
+                None,
+            );
+        }
+    };
     let secret = fixture.as_ref().map(|fixture| fixture.secret.clone());
     let mut child = match command
         .stdin(Stdio::piped())
@@ -675,28 +692,41 @@ fn diagnostic_command(
     options: &LauncherOptions,
     run_id: &str,
     fixture: Option<&SshFixtureContext>,
-) -> Command {
+) -> Result<Command, String> {
     let mut command = Command::new(&options.app);
-    command.args(diagnostic_arguments(options, run_id));
+    if options.product_gui {
+        let address = fixture.map(|fixture| fixture.server.address());
+        let session_log = fixture.map(|fixture| fixture.session_log.as_path());
+        command
+            .args(product_gui_arguments(options, address, session_log)?)
+            .env(
+                PRODUCT_GUI_PROBE_ENV,
+                product_gui_probe_descriptor(options, run_id),
+            );
+    } else {
+        command.args(diagnostic_arguments(options, run_id));
+    }
     command.env("RSSH_BENCHMARK_WINDOW_SCALE_FACTOR", "1");
     if let Some(fixture) = fixture {
         let address = fixture.server.address();
-        command.args([
-            "--ssh-host",
-            &address.ip().to_string(),
-            "--ssh-port",
-            &address.port().to_string(),
-            "--ssh-user",
-            FIXTURE_USER,
-            "--log",
-            fixture.session_log.to_string_lossy().as_ref(),
-        ]);
+        if !options.product_gui {
+            command.args([
+                "--ssh-host",
+                &address.ip().to_string(),
+                "--ssh-port",
+                &address.port().to_string(),
+                "--ssh-user",
+                FIXTURE_USER,
+                "--log",
+                fixture.session_log.to_string_lossy().as_ref(),
+            ]);
+        }
         fixture.server.temp_home().apply_to(&mut command);
         command
             .env("RSSH_DIAGNOSTIC_SSH_SECRET", &fixture.secret)
             .env("SSH_AUTH_SOCK", "rssh-diagnostics-invalid-agent");
     }
-    command
+    Ok(command)
 }
 
 pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> Vec<String> {
@@ -704,11 +734,6 @@ pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> V
         Scenario::EmptyWindow => "empty-window",
         Scenario::Ssh1 => "ssh1",
     };
-    let hold_ms = options
-        .stabilization
-        .saturating_add(options.sample_interval.saturating_mul(options.sample_count))
-        .saturating_add(options.shutdown_timeout)
-        .saturating_add(Duration::from_secs(30));
     let mut arguments = vec![
         "diagnostic-gui".to_owned(),
         "--run-id".to_owned(),
@@ -716,7 +741,7 @@ pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> V
         "--scenario".to_owned(),
         scenario.to_owned(),
         "--hold-ms".to_owned(),
-        duration_millis(hold_ms).to_string(),
+        product_gui_hold_ms(options).to_string(),
         "--renderer".to_owned(),
         options.renderer.to_string(),
     ];
@@ -741,6 +766,67 @@ pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> V
         options.rows.to_string(),
     ]);
     arguments
+}
+
+fn product_gui_hold_ms(options: &LauncherOptions) -> u64 {
+    duration_millis(
+        options
+            .stabilization
+            .saturating_add(options.sample_interval.saturating_mul(options.sample_count))
+            .saturating_add(options.shutdown_timeout)
+            .saturating_add(Duration::from_secs(30)),
+    )
+}
+
+fn product_gui_probe_descriptor(options: &LauncherOptions, run_id: &str) -> String {
+    let scenario = match options.scenario {
+        Scenario::EmptyWindow => "empty-window",
+        Scenario::Ssh1 => "ssh1",
+    };
+    serde_json::json!({
+        "schema": "rssh.stage7/product-gui-probe/v1",
+        "run_id": run_id,
+        "scenario": scenario,
+        "hold_ms": product_gui_hold_ms(options),
+    })
+    .to_string()
+}
+
+fn product_gui_arguments(
+    options: &LauncherOptions,
+    fixture_address: Option<SocketAddr>,
+    session_log: Option<&Path>,
+) -> Result<Vec<String>, String> {
+    let address = match options.scenario {
+        Scenario::EmptyWindow => SocketAddr::from(([127, 0, 0, 1], 9)),
+        Scenario::Ssh1 => fixture_address
+            .ok_or_else(|| "SSH1 product GUI probe requires a loopback fixture".to_owned())?,
+    };
+    let mut arguments = vec![
+        "ssh".to_owned(),
+        "--gui".to_owned(),
+        "--renderer".to_owned(),
+        "auto".to_owned(),
+        "--host".to_owned(),
+        address.ip().to_string(),
+        "--port".to_owned(),
+        address.port().to_string(),
+        "--user".to_owned(),
+        FIXTURE_USER.to_owned(),
+        "--password".to_owned(),
+        "--accept-unknown-host-key".to_owned(),
+        "--cols".to_owned(),
+        options.columns.to_string(),
+        "--rows".to_owned(),
+        options.rows.to_string(),
+    ];
+    if let Some(session_log) = session_log {
+        arguments.extend([
+            "--log".to_owned(),
+            session_log.to_string_lossy().into_owned(),
+        ]);
+    }
+    Ok(arguments)
 }
 
 struct SshFixtureContext {
@@ -1107,6 +1193,7 @@ mod tests {
             font_mode: None,
             font_specimen: None,
             attribution_stage: None,
+            product_gui: false,
             json: true,
         }
     }
@@ -1248,6 +1335,7 @@ mod tests {
             font_mode: None,
             font_specimen: None,
             attribution_stage: None,
+            product_gui: false,
             json: true,
         };
 
@@ -1290,6 +1378,7 @@ mod tests {
             font_mode: None,
             font_specimen: None,
             attribution_stage: None,
+            product_gui: false,
             json: true,
         };
 
@@ -1303,6 +1392,88 @@ mod tests {
             Some("auto")
         );
         assert!(!arguments.iter().any(|argument| argument == "--gpu-backend"));
+    }
+
+    #[test]
+    fn product_gui_empty_window_uses_normal_ssh_entrypoint() {
+        let options = LauncherOptions {
+            stabilization: Duration::from_millis(5_000),
+            sample_interval: Duration::from_millis(100),
+            sample_count: 10,
+            shutdown_timeout: Duration::from_millis(2_000),
+            renderer: DiagnosticRendererMode::Auto,
+            gpu_backend: None,
+            product_gui: true,
+            ..fixture_options()
+        };
+
+        let arguments =
+            product_gui_arguments(&options, None, None).expect("empty product probe arguments");
+        let descriptor = product_gui_probe_descriptor(&options, "product-empty");
+        let descriptor: serde_json::Value =
+            serde_json::from_str(&descriptor).expect("product probe descriptor JSON");
+
+        assert_eq!(&arguments[..2], ["ssh", "--gui"]);
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--renderer", "auto"])
+        );
+        assert!(arguments.windows(2).any(|pair| pair == ["--port", "9"]));
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument == "diagnostic-gui")
+        );
+        assert_eq!(
+            descriptor,
+            serde_json::json!({
+                "schema": "rssh.stage7/product-gui-probe/v1",
+                "run_id": "product-empty",
+                "scenario": "empty-window",
+                "hold_ms": 38000_u64,
+            })
+        );
+        assert!(!descriptor.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn product_gui_ssh1_binds_the_loopback_fixture() {
+        let options = LauncherOptions {
+            scenario: Scenario::Ssh1,
+            renderer: DiagnosticRendererMode::Auto,
+            gpu_backend: None,
+            product_gui: true,
+            ..fixture_options()
+        };
+        let log = PathBuf::from("fixture-session.log");
+        let address = "127.0.0.1:2222".parse().expect("fixture address");
+
+        let arguments = product_gui_arguments(&options, Some(address), Some(&log))
+            .expect("SSH1 product probe arguments");
+
+        for pair in [
+            ["--host", "127.0.0.1"],
+            ["--port", "2222"],
+            ["--user", FIXTURE_USER],
+            ["--log", "fixture-session.log"],
+        ] {
+            assert!(
+                arguments.windows(2).any(|actual| actual == pair),
+                "missing pair {pair:?} in {arguments:?}"
+            );
+        }
+        assert!(arguments.iter().any(|argument| argument == "--password"));
+        assert!(
+            arguments
+                .iter()
+                .any(|argument| argument == "--accept-unknown-host-key")
+        );
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument == "diagnostic-gui")
+        );
     }
 
     #[test]

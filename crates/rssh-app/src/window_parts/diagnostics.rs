@@ -89,8 +89,22 @@ const FONT_PROOF_GPU_READY_FOLLOWUPS: [DiagnosticMarkerKind; 2] = [
 const fn diagnostic_first_present_is_scenario_ready(
     font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
     scenario: DiagnosticScenario,
+    scenario_ready_requires_gpu: bool,
 ) -> bool {
-    font_mode.is_none() && matches!(scenario, DiagnosticScenario::EmptyWindow)
+    !scenario_ready_requires_gpu
+        && font_mode.is_none()
+        && matches!(scenario, DiagnosticScenario::EmptyWindow)
+}
+
+const fn diagnostic_ssh1_present_is_scenario_ready(
+    scenario: DiagnosticScenario,
+    scenario_ready_requires_gpu: bool,
+    connection_state: ConnectionState,
+    renderer: DiagnosticRendererKind,
+) -> bool {
+    matches!(scenario, DiagnosticScenario::Ssh1)
+        && matches!(connection_state, ConnectionState::Connected)
+        && (!scenario_ready_requires_gpu || matches!(renderer, DiagnosticRendererKind::Gpu))
 }
 
 fn validate_font_resource_marker_value(value: &serde_json::Value) -> Result<(), String> {
@@ -173,6 +187,46 @@ impl NativeWindowApp {
         font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
         font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
     ) {
+        self.set_diagnostic_gui_state(
+            markers,
+            scenario,
+            hold_duration,
+            pending_secret,
+            font_mode,
+            font_specimen,
+            false,
+        );
+    }
+
+    fn set_product_gui_probe(
+        &mut self,
+        markers: DiagnosticMarkerHandle,
+        scenario: DiagnosticScenario,
+        hold_duration: Duration,
+        pending_secret: Option<String>,
+    ) {
+        self.set_diagnostic_gui_state(
+            markers,
+            scenario,
+            hold_duration,
+            pending_secret,
+            None,
+            None,
+            true,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_diagnostic_gui_state(
+        &mut self,
+        markers: DiagnosticMarkerHandle,
+        scenario: DiagnosticScenario,
+        hold_duration: Duration,
+        pending_secret: Option<String>,
+        font_mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+        font_specimen: Option<rssh_diagnostics::DiagnosticFontSpecimen>,
+        scenario_ready_requires_gpu: bool,
+    ) {
         self.startup_mode = NativeStartupMode::Diagnostic(NativeDiagnosticGuiState {
             markers,
             scenario,
@@ -184,6 +238,7 @@ impl NativeWindowApp {
             secret_prompt_presented: false,
             font_mode,
             font_specimen,
+            scenario_ready_requires_gpu,
         });
     }
 
@@ -309,7 +364,15 @@ impl NativeWindowApp {
             }
             return;
         }
-        if state != ConnectionState::Connected {
+        let scenario_ready_requires_gpu = self
+            .diagnostic_gui()
+            .is_some_and(|diagnostic| diagnostic.scenario_ready_requires_gpu);
+        if !diagnostic_ssh1_present_is_scenario_ready(
+            DiagnosticScenario::Ssh1,
+            scenario_ready_requires_gpu,
+            state,
+            renderer,
+        ) {
             return;
         }
 
@@ -379,6 +442,7 @@ impl NativeWindowApp {
             && diagnostic_first_present_is_scenario_ready(
                 diagnostic.font_mode,
                 diagnostic.scenario,
+                diagnostic.scenario_ready_requires_gpu,
             )
             && diagnostic.hold_deadline.is_none()
         {
@@ -394,17 +458,23 @@ impl NativeWindowApp {
     }
 
     fn mark_diagnostic_gpu_ready(&mut self) {
-        let Some((markers, scenario, font_mode, hold_deadline, hold_duration)) = self
-            .diagnostic_gui()
-            .map(|diagnostic| {
-                (
-                    diagnostic.markers.clone(),
-                    diagnostic.scenario,
-                    diagnostic.font_mode,
-                    diagnostic.hold_deadline,
-                    diagnostic.hold_duration,
-                )
-            })
+        let Some((
+            markers,
+            scenario,
+            font_mode,
+            hold_deadline,
+            hold_duration,
+            scenario_ready_requires_gpu,
+        )) = self.diagnostic_gui().map(|diagnostic| {
+            (
+                diagnostic.markers.clone(),
+                diagnostic.scenario,
+                diagnostic.font_mode,
+                diagnostic.hold_deadline,
+                diagnostic.hold_duration,
+                diagnostic.scenario_ready_requires_gpu,
+            )
+        })
         else {
             return;
         };
@@ -426,13 +496,17 @@ impl NativeWindowApp {
         ) {
             eprintln!("failed to emit diagnostic GPU readiness: {error}");
         }
-        if font_mode.is_none()
-            || scenario != DiagnosticScenario::EmptyWindow
-            || hold_deadline.is_some()
-        {
+        if scenario != DiagnosticScenario::EmptyWindow || hold_deadline.is_some() {
             return;
         }
-        for kind in FONT_PROOF_GPU_READY_FOLLOWUPS {
+        let followups: &[DiagnosticMarkerKind] = if font_mode.is_some() {
+            &FONT_PROOF_GPU_READY_FOLLOWUPS
+        } else if scenario_ready_requires_gpu {
+            &[DiagnosticMarkerKind::ScenarioReady]
+        } else {
+            return;
+        };
+        for &kind in followups {
             if let Err(error) = markers.emit(
                 kind,
                 Some(DiagnosticRendererKind::Gpu),
@@ -623,10 +697,45 @@ mod font_mode_tests {
         assert!(!diagnostic_first_present_is_scenario_ready(
             Some(DiagnosticFontMode::CurrentCopied),
             DiagnosticScenario::EmptyWindow,
+            false,
         ));
         assert!(diagnostic_first_present_is_scenario_ready(
             None,
             DiagnosticScenario::EmptyWindow,
+            false,
+        ));
+        assert!(!diagnostic_first_present_is_scenario_ready(
+            None,
+            DiagnosticScenario::EmptyWindow,
+            true,
+        ));
+    }
+
+    #[test]
+    fn product_gui_probe_requires_connected_gpu_frame_for_ssh1() {
+        assert!(!diagnostic_ssh1_present_is_scenario_ready(
+            DiagnosticScenario::Ssh1,
+            true,
+            ConnectionState::Connected,
+            DiagnosticRendererKind::Cpu,
+        ));
+        assert!(diagnostic_ssh1_present_is_scenario_ready(
+            DiagnosticScenario::Ssh1,
+            true,
+            ConnectionState::Connected,
+            DiagnosticRendererKind::Gpu,
+        ));
+        assert!(!diagnostic_ssh1_present_is_scenario_ready(
+            DiagnosticScenario::Ssh1,
+            true,
+            ConnectionState::Connecting,
+            DiagnosticRendererKind::Gpu,
+        ));
+        assert!(diagnostic_ssh1_present_is_scenario_ready(
+            DiagnosticScenario::Ssh1,
+            false,
+            ConnectionState::Connected,
+            DiagnosticRendererKind::Cpu,
         ));
     }
 }
