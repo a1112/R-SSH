@@ -6427,6 +6427,19 @@ return config
                 violation.contains("unknown resource field future_unaccounted_texture_bytes")
             }));
 
+            let mut impossible_image = snapshot.clone();
+            impossible_image.image_texture_bytes = 1;
+            impossible_image.total_allocated_texture_bytes = impossible_image
+                .total_allocated_texture_bytes
+                .saturating_add(1);
+            assert!(
+                impossible_image
+                    .validate_at(GpuAttributionStage::FullFrame)
+                    .expect_err("the fixed empty FullFrame graph cannot own image resources")
+                    .iter()
+                    .any(|violation| violation.contains("image_texture_bytes"))
+            );
+
             let mut overflow = snapshot.resource_fields();
             overflow.insert("glyph_atlas_bytes", u64::MAX);
             overflow.insert("image_texture_bytes", 1);

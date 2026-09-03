@@ -330,8 +330,8 @@ fn exact_attribution_resources(stage: DiagnosticAttributionStage) -> ProjectOwne
         resources.clear_present_count = 1;
     }
     if stage >= DiagnosticAttributionStage::LayerPipelines {
-        resources.pipeline_count = 2;
-        resources.pipeline_layout_count = 2;
+        resources.pipeline_count = 1;
+        resources.pipeline_layout_count = 1;
         resources.materialized_buffer_count = 1;
         resources.total_allocated_buffer_bytes = 8;
     }
@@ -343,7 +343,6 @@ fn exact_attribution_resources(stage: DiagnosticAttributionStage) -> ProjectOwne
         resources.glyph_atlas_bytes = 1;
         resources.total_allocated_texture_bytes = 1;
         resources.base_text_renderer_materialization_count = 1;
-        resources.cursor_text_renderer_materialization_count = 1;
     }
     if stage >= DiagnosticAttributionStage::PlatformFontIndex {
         resources.indexed_font_count = 2;
@@ -351,7 +350,6 @@ fn exact_attribution_resources(stage: DiagnosticAttributionStage) -> ProjectOwne
     if stage >= DiagnosticAttributionStage::FullFrame {
         resources.snapshot_bytes = 1;
         resources.base_text_renderer_materialization_count = 2;
-        resources.cursor_text_renderer_materialization_count = 2;
     }
     resources
 }
@@ -389,6 +387,22 @@ fn attribution_stage_resource_matrix_is_exact_and_fail_closed_for_all_eight_rows
             "{stage} accepted a forbidden later-stage resource"
         );
     }
+}
+
+#[test]
+fn full_frame_rejects_image_bytes_for_the_fixed_empty_graph() {
+    let mut resources = exact_attribution_resources(DiagnosticAttributionStage::FullFrame);
+    resources.image_texture_bytes = 1;
+    resources.total_allocated_texture_bytes =
+        resources.total_allocated_texture_bytes.saturating_add(1);
+
+    assert!(
+        resources
+            .validate_at(DiagnosticAttributionStage::FullFrame)
+            .expect_err("the fixed empty FullFrame graph cannot own image resources")
+            .iter()
+            .any(|violation| violation.contains("image_texture_bytes"))
+    );
 }
 
 #[test]

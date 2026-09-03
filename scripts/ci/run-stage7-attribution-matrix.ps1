@@ -365,7 +365,7 @@ function Get-AllowedResourceFields([string] $Stage) {
     if ($index -ge 4) { $allowed += @("pipeline_count", "pipeline_layout_count", "materialized_buffer_count", "total_allocated_buffer_bytes") }
     if ($index -ge 5) { $allowed += @("retained_font_bytes", "active_font_count", "catalog_builds", "catalog_generation", "glyph_atlas_bytes", "raster_cache_bytes", "instance_buffer_bytes", "upload_buffer_bytes", "total_allocated_texture_bytes", "base_text_renderer_materialization_count", "cursor_text_renderer_materialization_count") }
     if ($index -ge 6) { $allowed += "indexed_font_count" }
-    if ($index -ge 7) { $allowed += @("image_texture_bytes", "snapshot_bytes") }
+    if ($index -ge 7) { $allowed += "snapshot_bytes" }
     return $allowed
 }
 
@@ -408,7 +408,7 @@ function Assert-ProjectOwnedResourceMetricsV1([object] $Summary, [string] $Stage
         if ((Get-RequiredUInt64 $Summary.surface_acquire_count "resource_summary.surface_acquire_count") -ne $expectedAcquires) { throw "resource_summary.surface_acquire_count is invalid at $Stage" }
     }
     if ($index -ge 4) {
-        foreach ($pair in @(@("pipeline_count", 2), @("pipeline_layout_count", 2), @("materialized_buffer_count", 1))) { if ((Get-RequiredUInt64 $Summary.$($pair[0]) "resource_summary.$($pair[0])") -ne [UInt64] $pair[1]) { throw "resource_summary.$($pair[0]) is invalid" } }
+        foreach ($pair in @(@("pipeline_count", 1), @("pipeline_layout_count", 1), @("materialized_buffer_count", 1))) { if ((Get-RequiredUInt64 $Summary.$($pair[0]) "resource_summary.$($pair[0])") -ne [UInt64] $pair[1]) { throw "resource_summary.$($pair[0]) is invalid" } }
         if ((Get-RequiredUInt64 $Summary.total_allocated_buffer_bytes "resource_summary.total_allocated_buffer_bytes") -eq 0) { throw "resource_summary.total_allocated_buffer_bytes must be positive" }
     }
     if ($index -ge 5) {
@@ -416,10 +416,12 @@ function Assert-ProjectOwnedResourceMetricsV1([object] $Summary, [string] $Stage
         $texture = (Get-RequiredUInt64 $Summary.glyph_atlas_bytes "resource_summary.glyph_atlas_bytes") + (Get-RequiredUInt64 $Summary.image_texture_bytes "resource_summary.image_texture_bytes")
         if ((Get-RequiredUInt64 $Summary.total_allocated_texture_bytes "resource_summary.total_allocated_texture_bytes") -ne $texture) { throw "resource_summary texture total is inconsistent" }
         $textCount = if ($index -ge 7) { 2 } else { 1 }
-        foreach ($field in @("base_text_renderer_materialization_count", "cursor_text_renderer_materialization_count")) { if ((Get-RequiredUInt64 $Summary.$field "resource_summary.$field") -ne $textCount) { throw "resource_summary.$field is invalid" } }
+        if ((Get-RequiredUInt64 $Summary.base_text_renderer_materialization_count "resource_summary.base_text_renderer_materialization_count") -ne $textCount) { throw "resource_summary.base_text_renderer_materialization_count is invalid" }
+        if ((Get-RequiredUInt64 $Summary.cursor_text_renderer_materialization_count "resource_summary.cursor_text_renderer_materialization_count") -ne 0) { throw "resource_summary.cursor_text_renderer_materialization_count is invalid" }
     }
     if ($index -ge 6 -and (Get-RequiredUInt64 $Summary.indexed_font_count "resource_summary.indexed_font_count") -eq 0) { throw "resource_summary.indexed_font_count must be positive" }
     if ($index -ge 6 -and (Get-RequiredUInt64 $Summary.inactive_font_bytes "resource_summary.inactive_font_bytes") -ne 0) { throw "resource_summary.inactive_font_bytes must remain zero at platform-font-index" }
+    if ($index -ge 7 -and (Get-RequiredUInt64 $Summary.image_texture_bytes "resource_summary.image_texture_bytes") -ne 0) { throw "resource_summary.image_texture_bytes must remain zero for the fixed empty FullFrame graph" }
     if ($index -ge 7 -and (Get-RequiredUInt64 $Summary.snapshot_bytes "resource_summary.snapshot_bytes") -eq 0) { throw "resource_summary.snapshot_bytes must be positive" }
 }
 

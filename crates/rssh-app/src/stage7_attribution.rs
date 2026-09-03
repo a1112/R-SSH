@@ -381,8 +381,8 @@ impl ProjectOwnedResourceSnapshot {
             snapshot.clear_present_count = 1;
         }
         if stage >= GpuAttributionStage::LayerPipelines {
-            snapshot.pipeline_count = 2;
-            snapshot.pipeline_layout_count = 2;
+            snapshot.pipeline_count = 1;
+            snapshot.pipeline_layout_count = 1;
             snapshot.materialized_buffer_count = 1;
             snapshot.total_allocated_buffer_bytes = 8;
         }
@@ -394,7 +394,6 @@ impl ProjectOwnedResourceSnapshot {
             snapshot.glyph_atlas_bytes = 1;
             snapshot.total_allocated_texture_bytes = 1;
             snapshot.base_text_renderer_materialization_count = 1;
-            snapshot.cursor_text_renderer_materialization_count = 1;
         }
         if stage >= GpuAttributionStage::PlatformFontIndex {
             snapshot.indexed_font_count = 2;
@@ -402,7 +401,6 @@ impl ProjectOwnedResourceSnapshot {
         if stage >= GpuAttributionStage::FullFrame {
             snapshot.snapshot_bytes = 1;
             snapshot.base_text_renderer_materialization_count = 2;
-            snapshot.cursor_text_renderer_materialization_count = 2;
         }
         snapshot
     }
@@ -480,8 +478,8 @@ fn validate_resource_fields(
         );
     }
     if stage >= GpuAttributionStage::LayerPipelines {
-        require_exact(&mut violations, fields, "pipeline_count", 2);
-        require_exact(&mut violations, fields, "pipeline_layout_count", 2);
+        require_exact(&mut violations, fields, "pipeline_count", 1);
+        require_exact(&mut violations, fields, "pipeline_layout_count", 1);
         require_exact(&mut violations, fields, "materialized_buffer_count", 1);
         require_exact(&mut violations, fields, "instance_buffer_bytes", 0);
         require_exact(&mut violations, fields, "upload_buffer_bytes", 0);
@@ -532,7 +530,7 @@ fn validate_resource_fields(
             &mut violations,
             fields,
             "cursor_text_renderer_materialization_count",
-            text_renderer_count,
+            0,
         );
     }
     if stage >= GpuAttributionStage::PlatformFontIndex {
@@ -540,6 +538,7 @@ fn validate_resource_fields(
         require_exact(&mut violations, fields, "inactive_font_bytes", 0);
     }
     if stage >= GpuAttributionStage::FullFrame {
+        require_exact(&mut violations, fields, "image_texture_bytes", 0);
         require_positive(&mut violations, fields, "snapshot_bytes");
     }
     if violations.is_empty() {
@@ -687,7 +686,6 @@ fn allowed_nonzero_fields(stage: GpuAttributionStage) -> &'static [&'static str]
             "catalog_generation",
             "glyph_atlas_bytes",
             "raster_cache_bytes",
-            "image_texture_bytes",
             "snapshot_bytes",
             "instance_buffer_bytes",
             "upload_buffer_bytes",

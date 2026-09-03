@@ -196,12 +196,12 @@ struct GlyphonState {
     viewport: Viewport,
     atlas: TextAtlas,
     renderer: TextRenderer,
-    cursor_renderer: TextRenderer,
+    cursor_renderer: Option<TextRenderer>,
     swash_cache: SwashCache,
     empty_buffer: Buffer,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct GpuTextOwnerMaterialization {
     pub(crate) base_renderer_count: u64,
     pub(crate) cursor_renderer_count: u64,
@@ -226,26 +226,27 @@ impl GlyphonState {
             )?;
         let renderer =
             TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
-        let cursor_renderer =
-            TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
         Ok(Self {
             viewport,
             atlas,
             renderer,
-            cursor_renderer,
+            cursor_renderer: None,
             swash_cache: SwashCache::new(),
             empty_buffer: Buffer::new_empty(Metrics::new(1.0, 1.0)),
         })
     }
 
-    fn owner_materialization(&self) -> GpuTextOwnerMaterialization {
-        fn count_owned_renderer(_renderer: &TextRenderer) -> u64 {
-            1
-        }
-
-        GpuTextOwnerMaterialization {
-            base_renderer_count: count_owned_renderer(&self.renderer),
-            cursor_renderer_count: count_owned_renderer(&self.cursor_renderer),
+    fn materialize_cursor_renderer(&mut self, device: &wgpu::Device) -> bool {
+        if self.cursor_renderer.is_none() {
+            self.cursor_renderer = Some(TextRenderer::new(
+                &mut self.atlas,
+                device,
+                wgpu::MultisampleState::default(),
+                None,
+            ));
+            true
+        } else {
+            false
         }
     }
 }
@@ -260,6 +261,7 @@ pub(crate) struct GpuText {
     raster: RasterCache,
     config: GpuTextConfig,
     glyphon: GlyphonState,
+    owner_materializations: GpuTextOwnerMaterialization,
     identity_to_id: HashMap<BitmapIdentity, u16>,
     payloads: HashMap<u16, GlyphPayload>,
     next_id: u32,
@@ -313,6 +315,10 @@ impl GpuText {
         Ok(Self {
             generation,
             glyphon,
+            owner_materializations: GpuTextOwnerMaterialization {
+                base_renderer_count: 1,
+                cursor_renderer_count: 0,
+            },
             device,
             queue,
             format,
@@ -348,7 +354,7 @@ impl GpuText {
     }
 
     pub(crate) fn owner_materialization(&self) -> GpuTextOwnerMaterialization {
-        self.glyphon.owner_materialization()
+        self.owner_materializations
     }
 
     pub(crate) const fn metrics(&self) -> GpuTextAtlasMetrics {
@@ -408,6 +414,10 @@ impl GpuText {
             self.format,
             self.config.budget_bytes,
         )?;
+        self.owner_materializations.base_renderer_count = self
+            .owner_materializations
+            .base_renderer_count
+            .saturating_add(1);
         self.identity_to_id.clear();
         self.payloads.clear();
         self.row_cache.clear();
@@ -1055,7 +1065,17 @@ impl GpuText {
                 )));
             }
         }
-        {
+        let has_cursor_foreground = self
+            .row_cache
+            .values()
+            .any(|row| !row.cursor_areas.is_empty());
+        if has_cursor_foreground && self.glyphon.materialize_cursor_renderer(&self.device) {
+            self.owner_materializations.cursor_renderer_count = self
+                .owner_materializations
+                .cursor_renderer_count
+                .saturating_add(1);
+        }
+        if let Some(cursor_renderer) = self.glyphon.cursor_renderer.as_mut() {
             let areas = self.row_cache.values().flat_map(|row| {
                 row.cursor_areas.iter().map(|area| TextArea {
                     buffer: &self.glyphon.empty_buffer,
@@ -1067,7 +1087,7 @@ impl GpuText {
                     custom_glyphs: std::slice::from_ref(&area.glyph),
                 })
             });
-            let result = self.glyphon.cursor_renderer.prepare_with_custom(
+            let result = cursor_renderer.prepare_with_custom(
                 &self.device,
                 &self.queue,
                 self.catalog.font_system_mut(),
@@ -1122,8 +1142,10 @@ impl GpuText {
         &'pass self,
         pass: &mut wgpu::RenderPass<'pass>,
     ) -> Result<(), GpuLayerError> {
-        self.glyphon
-            .cursor_renderer
+        let Some(renderer) = self.glyphon.cursor_renderer.as_ref() else {
+            return Ok(());
+        };
+        renderer
             .render(&self.glyphon.atlas, &self.glyphon.viewport, pass)
             .map_err(|error| {
                 GpuLayerError::message(format!("render GPU cursor foreground atlas: {error}"))

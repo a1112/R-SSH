@@ -2615,7 +2615,7 @@ def validate_project_owned_resource_metrics_v1(
     if stage_index >= 6:
         allowed_by_stage.append("indexed_font_count")
     if stage_index >= 7:
-        allowed_by_stage += ["image_texture_bytes", "snapshot_bytes"]
+        allowed_by_stage.append("snapshot_bytes")
     for field in PROJECT_RESOURCE_NUMERIC_FIELDS:
         value = summary.get(field)
         if isinstance(value, int) and not isinstance(value, bool) and value != 0 and field not in allowed_by_stage:
@@ -2656,8 +2656,8 @@ def validate_project_owned_resource_metrics_v1(
         require_exact("clear_present_count", 1)
         require_exact("surface_acquire_count", 3 if stage_index >= 7 else 2 if stage_index >= 5 else 1)
     if stage_index >= 4:
-        require_exact("pipeline_count", 2)
-        require_exact("pipeline_layout_count", 2)
+        require_exact("pipeline_count", 1)
+        require_exact("pipeline_layout_count", 1)
         require_exact("materialized_buffer_count", 1)
         if summary.get("total_allocated_buffer_bytes") == 0:
             violations.append(f"{label}: total_allocated_buffer_bytes must be positive")
@@ -2674,11 +2674,12 @@ def validate_project_owned_resource_metrics_v1(
             violations.append(f"{label}: total_allocated_texture_bytes does not equal glyph plus image bytes")
         text_count = 2 if stage_index >= 7 else 1
         require_exact("base_text_renderer_materialization_count", text_count)
-        require_exact("cursor_text_renderer_materialization_count", text_count)
+        require_exact("cursor_text_renderer_materialization_count", 0)
     if stage_index >= 6:
         require_positive("indexed_font_count")
         require_exact("inactive_font_bytes", 0)
     if stage_index >= 7:
+        require_exact("image_texture_bytes", 0)
         require_positive("snapshot_bytes")
 
 

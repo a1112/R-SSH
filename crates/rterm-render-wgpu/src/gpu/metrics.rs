@@ -156,13 +156,13 @@ impl GpuInitializationResourceSnapshot {
             &mut violations,
             "pipeline_count",
             self.pipeline_count,
-            if has_layers { 2 } else { 0 },
+            u64::from(has_layers),
         );
         require_exact(
             &mut violations,
             "pipeline_layout_count",
             self.pipeline_layout_count,
-            if has_layers { 2 } else { 0 },
+            u64::from(has_layers),
         );
         require_exact(
             &mut violations,

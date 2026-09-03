@@ -3465,6 +3465,95 @@ mod tests {
         );
     }
 
+    mod device_loss {
+        use super::*;
+
+        fn cursor_snapshot() -> TerminalRenderSnapshot {
+            let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+            terminal.feed(b"A\x1b[1D\x1b[2 q");
+            TerminalRenderSnapshot::from_terminal(&terminal)
+        }
+
+        fn image_graph() -> RenderGraph {
+            const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+            let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+            terminal.feed(
+                format!("\x1b]1337;File=inline=1;width=2px;height=2px:{RED_PNG}\x07").as_bytes(),
+            );
+            let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+            let mut graph = RenderGraph::new(2, 2);
+            graph.push_snapshot_images(&snapshot, RenderGeometry::new(2, 2, 2, 2), 0, None);
+            graph
+        }
+
+        fn enable_fixture_text(renderer: &mut GpuLayerRenderer) {
+            renderer
+                .enable_text(
+                    stage7_fixture_font_catalog().expect("fixture catalog"),
+                    stage7_fixture_font_config(),
+                    stage7_text_config().with_cursor_foreground([255, 0, 0, 255]),
+                )
+                .expect("fixture GPU text");
+        }
+
+        fn materialize_lazy_resources(renderer: &mut GpuLayerRenderer) {
+            renderer
+                .prepare_text(
+                    &cursor_snapshot(),
+                    RenderGeometry::new(32, 24, 16, 24),
+                    &[],
+                    &TextPaintConfig::default(),
+                    1.0,
+                    1.0,
+                )
+                .expect("cursor foreground");
+            renderer.upload(&image_graph()).expect("image pipeline");
+        }
+
+        #[test]
+        fn recovery_does_not_duplicate_lazy_resources() {
+            let context =
+                pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+                    .expect("headless adapter");
+            let mut lost =
+                GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("lost renderer");
+            enable_fixture_text(&mut lost);
+            materialize_lazy_resources(&mut lost);
+            let lost_resources = lost.initialization_resources();
+            assert_eq!(lost_resources.pipeline_count, 2);
+            assert_eq!(lost_resources.base_text_renderer_materialization_count, 1);
+            assert_eq!(lost_resources.cursor_text_renderer_materialization_count, 1);
+
+            let mut replacement = retire_lost_renderer_before_rebuild(&mut lost, |retired| {
+                assert_eq!(
+                    retired
+                        .text_cpu_font_metrics()
+                        .expect("retired font metrics")
+                        .catalog
+                        .retained_source_bytes,
+                    0
+                );
+                let mut replacement = GpuLayerRenderer::new_headless(&context, 64 * 1024)
+                    .expect("replacement renderer");
+                enable_fixture_text(&mut replacement);
+                let initial = replacement.initialization_resources();
+                assert_eq!(initial.pipeline_count, 1);
+                assert_eq!(initial.base_text_renderer_materialization_count, 1);
+                assert_eq!(initial.cursor_text_renderer_materialization_count, 0);
+                Ok::<_, Box<dyn Error>>(replacement)
+            })
+            .expect("recover renderer");
+
+            materialize_lazy_resources(&mut replacement);
+            let recovered = replacement.initialization_resources();
+            assert_eq!(recovered.pipeline_count, 2);
+            assert_eq!(recovered.base_text_renderer_materialization_count, 1);
+            assert_eq!(recovered.cursor_text_renderer_materialization_count, 1);
+            materialize_lazy_resources(&mut replacement);
+            assert_eq!(replacement.initialization_resources(), recovered);
+        }
+    }
+
     #[test]
     fn device_loss_recovery_never_attempts_a_third_present_or_swallows_other_faults() {
         let snapshot =

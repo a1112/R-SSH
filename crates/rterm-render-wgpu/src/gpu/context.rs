@@ -312,6 +312,8 @@ pub struct GpuContext {
     suspended: bool,
     metrics: GpuPresentationMetrics,
     initialization_resources: GpuInitializationResourceSnapshot,
+    #[cfg(any(test, debug_assertions))]
+    direct_upload_device_loss_injections: u64,
     #[cfg(test)]
     recovery_failure_injections: u64,
     #[cfg(test)]
@@ -410,6 +412,8 @@ impl WindowedGpuContextBootstrap {
                 suspended: width == 0 || height == 0,
                 metrics: GpuPresentationMetrics::from_adapter(&info),
                 initialization_resources,
+                #[cfg(any(test, debug_assertions))]
+                direct_upload_device_loss_injections: 0,
                 #[cfg(test)]
                 recovery_failure_injections: 0,
                 #[cfg(test)]
@@ -506,6 +510,8 @@ impl GpuContext {
                 adapter_name: Some(info.name.clone()),
                 ..GpuInitializationResourceSnapshot::default()
             },
+            #[cfg(any(test, debug_assertions))]
+            direct_upload_device_loss_injections: 0,
             #[cfg(test)]
             recovery_failure_injections: 0,
             #[cfg(test)]
@@ -803,6 +809,13 @@ impl GpuContext {
         });
     }
 
+    #[cfg(any(test, debug_assertions))]
+    #[doc(hidden)]
+    pub fn inject_device_loss_during_direct_upload_for_test(&mut self) {
+        self.direct_upload_device_loss_injections =
+            self.direct_upload_device_loss_injections.saturating_add(1);
+    }
+
     #[cfg(test)]
     fn inject_recovery_failures_for_test(&mut self, count: u64) {
         self.recovery_failure_injections = count;
@@ -1052,9 +1065,21 @@ impl GpuContext {
         if self.suspended {
             return Ok(GpuFrameStatus::Skipped);
         }
-        renderer
-            .upload_from(self, graph)
-            .map_err(|error| GpuContextError::message(error.to_string()))?;
+        self.check_runtime_faults("before direct frame upload")?;
+        #[cfg(any(test, debug_assertions))]
+        if self.direct_upload_device_loss_injections != 0 {
+            self.direct_upload_device_loss_injections =
+                self.direct_upload_device_loss_injections.saturating_sub(1);
+            self.runtime_faults.record(GpuRuntimeFault::DeviceLost {
+                reason: wgpu::DeviceLostReason::Unknown,
+                message: "injected device loss during direct frame upload".to_owned(),
+            });
+        }
+        if let Err(error) = renderer.upload_from(self, graph) {
+            self.check_runtime_faults("during direct frame upload")?;
+            return Err(GpuContextError::message(error.to_string()));
+        }
+        self.check_runtime_faults("after direct frame upload")?;
         let Some((surface_texture, suboptimal)) =
             self.acquire_surface_texture(&mut SurfaceRecoveryState::new())?
         else {
@@ -1068,9 +1093,10 @@ impl GpuContext {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("rssh-direct-terminal-frame"),
             });
-        renderer
-            .encode_render_pass(&mut encoder, &surface_view)
-            .map_err(|error| GpuContextError::message(error.to_string()))?;
+        if let Err(error) = renderer.encode_render_pass(&mut encoder, &surface_view) {
+            self.check_runtime_faults("during direct frame encoding")?;
+            return Err(GpuContextError::message(error.to_string()));
+        }
         self.check_runtime_faults("before direct frame submission")?;
         self.queue.submit([encoder.finish()]);
         self.check_runtime_faults("after direct frame submission")?;

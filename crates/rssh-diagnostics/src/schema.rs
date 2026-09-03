@@ -816,12 +816,12 @@ impl ProjectOwnedResourceMetricsV1 {
             );
         }
         if stage >= DiagnosticAttributionStage::LayerPipelines {
-            require_attribution_exact(&mut violations, "pipeline_count", self.pipeline_count, 2);
+            require_attribution_exact(&mut violations, "pipeline_count", self.pipeline_count, 1);
             require_attribution_exact(
                 &mut violations,
                 "pipeline_layout_count",
                 self.pipeline_layout_count,
-                2,
+                1,
             );
             require_attribution_exact(
                 &mut violations,
@@ -882,7 +882,7 @@ impl ProjectOwnedResourceMetricsV1 {
                 &mut violations,
                 "cursor_text_renderer_materialization_count",
                 self.cursor_text_renderer_materialization_count,
-                expected_renderers,
+                0,
             );
         }
         if stage >= DiagnosticAttributionStage::PlatformFontIndex {
@@ -899,6 +899,12 @@ impl ProjectOwnedResourceMetricsV1 {
             );
         }
         if stage >= DiagnosticAttributionStage::FullFrame {
+            require_attribution_exact(
+                &mut violations,
+                "image_texture_bytes",
+                self.image_texture_bytes,
+                0,
+            );
             require_attribution_positive(&mut violations, "snapshot_bytes", self.snapshot_bytes);
         }
         if violations.is_empty() {
@@ -1065,7 +1071,6 @@ fn attribution_allowed_nonzero_fields(
             "catalog_generation",
             "glyph_atlas_bytes",
             "raster_cache_bytes",
-            "image_texture_bytes",
             "snapshot_bytes",
             "instance_buffer_bytes",
             "upload_buffer_bytes",

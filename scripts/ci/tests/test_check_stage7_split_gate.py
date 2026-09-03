@@ -1252,6 +1252,16 @@ class Stage7SplitGateTests(unittest.TestCase):
         self.checker.validate_metric_artifact(payload, policy, self.contract, "attribution raw", violations)
         self.assertTrue(any("clear_present_count" in item for item in violations), violations)
 
+    def test_rejects_full_frame_image_bytes_for_the_fixed_empty_graph(self) -> None:
+        payload, policy = self._valid_attribution_payload()
+        group = next(item for item in payload["groups"] if item["name"] == "auto/full-frame")
+        summary = group["processes"][0]["resource_summary"]
+        summary["image_texture_bytes"] = 1
+        summary["total_allocated_texture_bytes"] += 1
+        violations: list[str] = []
+        self.checker.validate_metric_artifact(payload, policy, self.contract, "attribution raw", violations)
+        self.assertTrue(any("image_texture_bytes" in item for item in violations), violations)
+
     def test_font_ownership_raw_inventory_is_exactly_the_900_ascii_sample_contract(self) -> None:
         policy = self.contract["artifact_policies"]["font-ownership-raw"]
         groups = policy["required_groups"]
@@ -5163,8 +5173,8 @@ class Stage7SplitGateTests(unittest.TestCase):
         if stage_index >= 4:
             fields.update(
                 {
-                    "pipeline_count": 2,
-                    "pipeline_layout_count": 2,
+                    "pipeline_count": 1,
+                    "pipeline_layout_count": 1,
                     "materialized_buffer_count": 1,
                     "total_allocated_buffer_bytes": 8,
                 }
@@ -5179,7 +5189,7 @@ class Stage7SplitGateTests(unittest.TestCase):
                     "glyph_atlas_bytes": 1,
                     "total_allocated_texture_bytes": 1,
                     "base_text_renderer_materialization_count": 2 if stage_index >= 7 else 1,
-                    "cursor_text_renderer_materialization_count": 2 if stage_index >= 7 else 1,
+                    "cursor_text_renderer_materialization_count": 0,
                 }
             )
         if stage_index >= 6:

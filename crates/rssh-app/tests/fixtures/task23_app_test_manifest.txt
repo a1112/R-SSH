@@ -4026,6 +4026,7 @@ T23-COMPATIBILITY-85d3c27e8d75|crates/rssh-app/src/window_gpu.rs|current_adapter
 T23-PRESENTATION-95380ba34000|crates/rssh-app/src/window_gpu.rs|skipped_recovery_stays_pending_until_a_later_presented_frame_commits_once|1|rssh-app|window_gpu::tests|presentation
 T23-COMPATIBILITY-d249bf35d991|crates/rssh-app/src/window_gpu.rs|pending_recovery_fails_once_without_starting_a_second_rebuild|1|rssh-app|window_gpu::tests|compatibility
 T23-PRESENTATION-599c6b58c474|crates/rssh-app/src/window_gpu.rs|device_loss_recovery_rebuilds_once_and_retries_the_same_snapshot|1|rssh-app|window_gpu::tests|presentation
+T23-COMPATIBILITY-e013d8020103|crates/rssh-app/src/window_gpu.rs|recovery_does_not_duplicate_lazy_resources|1|rssh-app|window_gpu::tests|compatibility
 T23-COMPATIBILITY-06ddf22be44b|crates/rssh-app/src/window_gpu.rs|device_loss_recovery_never_attempts_a_third_present_or_swallows_other_faults|1|rssh-app|window_gpu::tests|compatibility
 T23-PANES-18c5730536ff|crates/rssh-app/src/window_inspect_pane_tests.rs|inspect_pane_typed_action_has_palette_metadata_and_no_default_shortcut|1|rssh-app|window::window_inspect_pane_tests|panes
 T23-PANES-44543a70bce3|crates/rssh-app/src/window_inspect_pane_tests.rs|pane_inspection_metadata_is_live_for_an_inactive_pane_and_hides_environment_values|1|rssh-app|window::window_inspect_pane_tests|panes

@@ -141,8 +141,8 @@ mod attribution_stage {
             snapshot.clear_present_count = 1;
         }
         if stage >= GpuInitializationStage::LayerPipelines {
-            snapshot.pipeline_count = 2;
-            snapshot.pipeline_layout_count = 2;
+            snapshot.pipeline_count = 1;
+            snapshot.pipeline_layout_count = 1;
             snapshot.materialized_buffer_count = 1;
             snapshot.total_allocated_buffer_bytes = 8;
         }
@@ -206,7 +206,7 @@ mod attribution_stage {
     }
 
     #[test]
-    fn text_owner_counts_base_and_cursor_materialization_for_each_enable() {
+    fn text_owner_counts_only_base_materialization_for_each_enable() {
         let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
             .expect("headless attribution adapter");
         let mut renderer =
@@ -230,12 +230,12 @@ mod attribution_stage {
         enable(&mut renderer);
         let fixture = renderer.initialization_resources();
         assert_eq!(fixture.base_text_renderer_materialization_count, 1);
-        assert_eq!(fixture.cursor_text_renderer_materialization_count, 1);
+        assert_eq!(fixture.cursor_text_renderer_materialization_count, 0);
 
         enable(&mut renderer);
         let full = renderer.initialization_resources();
         assert_eq!(full.base_text_renderer_materialization_count, 2);
-        assert_eq!(full.cursor_text_renderer_materialization_count, 2);
+        assert_eq!(full.cursor_text_renderer_materialization_count, 0);
     }
 
     #[test]
