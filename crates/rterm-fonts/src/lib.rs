@@ -1,7 +1,9 @@
 //! Deterministic terminal font selection, shaping, fallback, and diagnostics.
 //!
 //! The catalog is isolated from fonts installed on the host. Applications must
-//! load repository-owned or caller-selected font bytes explicitly.
+//! load repository-owned or caller-selected font bytes explicitly. Normal
+//! catalogs share each immutable source allocation with the shaping database;
+//! the historical copied-allocation path is available only to diagnostics.
 
 mod cache;
 mod catalog;

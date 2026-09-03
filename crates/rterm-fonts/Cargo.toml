@@ -8,6 +8,8 @@ version.workspace = true
 
 [features]
 default = []
+# Capability marker for consumers that require the normal shared-allocation contract.
+shared-source-ownership = []
 diagnostic-tools = []
 
 [dependencies]

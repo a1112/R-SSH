@@ -5,6 +5,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use rssh_fonts::{FontCatalog, FontSource};
+
 fn repository_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -35,8 +37,9 @@ fn packaged_gui_feature_excludes_diagnostics_transfers_and_optional_images() {
     let manifest = read_repository_file("crates/rssh-app/Cargo.toml");
 
     assert!(
-        manifest
-            .contains("production-gui = [\"native-gui\", \"ssh\", \"local-pty\", \"image-basic\"]")
+        manifest.contains(
+            "production-gui = [\"native-gui\", \"ssh\", \"local-pty\", \"image-basic\", \"production-fonts\"]"
+        )
     );
     assert!(manifest.contains("diagnostic-tools = [\"rssh-fonts/diagnostic-tools\"]"));
     assert!(manifest.contains("transfer-tools = []"));
@@ -53,6 +56,68 @@ fn packaged_gui_feature_excludes_diagnostics_transfers_and_optional_images() {
             .find(|line| line.starts_with("production-gui ="))
             .expect("production GUI feature")
             .contains("transfer-tools")
+    );
+}
+
+#[test]
+fn production_fonts_select_the_shared_lazy_feature_without_diagnostics() {
+    let app_manifest = read_repository_file("crates/rssh-app/Cargo.toml");
+    let fonts_manifest = read_repository_file("crates/rterm-fonts/Cargo.toml");
+    let production_gui = app_manifest
+        .lines()
+        .find(|line| line.starts_with("production-gui ="))
+        .expect("production GUI feature");
+    let production_fonts = app_manifest
+        .lines()
+        .find(|line| line.starts_with("production-fonts ="))
+        .expect("production font feature");
+
+    assert!(production_gui.contains("production-fonts"));
+    assert!(!production_gui.contains("diagnostic-tools"));
+    assert_eq!(
+        production_fonts,
+        "production-fonts = [\"rssh-fonts/shared-source-ownership\"]"
+    );
+    assert!(fonts_manifest.contains("shared-source-ownership = []"));
+    assert!(fonts_manifest.contains("diagnostic-tools = []"));
+}
+
+#[test]
+fn production_fonts_share_the_normal_catalog_source_allocation() {
+    const LATIN: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Latin.fixture.ttf");
+    let source = FontSource::new("production-latin", LATIN.to_vec());
+    let catalog = FontCatalog::from_sources("en-US", [source]).expect("production catalog");
+
+    assert_eq!(catalog.memory_metrics().retained_source_bytes, LATIN.len());
+}
+
+#[test]
+fn production_fonts_remain_deferred_until_after_the_cpu_first_present() {
+    let platform_fonts = read_repository_file("crates/rssh-app/src/platform_fonts.rs");
+    let window_gpu = read_repository_file("crates/rssh-app/src/window_gpu.rs");
+    let window_runtime = read_repository_file("crates/rssh-app/src/window_parts/part08.rs");
+    let deferred_gpu = window_runtime
+        .split_once("fn initialize_deferred_gpu")
+        .expect("deferred GPU entry")
+        .1
+        .split_once("fn handle_deferred_gpu_initialized")
+        .expect("bounded deferred GPU entry")
+        .0;
+    let finish_prepared = window_gpu
+        .split_once("pub(crate) async fn finish_prepared")
+        .expect("GPU worker finish entry")
+        .1;
+
+    assert!(platform_fonts.contains("FontCatalogMode::Lazy"));
+    assert!(deferred_gpu.contains("self.rendered_frames == 0"));
+    assert!(deferred_gpu.contains("spawn_deferred_gpu_task"));
+    assert!(
+        finish_prepared
+            .find("GpuContext::finish_windowed")
+            .expect("GPU context finish")
+            < finish_prepared
+                .find("PlatformFontRepository::production_index")
+                .expect("deferred platform font index")
     );
 }
 

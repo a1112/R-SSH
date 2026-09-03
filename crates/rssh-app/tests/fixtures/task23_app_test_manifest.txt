@@ -163,6 +163,7 @@ T23-RUNTIME-a8fb1fac4b27|crates/rssh-app/src/cli.rs|parses_hermetic_ssh1_diagnos
 T23-COMPATIBILITY-cc9000a1f25c|crates/rssh-app/src/cli.rs|diagnostic_gpu_backend_parses_supported_values|1|rssh-app|cli::tests|compatibility
 T23-COMPATIBILITY-ce549d7e2ea4|crates/rssh-app/src/cli.rs|diagnostic_gpu_backend_rejects_unsupported_value|1|rssh-app|cli::tests|compatibility
 T23-PRESENTATION-028c592f6a4d|crates/rssh-app/src/cli.rs|diagnostic_gpu_backend_rejects_cpu_renderer_combination|1|rssh-app|cli::tests|presentation
+T23-COMPATIBILITY-c02c9ef41584|crates/rssh-app/src/cli.rs|diagnostic_attribution_stage_parses_exact_private_values_and_rejects_mixes|1|rssh-app|cli::tests|compatibility
 T23-CONFIG-6c44d0f2b124|crates/rssh-app/src/cli.rs|diagnostic_font_mode_requires_a_complete_private_pair|1|rssh-app|cli::tests|config
 T23-CONFIG-cf2ae2799648|crates/rssh-app/src/cli.rs|diagnostic_font_mode_rejects_cpu_renderer|1|rssh-app|cli::tests|config
 T23-CONFIG-351cc61740ec|crates/rssh-app/src/cli.rs|diagnostic_font_mode_rejects_ssh1_scenario|1|rssh-app|cli::tests|config
@@ -488,7 +489,9 @@ T23-CONFIG-a44e34e6ce16|crates/rssh-app/src/platform_fonts.rs|platform_fonts_rec
 T23-CONFIG-3f679b030e8a|crates/rssh-app/src/platform_fonts.rs|platform_fonts_current_copied_recovery_preserves_legacy_build_shape|1|rssh-app|platform_fonts::tests|config
 T23-CONFIG-1f023d7a2970|crates/rssh-app/src/platform_fonts.rs|platform_fonts_record_the_actual_initial_catalog_batch_independently|1|rssh-app|platform_fonts::tests|config
 T23-CONFIG-4f65acaff1e9|crates/rssh-app/src/platform_fonts.rs|platform_fonts_diagnostics_expose_only_counts_and_irreversible_digests|1|rssh-app|platform_fonts::tests|config
-T23-CONFIG-e518172d5079|crates/rssh-app/src/platform_fonts.rs|platform_fonts_production_default_remains_current_copied_until_gate_zero|1|rssh-app|platform_fonts::tests|config
+T23-CONFIG-640b29ef2af0|crates/rssh-app/src/platform_fonts.rs|platform_fonts_production_default_is_lazy_after_gate_zero|1|rssh-app|platform_fonts::tests|config
+T23-CONFIG-77da8aa67318|crates/rssh-app/src/platform_fonts.rs|production_fonts_cover_ascii_cjk_emoji_arabic_devanagari_and_hebrew_without_tofu|1|rssh-app|platform_fonts::tests|config
+T23-CONFIG-76a1bb75df7b|crates/rssh-app/src/platform_fonts.rs|production_fonts_missing_font_is_one_stable_emergency_glyph|1|rssh-app|platform_fonts::tests|config
 T23-CONFIG-95845b0cd921|crates/rssh-app/src/platform_fonts.rs|platform_fonts_font_mode_shared_all_uses_one_catalog_allocation_per_source|1|rssh-app|platform_fonts::tests|config
 T23-CONFIG-c5bab5bc9e81|crates/rssh-app/src/platform_fonts.rs|platform_fonts_font_mode_lazy_keeps_only_primary_in_one_shared_allocation|1|rssh-app|platform_fonts::tests|config
 T23-CONFIG-2066947d4604|crates/rssh-app/src/platform_fonts.rs|platform_fonts_font_mode_recovery_preserves_shared_ownership_without_duplication|1|rssh-app|platform_fonts::tests|config
@@ -915,6 +918,7 @@ T23-COMPATIBILITY-1d2e22d30cf3|crates/rssh-app/src/window_compat_tests/part02_te
 T23-COMPATIBILITY-512331154da0|crates/rssh-app/src/window_compat_tests/part02_tests.rs|attribution_never_starts_product_services|1|rssh-app|window::tests|compatibility
 T23-COMPATIBILITY-f7ad6533a849|crates/rssh-app/src/window_compat_tests/part02_tests.rs|exact_gpu_stop_stage_resource_field_inventory_is_fail_closed|1|rssh-app|window::tests|compatibility
 T23-PRESENTATION-52e74e830905|crates/rssh-app/src/window_compat_tests/part02_tests.rs|exact_gpu_stop_stage_defers_product_frame_owners_until_full_frame|1|rssh-app|window::tests|presentation
+T23-COMPATIBILITY-d21b0376176b|crates/rssh-app/src/window_compat_tests/part02_tests.rs|stage7_native_close_runs_before_attribution_errors_are_propagated|1|rssh-app|window::tests|compatibility
 T23-COMPATIBILITY-44de380081d8|crates/rssh-app/src/window_compat_tests/part02_tests.rs|exact_gpu_stop_stage_uses_live_owner_lengths_and_rebuilds_current_resources|1|rssh-app|window::tests|compatibility
 T23-PRESENTATION-8d0afffe7cd1|crates/rssh-app/src/window_compat_tests/part02_tests.rs|exact_gpu_stop_stage_rejects_fabricated_full_frame_materialization_counts|1|rssh-app|window::tests|presentation
 T23-COMPATIBILITY-767a21c90dad|crates/rssh-app/src/window_compat_tests/part02_tests.rs|exact_gpu_stop_stage_parent_ignores_inherited_child_environment|1|rssh-app|window::tests|compatibility
@@ -2195,6 +2199,8 @@ T23-PLATFORM-8782342d556e|crates/rssh-app/src/window_compat_tests/part10_tests.r
 T23-PLATFORM-d4a6e23125e6|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_defers_closed_gpu_destruction_until_a_safe_event_loop_point|1|rssh-app|window::tests|platform
 T23-PLATFORM-7bdf4ceb4240|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_abandons_recovered_eligible_window_while_another_window_remains_active|1|rssh-app|window::tests|platform
 T23-RUNTIME-fe2a6f5812c4|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_aggregates_closed_and_all_live_gpu_abandonments_on_application_exit|1|rssh-app|window::tests|runtime
+T23-RUNTIME-d4f066eb05b4|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_manager_application_exit_applies_native_close_policy_to_every_gpu_owner|1|rssh-app|window::tests|runtime
+T23-RUNTIME-404cdc44993f|crates/rssh-app/src/window_compat_tests/part10_tests.rs|direct_window_application_exit_uses_native_close_gpu_policy|1|rssh-app|window::tests|runtime
 T23-PANES-c512f1e1875c|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_pane_select_cancel_keys_exit_without_focusing|1|rssh-app|window::tests|panes
 T23-OVERLAYS-8bf931b12735|crates/rssh-app/src/window_compat_tests/part10_tests.rs|recognizes_window_copy_mode_shortcut|1|rssh-app|window::tests|overlays
 T23-OVERLAYS-5bf0533c66a7|crates/rssh-app/src/window_compat_tests/part10_tests.rs|window_title_includes_copy_mode_status|1|rssh-app|window::tests|overlays
@@ -3992,6 +3998,7 @@ T23-PANES-6d66266c69f8|crates/rssh-app/src/window_gpu.rs|window_gpu_surface_prep
 T23-OVERLAYS-c3a0ca2cf4fa|crates/rssh-app/src/window_gpu.rs|diagnostic_gpu_backend_prepare_accepts_explicit_selection_without_running_hardware|1|rssh-app|window_gpu::tests|overlays
 T23-COMPATIBILITY-eb76d0c6d38b|crates/rssh-app/src/window_gpu.rs|diagnostic_gpu_backend_builds_hardware_free_context_options|1|rssh-app|window_gpu::tests|compatibility
 T23-CONFIG-e8dcc50031c1|crates/rssh-app/src/window_gpu.rs|diagnostic_font_mode_maps_exactly_without_changing_production_default|1|rssh-app|window_gpu::tests|config
+T23-COMPATIBILITY-fe42dbebb5c4|crates/rssh-app/src/window_gpu.rs|stage7_attribution_ready_marker_owns_complete_adapter_identity|1|rssh-app|window_gpu::tests|compatibility
 T23-CONFIG-291c841f10e8|crates/rssh-app/src/window_gpu.rs|diagnostic_font_mode_prepare_accepts_typed_options_without_running_hardware|1|rssh-app|window_gpu::tests|config
 T23-CONFIG-452cbaf1a96a|crates/rssh-app/src/window_gpu.rs|diagnostic_font_specimens_activate_one_bounded_batch_without_tofu|1|rssh-app|window_gpu::tests|config
 T23-CONFIG-0e1108d7ed53|crates/rssh-app/src/window_gpu.rs|diagnostic_font_resource_summary_serializes_irreversible_identity_without_paths|1|rssh-app|window_gpu::tests|config
@@ -3999,15 +4006,18 @@ T23-CONFIG-908c72cf176d|crates/rssh-app/src/window_gpu.rs|diagnostic_font_frame_
 T23-CONFIG-7cbb7719f4b5|crates/rssh-app/src/window_gpu.rs|diagnostic_font_summary_finalizes_only_the_first_presented_proof_frame|1|rssh-app|window_gpu::tests|config
 T23-CONFIG-35ab8e039a37|crates/rssh-app/src/window_gpu.rs|diagnostic_font_summary_is_rederived_from_the_actual_presented_catalog_epoch|1|rssh-app|window_gpu::tests|config
 T23-OVERLAYS-056fbf29d391|crates/rssh-app/src/window_gpu.rs|native_presentation_mode_is_the_only_gpu_damage_selector|1|rssh-app|window_gpu::tests|overlays
+T23-CONFIG-c06e67cb57bd|crates/rssh-app/src/window_gpu.rs|production_fonts_render_covered_scripts_in_one_generation_without_tofu|1|rssh-app|window_gpu::tests|config
+T23-CONFIG-b066a4846879|crates/rssh-app/src/window_gpu.rs|production_fonts_keep_one_generation_per_frame_and_allow_at_most_one_restart|1|rssh-app|window_gpu::tests|config
 T23-PANES-49f7e01d0100|crates/rssh-app/src/window_gpu.rs|gpu_text_frame_late_missing_activates_next_source_and_restarts_without_tofu|1|rssh-app|window_gpu::tests|panes
 T23-PRESENTATION-a00aaaf8fbef|crates/rssh-app/src/window_gpu.rs|gpu_text_frame_second_late_missing_stays_tofu_without_a_second_expansion|1|rssh-app|window_gpu::tests|presentation
 T23-PRESENTATION-446f53e190ce|crates/rssh-app/src/window_gpu.rs|gpu_text_frame_invalid_late_fallback_discards_partial_state_before_error|1|rssh-app|window_gpu::tests|presentation
 T23-CONFIG-fb5508b90f38|crates/rssh-app/src/window_gpu.rs|recovery_retires_real_cpu_font_state_before_building_the_replacement|1|rssh-app|window_gpu::tests|config
-T23-CONFIG-411cd1006f55|crates/rssh-app/src/window_gpu.rs|emergency_font_catalog_covers_common_cli_ui_scripts|1|rssh-app|window_gpu::tests|config
+T23-CONFIG-67803fabaf44|crates/rssh-app/src/window_gpu.rs|emergency_font_catalog_covers_reviewed_cli_ui_fixtures|1|rssh-app|window_gpu::tests|config
 T23-CONFIG-f841a5a283e6|crates/rssh-app/src/window_gpu.rs|emergency_font_catalog_covers_mac_cjk_fallback|1|rssh-app|window_gpu::tests|config
 T23-CONFIG-ceb04b825f7a|crates/rssh-app/src/window_gpu.rs|modern_default_font_prefers_cascadia_mono_and_preserves_terminal_cells|1|rssh-app|window_gpu::tests|config
 T23-INPUT-5f62fc0b0396|crates/rssh-app/src/window_gpu.rs|native_app_manifest_has_no_pixels_runtime_dependency|1|rssh-app|window_gpu::tests|input
 T23-PRESENTATION-444b587e8fd9|crates/rssh-app/src/window_gpu.rs|window_gpu_releases_every_renderer_before_its_context|1|rssh-app|window_gpu::tests|presentation
+T23-PLATFORM-21145c26a380|crates/rssh-app/src/window_gpu.rs|stage7_native_close_retains_only_windows_nvidia_vulkan_gpu_owners|1|rssh-app|window_gpu::tests|platform
 T23-COMPATIBILITY-97f375754f23|crates/rssh-app/src/window_gpu.rs|abandonment_workaround_requires_proven_adapter_and_explicit_final_shutdown|1|rssh-app|window_gpu::tests|compatibility
 T23-PLATFORM-27295046e70f|crates/rssh-app/src/window_gpu.rs|native_close_abandons_only_windows_nvidia_vulkan_devices|1|rssh-app|window_gpu::tests|platform
 T23-COMPATIBILITY-54f65884143c|crates/rssh-app/src/window_gpu.rs|abandonment_eligibility_tracks_the_recovered_current_adapter|1|rssh-app|window_gpu::tests|compatibility

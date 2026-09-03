@@ -178,15 +178,15 @@ fn shared_source_order_changes_the_ordered_fingerprint() {
 
 #[cfg(feature = "diagnostic-tools")]
 #[test]
-fn shared_source_production_default_and_diagnostic_copied_modes_retain_old_double_ownership() {
+fn shared_source_production_default_uses_one_allocation_and_diagnostic_copied_retains_two() {
     let source = source(LATIN);
     let bytes = source.bytes().len();
     let production = FontCatalog::from_sources("en-US", [source.clone()])
-        .expect("load production copied source");
+        .expect("load production shared source");
 
-    assert!(!production.diagnostic_fontdb_shares_source_allocation(0));
-    assert_eq!(source.diagnostic_allocation_strong_count(), 2);
-    assert_eq!(production.memory_metrics().retained_source_bytes, bytes * 2);
+    assert!(production.diagnostic_fontdb_shares_source_allocation(0));
+    assert_eq!(source.diagnostic_allocation_strong_count(), 3);
+    assert_eq!(production.memory_metrics().retained_source_bytes, bytes);
 
     drop(production);
     let diagnostic = FontCatalog::from_sources_copied_for_diagnostics("en-US", [source.clone()])

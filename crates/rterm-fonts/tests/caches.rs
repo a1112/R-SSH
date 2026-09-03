@@ -44,8 +44,7 @@ fn transactional_batch_commits_one_build_and_one_generation() {
             )
             .expect("fixture length fits usize")
         })
-        .sum::<usize>()
-        * 2;
+        .sum::<usize>();
     let generation = catalog
         .load_sources([source(CJK), source(EMOJI)])
         .expect("load valid batch");

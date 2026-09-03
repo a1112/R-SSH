@@ -118,8 +118,8 @@ pub struct CatalogMemoryMetrics {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SourceOwnership {
-    Copied,
     #[cfg(feature = "diagnostic-tools")]
+    Copied,
     Shared,
 }
 
@@ -245,7 +245,7 @@ impl FontCatalog {
             incarnation: next_catalog_incarnation(),
             generation: 0,
             memory_metrics: CatalogMemoryMetrics::default(),
-            source_ownership: SourceOwnership::Copied,
+            source_ownership: SourceOwnership::Shared,
         }
     }
 
@@ -258,10 +258,10 @@ impl FontCatalog {
     where
         I: IntoIterator<Item = FontSource>,
     {
-        Self::from_sources_with_ownership(locale, sources, SourceOwnership::Copied)
+        Self::from_sources_with_ownership(locale, sources, SourceOwnership::Shared)
     }
 
-    /// Creates a shared-allocation catalog for non-production memory diagnostics.
+    /// Creates a shared-allocation catalog for memory diagnostics.
     ///
     /// # Errors
     ///
@@ -454,8 +454,8 @@ impl FontCatalog {
         let fingerprint = content_fingerprint(locale, &sources);
         let (font_system, records) = Self::build(locale, &sources, source_ownership)?;
         let retained_multiplier = match source_ownership {
-            SourceOwnership::Copied => 2,
             #[cfg(feature = "diagnostic-tools")]
+            SourceOwnership::Copied => 2,
             SourceOwnership::Shared => 1,
         };
         let retained_source_bytes = sources.iter().fold(0usize, |retained, source| {
@@ -495,8 +495,8 @@ impl FontCatalog {
         for (source_index, source) in sources.iter().enumerate() {
             let before: std::collections::HashSet<_> = db.faces().map(|face| face.id).collect();
             match source_ownership {
-                SourceOwnership::Copied => db.load_font_data(source.bytes().to_vec()),
                 #[cfg(feature = "diagnostic-tools")]
+                SourceOwnership::Copied => db.load_font_data(source.bytes().to_vec()),
                 SourceOwnership::Shared => {
                     let bytes: Arc<dyn AsRef<[u8]> + Send + Sync> = source.bytes.clone();
                     db.load_font_source(fontdb::Source::Binary(bytes));

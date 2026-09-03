@@ -1358,6 +1358,7 @@ fn gpu_context_options(
     })
 }
 
+#[cfg(feature = "diagnostic-tools")]
 const fn diagnostic_font_catalog_mode(
     mode: Option<rssh_diagnostics::DiagnosticFontMode>,
 ) -> FontCatalogMode {
@@ -1367,6 +1368,13 @@ const fn diagnostic_font_catalog_mode(
         Some(rssh_diagnostics::DiagnosticFontMode::SharedAll) => FontCatalogMode::SharedAll,
         Some(rssh_diagnostics::DiagnosticFontMode::Lazy) => FontCatalogMode::Lazy,
     }
+}
+
+#[cfg(not(feature = "diagnostic-tools"))]
+const fn diagnostic_font_catalog_mode(
+    _mode: Option<rssh_diagnostics::DiagnosticFontMode>,
+) -> FontCatalogMode {
+    production_font_catalog_mode()
 }
 
 pub(crate) const fn diagnostic_font_specimen_text(
@@ -2120,12 +2128,6 @@ fn bundled_emergency_text_backend(
     Ok(renderer)
 }
 
-#[cfg(test)]
-fn bundled_emergency_font_catalog() -> Result<rssh_fonts::FontCatalog, Box<dyn Error>> {
-    let mut repository = PlatformFontRepository::production_index();
-    repository.build_catalog(production_font_catalog_mode())
-}
-
 fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
     rssh_fonts::FontConfig::new("Cascadia Mono")
         .with_fallbacks([
@@ -2172,6 +2174,40 @@ mod tests {
     use rssh_terminal::Terminal;
     use rterm_render_core::terminal_snapshot_content_digest;
     use winit::event_loop::OwnedDisplayHandle;
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    fn shape_with_production_font_repository(
+        text: &str,
+        config: rssh_fonts::FontConfig,
+    ) -> rssh_fonts::ShapedRow {
+        let mut repository = PlatformFontRepository::production_index();
+        let mut catalog = repository
+            .build_catalog(production_font_catalog_mode())
+            .expect("production font catalog");
+        repository
+            .preflight_text(text, &mut catalog)
+            .expect("preflight production font coverage");
+        let mut shaper = TerminalShaper::new(config);
+        let mut row = shaper
+            .shape_row(&mut catalog, text)
+            .expect("shape production font sample");
+        let missing = row
+            .clusters
+            .iter()
+            .filter(|cluster| cluster.is_tofu)
+            .flat_map(|cluster| row.text[cluster.byte_range.clone()].chars())
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            repository
+                .activate_missing_glyphs(&missing, &mut catalog)
+                .expect("activate one late production fallback batch");
+            row = shaper
+                .shape_row(&mut catalog, text)
+                .expect("reshape after one late production fallback batch");
+        }
+        assert_eq!(row.catalog_generation, catalog.generation());
+        row
+    }
 
     fn construct_window_gpu_from_owned_display(
         display: OwnedDisplayHandle,
@@ -2285,6 +2321,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn diagnostic_font_mode_maps_exactly_without_changing_production_default() {
         use rssh_diagnostics::DiagnosticFontMode;
@@ -2307,6 +2344,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn stage7_attribution_ready_marker_owns_complete_adapter_identity() {
         let mut metrics = GpuPresentationMetrics::uninitialized();
@@ -2347,6 +2385,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn diagnostic_font_specimens_activate_one_bounded_batch_without_tofu() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
@@ -2377,6 +2416,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn diagnostic_font_resource_summary_serializes_irreversible_identity_without_paths() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
@@ -2400,6 +2440,7 @@ mod tests {
         assert!(!rendered.to_ascii_lowercase().contains("path"));
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn diagnostic_font_frame_evidence_is_derived_from_the_presented_specimen_frame() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
@@ -2425,6 +2466,7 @@ mod tests {
         assert_eq!(summary.frame_generation_consistent, Some(false));
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn diagnostic_font_summary_finalizes_only_the_first_presented_proof_frame() {
         use std::cell::Cell;
@@ -2458,6 +2500,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn diagnostic_font_summary_is_rederived_from_the_actual_presented_catalog_epoch() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
@@ -2548,6 +2591,95 @@ mod tests {
         assert_eq!(
             presentation_damage(rssh_native::RenderMode::Damage, &damage),
             damage
+        );
+    }
+
+    #[test]
+    fn production_fonts_render_covered_scripts_in_one_generation_without_tofu() {
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut repository = PlatformFontRepository::production_index_for_os("test");
+        let catalog = repository
+            .build_catalog(production_font_catalog_mode())
+            .expect("production lazy catalog");
+        let mut renderer =
+            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        renderer
+            .enable_text(
+                catalog,
+                bundled_emergency_font_config(),
+                GpuTextConfig::new(
+                    4 * 1024 * 1024,
+                    rssh_fonts::RasterCacheConfig::new(4 * 1024 * 1024),
+                ),
+            )
+            .expect("GPU text");
+        let mut terminal = Terminal::new(TerminalSize::new(96, 1));
+        terminal.feed("ASCII 中文 😀 سلام क्षि אבג".as_bytes());
+
+        let report = prepare_gpu_text_frame(
+            &mut repository,
+            &mut renderer,
+            &TerminalRenderSnapshot::from_terminal(&terminal),
+            RenderGeometry::new(96 * 16, 24, 16, 24),
+            &[],
+            &TextPaintConfig::default(),
+            1.0,
+            1.0,
+        )
+        .expect("prepare covered production scripts");
+
+        assert!(report.missing_glyphs.is_empty());
+        assert_eq!(report.prepared_rows, [0]);
+        assert_eq!(
+            report.catalog_generation,
+            repository.diagnostics().generation
+        );
+        assert_eq!(repository.diagnostics().active_source_count, 6);
+    }
+
+    #[test]
+    fn production_fonts_keep_one_generation_per_frame_and_allow_at_most_one_restart() {
+        assert_eq!(production_font_catalog_mode(), FontCatalogMode::Lazy);
+        let damage = [DamageRegion::new(1, 2, 3, 4)];
+        let attempts = RefCell::new(Vec::new());
+        let prepared = prepare_catalog_frame_with_one_restart(
+            1,
+            &damage,
+            |generation, frame_damage, can_expand| {
+                attempts
+                    .borrow_mut()
+                    .push((generation, frame_damage.to_vec(), can_expand));
+                if can_expand {
+                    Ok(CatalogFrameAttempt::Expanded(2))
+                } else {
+                    Ok(CatalogFrameAttempt::Prepared(generation))
+                }
+            },
+        )
+        .expect("one whole-frame restart");
+        assert_eq!(prepared, 2);
+        assert_eq!(
+            attempts.into_inner(),
+            vec![(1, damage.to_vec(), true), (2, Vec::new(), false)]
+        );
+
+        let attempt_count = Cell::new(0_u8);
+        let error = prepare_catalog_frame_with_one_restart(
+            1,
+            &damage,
+            |generation, _frame_damage, _can_expand| {
+                attempt_count.set(attempt_count.get().saturating_add(1));
+                Ok::<_, Box<dyn Error>>(CatalogFrameAttempt::<()>::Expanded(
+                    generation.saturating_add(1),
+                ))
+            },
+        )
+        .expect_err("a second expansion in one frame must fail closed");
+        assert_eq!(attempt_count.get(), 2);
+        assert_eq!(
+            error.to_string(),
+            "GPU font catalog expanded twice during one presented frame"
         );
     }
 
@@ -2704,8 +2836,8 @@ mod tests {
             .expect("headless adapter");
         let mut repository = PlatformFontRepository::late_missing_fixture();
         let catalog = repository
-            .build_catalog(FontCatalogMode::CurrentCopied)
-            .expect("active copied catalog");
+            .build_catalog(production_font_catalog_mode())
+            .expect("active production catalog");
         let mut lost = GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("lost renderer");
         lost.enable_text(
             catalog,
@@ -2728,7 +2860,7 @@ mod tests {
             let retired_metrics = retired.text_cpu_font_metrics().expect("retired metrics");
             assert_eq!(retired_metrics.catalog.retained_source_bytes, 0);
             let recovered_catalog = repository
-                .rebuild_catalog_from_active(FontCatalogMode::CurrentCopied)
+                .rebuild_catalog_from_active(production_font_catalog_mode())
                 .expect("recovered active catalog");
             let mut replacement =
                 GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("replacement renderer");
@@ -2795,19 +2927,15 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn emergency_font_catalog_covers_common_cli_ui_scripts() {
-        let mut catalog = bundled_emergency_font_catalog().expect("fixture font catalog");
-        let mut shaper = TerminalShaper::new(bundled_emergency_font_config());
-        let row = shaper
-            .shape_row(
-                &mut catalog,
-                "中文显示测试 日本語 한국어 العربية हिन्दी ×▾—□…",
-            )
-            .expect("shape common CLI UI scripts");
+    fn emergency_font_catalog_covers_reviewed_cli_ui_fixtures() {
+        let row = shape_with_production_font_repository(
+            "中文 سلام क्षि אבג 😀 ×▾—□…",
+            bundled_emergency_font_config(),
+        );
 
         assert!(
             row.clusters.iter().all(|cluster| !cluster.is_tofu),
-            "emergency GPU font catalog must not render common UI scripts as tofu: {:?}",
+            "emergency GPU font catalog must not render reviewed UI fixtures as tofu: {:?}",
             row.clusters
                 .iter()
                 .filter(|cluster| cluster.is_tofu)
@@ -2819,11 +2947,10 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn emergency_font_catalog_covers_mac_cjk_fallback() {
-        let mut catalog = bundled_emergency_font_catalog().expect("fixture font catalog");
-        let mut shaper = TerminalShaper::new(bundled_emergency_font_config());
-        let row = shaper
-            .shape_row(&mut catalog, "中文显示测试 日本語繁體字")
-            .expect("shape macOS CJK terminal sample");
+        let row = shape_with_production_font_repository(
+            "中文显示测试 日本語繁體字",
+            bundled_emergency_font_config(),
+        );
 
         assert!(
             row.clusters.iter().all(|cluster| !cluster.is_tofu),
@@ -2842,11 +2969,7 @@ mod tests {
         let config = bundled_emergency_font_config();
         assert_eq!(config.primary(), "Cascadia Mono");
 
-        let mut catalog = bundled_emergency_font_catalog().expect("fixture font catalog");
-        let mut shaper = TerminalShaper::new(config);
-        let row = shaper
-            .shape_row(&mut catalog, "R-SSH 你好 😀")
-            .expect("shape modern terminal sample");
+        let row = shape_with_production_font_repository("R-SSH 你好 😀", config);
 
         assert!((row.metrics.font_size - 17.0).abs() < f32::EPSILON);
         assert_eq!(

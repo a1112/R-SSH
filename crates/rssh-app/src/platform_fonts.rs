@@ -155,12 +155,10 @@ impl IndexedFont {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[allow(
-    dead_code,
-    reason = "SharedAll and Lazy remain private until the Stage 7 diagnostic gate wires them"
-)]
 pub(crate) enum FontCatalogMode {
+    #[cfg(feature = "diagnostic-tools")]
     CurrentCopied,
+    #[cfg(feature = "diagnostic-tools")]
     SharedAll,
     Lazy,
 }
@@ -354,12 +352,15 @@ impl PlatformFontRepository {
         mode: FontCatalogMode,
     ) -> Result<FontCatalog, Box<dyn Error>> {
         match mode {
+            #[cfg(feature = "diagnostic-tools")]
             FontCatalogMode::CurrentCopied => self.build_current_copied(),
+            #[cfg(feature = "diagnostic-tools")]
             FontCatalogMode::SharedAll => self.build_all_once(),
             FontCatalogMode::Lazy => self.build_lazy(),
         }
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     fn build_current_copied(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
         let mut emergency = Vec::new();
         let mut platform = Vec::new();
@@ -370,8 +371,10 @@ impl PlatformFontRepository {
                 platform.push((indexed.key, source));
             }
         }
-        let mut catalog =
-            FontCatalog::from_sources("en-US", emergency.iter().map(|(_, source)| source.clone()))?;
+        let mut catalog = FontCatalog::from_sources_copied_for_diagnostics(
+            "en-US",
+            emergency.iter().map(|(_, source)| source.clone()),
+        )?;
         let initial_catalog_source_count = emergency.len();
         let mut committed = emergency;
         for (key, source) in platform {
@@ -395,16 +398,6 @@ impl PlatformFontRepository {
         Ok(catalog)
     }
 
-    #[cfg(not(feature = "diagnostic-tools"))]
-    fn build_all_once(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "shared platform-font catalog requires diagnostic-tools",
-        )
-        .into())
-    }
-
-    #[cfg(feature = "diagnostic-tools")]
     fn build_lazy(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
         let indexed = self
             .indexed
@@ -412,24 +405,14 @@ impl PlatformFontRepository {
             .find(|source| source.coverage == FontCoverage::Primary && source.is_available())
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "no primary font source"))?;
         let sources = vec![(indexed.key, indexed.materialize()?)];
-        let catalog = FontCatalog::from_sources_shared_for_diagnostics(
-            "en-US",
-            sources.iter().map(|(_, source)| source.clone()),
-        )?;
+        let catalog =
+            FontCatalog::from_sources("en-US", sources.iter().map(|(_, source)| source.clone()))?;
         let initial_catalog_source_count = sources.len();
         self.commit_initial_catalog(&catalog, sources, initial_catalog_source_count);
         Ok(catalog)
     }
 
-    #[cfg(not(feature = "diagnostic-tools"))]
-    fn build_lazy(&mut self) -> Result<FontCatalog, Box<dyn Error>> {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "lazy platform-font catalog requires diagnostic-tools",
-        )
-        .into())
-    }
-
+    #[cfg(feature = "diagnostic-tools")]
     fn materialize_all_in_catalog_order(
         &self,
     ) -> Result<Vec<(FontKey, FontSource)>, Box<dyn Error>> {
@@ -600,6 +583,7 @@ impl PlatformFontRepository {
             .filter_map(|key| self.active.get(key).cloned())
             .collect::<Vec<_>>();
         match mode {
+            #[cfg(feature = "diagnostic-tools")]
             FontCatalogMode::CurrentCopied => {
                 let mut emergency = Vec::new();
                 let mut platform = Vec::new();
@@ -618,19 +602,19 @@ impl PlatformFontRepository {
                         platform.push(source);
                     }
                 }
-                let mut catalog = FontCatalog::from_sources("en-US", emergency)?;
+                let mut catalog =
+                    FontCatalog::from_sources_copied_for_diagnostics("en-US", emergency)?;
                 for source in platform {
                     catalog.load_source(source)?;
                 }
                 Ok(catalog)
             }
-            FontCatalogMode::SharedAll | FontCatalogMode::Lazy => {
-                self.rebuild_ordered_catalog_at_current_epoch(&ordered)
-            }
+            #[cfg(feature = "diagnostic-tools")]
+            FontCatalogMode::SharedAll => self.rebuild_ordered_catalog_at_current_epoch(&ordered),
+            FontCatalogMode::Lazy => self.rebuild_ordered_catalog_at_current_epoch(&ordered),
         }
     }
 
-    #[cfg(feature = "diagnostic-tools")]
     fn rebuild_ordered_catalog_at_current_epoch(
         &self,
         ordered: &[FontSource],
@@ -647,10 +631,7 @@ impl PlatformFontRepository {
         let build_count = usize::try_from(self.generation)
             .map_err(|_| io::Error::other("platform-font generation exceeds usize"))?;
         let initial_count = ordered.len().saturating_sub(build_count.saturating_sub(1));
-        let mut catalog = FontCatalog::from_sources_shared_for_diagnostics(
-            "en-US",
-            ordered[..initial_count].to_vec(),
-        )?;
+        let mut catalog = FontCatalog::from_sources("en-US", ordered[..initial_count].to_vec())?;
         for source in &ordered[initial_count..] {
             catalog.load_source(source.clone())?;
         }
@@ -663,18 +644,6 @@ impl PlatformFontRepository {
             .into());
         }
         Ok(catalog)
-    }
-
-    #[cfg(not(feature = "diagnostic-tools"))]
-    fn rebuild_ordered_catalog_at_current_epoch(
-        &self,
-        _ordered: &[FontSource],
-    ) -> Result<FontCatalog, Box<dyn Error>> {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "shared or lazy platform-font recovery requires diagnostic-tools",
-        )
-        .into())
     }
 
     #[allow(
@@ -725,7 +694,7 @@ impl PlatformFontRepository {
 }
 
 pub(crate) const fn production_font_catalog_mode() -> FontCatalogMode {
-    FontCatalogMode::CurrentCopied
+    FontCatalogMode::Lazy
 }
 
 fn indexed_fingerprint(policy_version: u32, indexed: &[IndexedFont]) -> [u8; 32] {
@@ -1700,6 +1669,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "diagnostic-tools")]
     #[test]
     fn platform_fonts_current_copied_recovery_preserves_legacy_build_shape() {
         let mut repository = fixture_repository();
@@ -1786,13 +1756,67 @@ mod tests {
     }
 
     #[test]
-    fn platform_fonts_production_default_remains_current_copied_until_gate_zero() {
+    fn platform_fonts_production_default_is_lazy_after_gate_zero() {
+        assert_eq!(production_font_catalog_mode(), FontCatalogMode::Lazy);
+    }
+
+    #[test]
+    fn production_fonts_cover_ascii_cjk_emoji_arabic_devanagari_and_hebrew_without_tofu() {
+        let mut repository = fixture_repository();
+        let mut catalog = repository
+            .build_catalog(production_font_catalog_mode())
+            .expect("build production catalog");
+        let text = "ASCII 中文 😀 سلام क्षि אבג";
+
+        assert_eq!(production_font_catalog_mode(), FontCatalogMode::Lazy);
         assert_eq!(
-            production_font_catalog_mode(),
-            FontCatalogMode::CurrentCopied
+            repository
+                .preflight_text(text, &mut catalog)
+                .expect("activate production fixture coverage"),
+            CatalogActivation::CatalogExpanded {
+                previous_generation: 1,
+                catalog_generation: 2,
+            }
         );
-        assert_ne!(production_font_catalog_mode(), FontCatalogMode::Lazy);
-        assert_ne!(production_font_catalog_mode(), FontCatalogMode::SharedAll);
+        let mut shaper = TerminalShaper::new(font_config());
+        let row = shaper
+            .shape_row(&mut catalog, text)
+            .expect("shape production fixture coverage");
+        assert!(row.clusters.iter().all(|cluster| !cluster.is_tofu));
+        assert!(row.glyphs.iter().all(|glyph| !glyph.is_tofu));
+        assert_eq!(row.catalog_generation, catalog.generation());
+    }
+
+    #[test]
+    fn production_fonts_missing_font_is_one_stable_emergency_glyph() {
+        let mut repository = fixture_repository();
+        let mut catalog = repository
+            .build_catalog(production_font_catalog_mode())
+            .expect("build production catalog");
+        let before = repository.diagnostics();
+
+        for _ in 0..2 {
+            assert_eq!(
+                repository
+                    .preflight_text("\u{10ffff}", &mut catalog)
+                    .expect("stable production missing glyph"),
+                CatalogActivation::StableMissingGlyph
+            );
+            let mut shaper = TerminalShaper::new(font_config());
+            let row = shaper
+                .shape_row(&mut catalog, "\u{10ffff}")
+                .expect("shape stable production missing glyph");
+            assert_eq!(
+                row.clusters
+                    .iter()
+                    .filter(|cluster| cluster.is_tofu)
+                    .count(),
+                1
+            );
+            assert_eq!(row.glyphs.iter().filter(|glyph| glyph.is_tofu).count(), 1);
+            assert_eq!(row.catalog_generation, catalog.generation());
+            assert_eq!(repository.diagnostics(), before);
+        }
     }
 
     #[cfg(feature = "diagnostic-tools")]

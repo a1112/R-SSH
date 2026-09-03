@@ -15,7 +15,8 @@ developer-full = [
     "transfer-tools",
     "diagnostic-tools",
 ]
-production-gui = ["native-gui", "ssh", "local-pty", "image-basic"]
+production-gui = ["native-gui", "ssh", "local-pty", "image-basic", "production-fonts"]
+production-fonts = ["rssh-fonts/shared-source-ownership"]
 native-gui = []
 ssh = []
 local-pty = []
