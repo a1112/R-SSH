@@ -13,6 +13,8 @@
     "split-complete"
   ],
   "lkg_rssh_ref": "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6",
+  "product_lkg_ref": "4cbee13c591ded5ccfc6b0aec68f2b33143528c1",
+  "product_lkg_policy": "Product latency and memory comparisons use the probe-only product_lkg_ref before font and GPU optimizations; lkg_rssh_ref remains the immutable source-history and extraction boundary. Neither ref is a movable branch or a waiver of absolute gates.",
   "lkg_rterm_policy": "The first R-Term LKG is established later by the source-to-filtered commit map and must not reuse lkg_rssh_ref.",
   "approved_metrics": [
     "first_present_ms",

@@ -50,7 +50,8 @@ STATES = (
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 FROZEN_LKG = "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
-FROZEN_CONTRACT_SHA256 = "0c42676a03127221eca6e90a388e8daa9a96b6b13e8ceed0c1b81c16a127b9d7"
+FROZEN_PRODUCT_LKG = "4cbee13c591ded5ccfc6b0aec68f2b33143528c1"
+FROZEN_CONTRACT_SHA256 = "edf01edef3dd9f4d940d11c75a3951df4919cd12e7b9322683f2fa4e79ab4e7d"
 MAX_JSON_BYTES = 768 * 1024 * 1024
 JSON_READ_CHUNK_BYTES = 1024 * 1024
 MAX_GIT_OBJECT_BYTES = 16 * 1024 * 1024
@@ -697,6 +698,8 @@ def validate_contract(contract_path: Path) -> tuple[dict[str, Any] | None, list[
         violations.append("contract state order is not the frozen Stage 7 order")
     if contract.get("lkg_rssh_ref") != FROZEN_LKG:
         violations.append("lkg_rssh_ref must be the frozen full R-SSH SHA")
+    if contract.get("product_lkg_ref") != FROZEN_PRODUCT_LKG:
+        violations.append("product_lkg_ref must be the frozen probe-only product SHA")
     if contract.get("windows_product_gates") != FROZEN_GATES:
         violations.append("Windows product gates differ from the approved frozen values")
     if contract.get("windows_backends") != {
@@ -2732,8 +2735,8 @@ def validate_lkg(
         lkg_warmup_ids = []
     if lkg.get("protocol") != expected_metric_protocol(policy, contract):
         violations.append(f"{label}: LKG full sampling protocol differs from the frozen contract")
-    if lkg.get("source_sha") != contract["lkg_rssh_ref"]:
-        violations.append(f"{label}: LKG source must equal immutable lkg_rssh_ref")
+    if lkg.get("source_sha") != contract["product_lkg_ref"]:
+        violations.append(f"{label}: LKG source must equal immutable product_lkg_ref")
     if not validate_binary_hashes(lkg.get("binary_hashes"), f"{label} LKG", violations):
         return
     if lkg.get("runner_fingerprint_sha256") != candidate_identity.get("runner_fingerprint_sha256"):

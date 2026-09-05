@@ -65,6 +65,7 @@ PARENT_TREE_SHA = subprocess.run(
     text=True,
 ).stdout.strip()
 LKG_SHA = "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
+PRODUCT_LKG_SHA = "4cbee13c591ded5ccfc6b0aec68f2b33143528c1"
 BINARY_SHA = "b" * 64
 _BARE_PROOF_ROOT = tempfile.TemporaryDirectory(prefix="rssh-stage7-bare-proof-")
 _BARE_PROOF_CACHE: dict[tuple[str, tuple[tuple[str, str], ...], tuple[str, ...]], dict] = {}
@@ -984,6 +985,7 @@ class Stage7SplitGateTests(unittest.TestCase):
             ],
         )
         self.assertEqual(self.contract["lkg_rssh_ref"], LKG_SHA)
+        self.assertEqual(self.contract.get("product_lkg_ref"), PRODUCT_LKG_SHA)
         self.assertNotIn("lkg_rterm_ref", self.contract)
         self.assertEqual(
             self.contract["windows_product_gates"],
@@ -4198,6 +4200,39 @@ class Stage7SplitGateTests(unittest.TestCase):
                 )
                 self.assertFalse(decision["ok"], decision)
 
+    def test_product_metrics_use_product_lkg_without_moving_history_boundary(self) -> None:
+        self.assertEqual(self.contract["lkg_rssh_ref"], LKG_SHA)
+        for artifact_type in (
+            "windows-first-present-raw", "windows-first-frame-raw",
+            "windows-empty-window-raw", "windows-ssh1-raw",
+            "windows-gpu-steady-raw", "linux-pss-raw",
+            "macos-physical-footprint-raw",
+        ):
+            with self.subTest(artifact_type=artifact_type):
+                policy = self.contract["artifact_policies"][artifact_type]
+                identity = {
+                    "source_sha": SOURCE_SHA,
+                    "binary_hashes": {"rssh.exe": BINARY_SHA},
+                    "runner_fingerprint_sha256": "f" * 64,
+                    "platform": policy["platform"],
+                    "run_id": "dual-lkg-test",
+                }
+                payload = self.make_metric_payload(artifact_type, policy, identity)
+                group = payload["groups"][0]
+                group["lkg"]["source_sha"] = PRODUCT_LKG_SHA
+                violations = []
+                self.checker.validate_lkg(
+                    group["lkg"], group["statistics"], policy, group,
+                    identity, self.contract, artifact_type, violations,
+                )
+                self.assertEqual(violations, [])
+                group["lkg"]["source_sha"] = LKG_SHA
+                self.checker.validate_lkg(
+                    group["lkg"], group["statistics"], policy, group,
+                    identity, self.contract, artifact_type, violations,
+                )
+                self.assertTrue(any("immutable product_lkg_ref" in v for v in violations))
+
     def test_lkg_recomputes_all_ratios_and_binds_binary_runner_backend_adapter(self) -> None:
         mutations = {
             "p95 ratio": lambda lkg: lkg["relative_regression_ratios"].__setitem__("p95", 0.5),
@@ -4615,7 +4650,7 @@ class Stage7SplitGateTests(unittest.TestCase):
                     prior_manifest=prior,
                 )
             self.assertTrue(
-                "immutable lkg_rssh_ref" in str(error.exception).lower()
+                "immutable product_lkg_ref" in str(error.exception).lower()
                 or "relative regression" in str(error.exception).lower()
             )
 
@@ -5331,7 +5366,7 @@ class Stage7SplitGateTests(unittest.TestCase):
                         )
                     lkg_processes.append(process)
                 group["lkg"] = {
-                    "source_sha": LKG_SHA,
+                    "source_sha": PRODUCT_LKG_SHA,
                     "binary_hashes": {"rssh.exe": "a" * 64},
                     "runner_fingerprint_sha256": identity["runner_fingerprint_sha256"],
                     "platform": identity["platform"],
