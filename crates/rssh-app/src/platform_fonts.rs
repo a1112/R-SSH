@@ -155,6 +155,13 @@ impl IndexedFont {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(
+    feature = "rterm-legacy-0-1",
+    allow(
+        dead_code,
+        reason = "retain explicit unsupported modes for the legacy capability boundary"
+    )
+)]
 pub(crate) enum FontCatalogMode {
     #[cfg(feature = "diagnostic-tools")]
     CurrentCopied,
@@ -732,8 +739,9 @@ impl PlatformFontRepository {
 
     #[cfg(feature = "rterm-legacy-0-1")]
     #[allow(
+        dead_code,
         clippy::unused_self,
-        reason = "both profiles expose the same instance diagnostic boundary"
+        reason = "both profiles retain an explicit instance diagnostic boundary even when callers are compiled out"
     )]
     pub(crate) fn diagnostics(&self) -> Result<PlatformFontDiagnostics, Box<dyn Error>> {
         Err(crate::rterm_compat::unsupported_diagnostics())

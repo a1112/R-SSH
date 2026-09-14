@@ -1,15 +1,18 @@
 use std::{cell::RefCell, error::Error, io, sync::Arc};
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 use std::{collections::HashMap, sync::mpsc};
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
 use std::time::Duration;
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 use std::time::Instant;
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 use rssh_diagnostics::{
     ConnectionState as DiagnosticConnectionState, DiagnosticAttributionStage,
     MarkerKind as DiagnosticMarkerKind, ProjectOwnedResourceMetricsV1,
@@ -24,6 +27,7 @@ use rterm_render_wgpu::gpu::{
     WindowedGpuContextBootstrap, should_abandon_recovered_window_surface,
 };
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 use rterm_render_wgpu::gpu::{GpuInitializationResourceSnapshot, WindowedGpuDevice};
 use winit::{dpi::PhysicalSize, event_loop::OwnedDisplayHandle, window::Window};
 
@@ -33,10 +37,12 @@ use crate::platform_fonts::{
     FontCatalogMode, PlatformFontRepository, production_font_catalog_mode,
 };
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 use crate::{
     diagnostic_markers::DiagnosticMarkerHandle, stage7_attribution::AttributionStageController,
 };
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 use crate::{
     stage7_attribution::{
         AttributionStageRuntime, GpuAttributionStage, ProductServiceEntry,
@@ -75,6 +81,7 @@ pub(crate) struct PreparedWindowGpu {
 }
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 pub(crate) struct Stage7FullFrameInputs {
     snapshot: TerminalRenderSnapshot,
     geometry: RenderGeometry,
@@ -83,6 +90,7 @@ pub(crate) struct Stage7FullFrameInputs {
 }
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 impl Stage7FullFrameInputs {
     fn for_diagnostic_empty_window(spec: Stage7DiagnosticFrameSpec) -> Self {
         #[cfg(test)]
@@ -98,6 +106,7 @@ impl Stage7FullFrameInputs {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 impl Drop for Stage7FullFrameInputs {
     fn drop(&mut self) {
         STAGE7_FULL_FRAME_INPUTS_DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -105,20 +114,24 @@ impl Drop for Stage7FullFrameInputs {
 }
 
 #[cfg(test)]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 static STAGE7_FULL_FRAME_INPUTS_CREATED: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 #[cfg(test)]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 static STAGE7_FULL_FRAME_INPUTS_DROPPED: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 pub(crate) struct Stage7DiagnosticFrameSpec {
     width: u32,
     height: u32,
 }
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 impl Stage7DiagnosticFrameSpec {
     const fn for_surface(size: PhysicalSize<u32>) -> Self {
         Self {
@@ -135,6 +148,7 @@ impl Stage7DiagnosticFrameSpec {
     reason = "Task 6 wires the private diagnostic launcher to this Task 5 owner"
 )]
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 pub(crate) struct Stage7WindowAttributionRuntime<'a> {
     cpu_surface: &'a mut WindowBootstrapSurface,
     cpu_rgba: Vec<u8>,
@@ -160,6 +174,7 @@ pub(crate) struct Stage7WindowAttributionRuntime<'a> {
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 struct Stage7DiagnosticHold {
     requested_stage: DiagnosticAttributionStage,
     duration: Duration,
@@ -172,6 +187,7 @@ struct Stage7DiagnosticHold {
     reason = "Task 6 wires the private diagnostic launcher to this Task 5 owner"
 )]
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 impl<'a> Stage7WindowAttributionRuntime<'a> {
     #[expect(
         clippy::too_many_arguments,
@@ -550,6 +566,7 @@ impl<'a> Stage7WindowAttributionRuntime<'a> {
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn stage7_attribution_identity_extra(
     metrics: &GpuPresentationMetrics,
 ) -> HashMap<String, serde_json::Value> {
@@ -570,6 +587,7 @@ fn stage7_attribution_identity_extra(
 }
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 impl AttributionStageRuntime for Stage7WindowAttributionRuntime<'_> {
     type Error = Box<dyn Error>;
 
@@ -610,6 +628,7 @@ impl AttributionStageRuntime for Stage7WindowAttributionRuntime<'_> {
     }
 }
 
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 #[cfg(any(test, feature = "diagnostic-tools"))]
 fn stage7_fixture_font_catalog() -> Result<rssh_fonts::FontCatalog, Box<dyn Error>> {
     let source = rssh_fonts::FontSource::new(
@@ -619,11 +638,13 @@ fn stage7_fixture_font_catalog() -> Result<rssh_fonts::FontCatalog, Box<dyn Erro
     Ok(rssh_fonts::FontCatalog::from_sources("en-US", [source])?)
 }
 
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 #[cfg(any(test, feature = "diagnostic-tools"))]
 fn stage7_fixture_font_config() -> rssh_fonts::FontConfig {
     rssh_fonts::FontConfig::new("R-SSH Stage 7 Fixture")
 }
 
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 #[cfg(any(test, feature = "diagnostic-tools"))]
 fn stage7_text_config() -> GpuTextConfig {
     use rssh_fonts::RasterCacheConfig;
@@ -632,11 +653,13 @@ fn stage7_text_config() -> GpuTextConfig {
 }
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn project_owned_u64(value: usize, label: &str) -> Result<u64, Box<dyn Error>> {
     u64::try_from(value).map_err(|_| io::Error::other(format!("{label} exceeds u64")).into())
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn diagnostic_resource_summary(
     source: &ProjectOwnedResourceSnapshot,
 ) -> Result<ProjectOwnedResourceMetricsV1, Box<dyn Error>> {
@@ -690,6 +713,7 @@ fn diagnostic_resource_summary(
 }
 
 #[cfg(any(test, feature = "diagnostic-tools"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn merge_gpu_resources(
     destination: &mut ProjectOwnedResourceSnapshot,
     source: &GpuInitializationResourceSnapshot,
@@ -721,6 +745,7 @@ fn merge_gpu_resources(
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 const fn diagnostic_attribution_stage(stage: DiagnosticAttributionStage) -> GpuAttributionStage {
     match stage {
         DiagnosticAttributionStage::CpuWindow => GpuAttributionStage::CpuWindow,
@@ -739,6 +764,7 @@ const fn diagnostic_attribution_stage(stage: DiagnosticAttributionStage) -> GpuA
 /// Runs the private Stage 7 attribution owner without constructing the normal
 /// window manager or scheduling any product service.
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 #[expect(
     clippy::too_many_lines,
     reason = "the private native owner keeps window, CPU surface, GPU stages, and teardown in one auditable scope"
@@ -888,7 +914,19 @@ pub(crate) fn run_stage7_native_attribution(
         .map_err(|error| io::Error::other(error).into())
 }
 
+#[cfg(all(feature = "diagnostic-tools", feature = "rterm-legacy-0-1"))]
+pub(crate) fn run_stage7_native_attribution(
+    _requested_stage: rssh_diagnostics::DiagnosticAttributionStage,
+    _diagnostic_backend: Option<DiagnosticGpuBackend>,
+    _hold_duration: Duration,
+    _markers: crate::diagnostic_markers::DiagnosticMarkerHandle,
+    _shutdown: std::sync::mpsc::Receiver<Result<(), String>>,
+) -> Result<(), Box<dyn Error>> {
+    Err(crate::rterm_compat::unsupported_diagnostics())
+}
+
 #[cfg(all(test, target_os = "windows"))]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 #[expect(
     clippy::too_many_lines,
     reason = "one native event-loop fixture keeps the real eight-stage owner and production compatibility teardown auditable"
@@ -1374,6 +1412,7 @@ fn should_abandon_current_adapter_after_native_close(
     os == "windows" && backend.eq_ignore_ascii_case("vulkan") && vendor_id == 0x10de
 }
 
+#[cfg(any(test, not(feature = "rterm-legacy-0-1")))]
 fn finalize_stage7_native_gpu_owners<Renderer, Device, Context>(
     os: &str,
     backend: &str,
@@ -1415,6 +1454,7 @@ fn gpu_context_options(
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 const fn diagnostic_font_catalog_mode(
     mode: Option<rssh_diagnostics::DiagnosticFontMode>,
 ) -> FontCatalogMode {
@@ -1426,7 +1466,7 @@ const fn diagnostic_font_catalog_mode(
     }
 }
 
-#[cfg(not(feature = "diagnostic-tools"))]
+#[cfg(any(not(feature = "diagnostic-tools"), feature = "rterm-legacy-0-1"))]
 const fn diagnostic_font_catalog_mode(
     _mode: Option<rssh_diagnostics::DiagnosticFontMode>,
 ) -> FontCatalogMode {
@@ -1443,6 +1483,7 @@ pub(crate) const fn diagnostic_font_specimen_text(
     }
 }
 
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn sha256_hex(digest: [u8; 32]) -> String {
     use std::fmt::Write as _;
 
@@ -1454,6 +1495,7 @@ fn sha256_hex(digest: [u8; 32]) -> String {
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn prepare_diagnostic_font_catalog(
     mut repository: PlatformFontRepository,
     mode: Option<rssh_diagnostics::DiagnosticFontMode>,
@@ -1518,6 +1560,7 @@ fn prepare_diagnostic_font_catalog(
     Ok((repository, catalog, Some(summary)))
 }
 
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn record_diagnostic_font_frame_evidence(
     summary: &mut DiagnosticFontResourceSummary,
     frame_catalog_generation: u64,
@@ -1537,6 +1580,7 @@ fn record_diagnostic_font_frame_evidence(
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn finalize_diagnostic_font_resource_summary(
     repository: &PlatformFontRepository,
     catalog_mode: FontCatalogMode,
@@ -1591,6 +1635,7 @@ fn finalize_diagnostic_font_resource_summary(
 }
 
 #[cfg(feature = "diagnostic-tools")]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn finalize_diagnostic_font_resource_summary_once(
     summary: &mut Option<DiagnosticFontResourceSummary>,
     finalize: impl FnOnce(&mut DiagnosticFontResourceSummary) -> Result<(), Box<dyn Error>>,
@@ -1604,7 +1649,7 @@ fn finalize_diagnostic_font_resource_summary_once(
     finalize(summary)
 }
 
-#[cfg(not(feature = "diagnostic-tools"))]
+#[cfg(any(not(feature = "diagnostic-tools"), feature = "rterm-legacy-0-1"))]
 fn prepare_diagnostic_font_catalog(
     mut repository: PlatformFontRepository,
     mode: Option<rssh_diagnostics::DiagnosticFontMode>,
@@ -1618,6 +1663,9 @@ fn prepare_diagnostic_font_catalog(
     Box<dyn Error>,
 > {
     if mode.is_some() || specimen.is_some() {
+        #[cfg(feature = "rterm-legacy-0-1")]
+        return Err(crate::rterm_compat::unsupported_diagnostics());
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "font proof requires diagnostic-tools",
@@ -1877,7 +1925,7 @@ impl WindowGpu {
         this.recovery = recovery;
         let (status, report) = outcome?;
         if status == GpuFrameStatus::Presented {
-            #[cfg(feature = "diagnostic-tools")]
+            #[cfg(all(feature = "diagnostic-tools", not(feature = "rterm-legacy-0-1")))]
             finalize_diagnostic_font_resource_summary_once(
                 &mut this.diagnostic_font_resources,
                 |resources| {
@@ -1892,7 +1940,7 @@ impl WindowGpu {
                     )
                 },
             )?;
-            #[cfg(not(feature = "diagnostic-tools"))]
+            #[cfg(any(not(feature = "diagnostic-tools"), feature = "rterm-legacy-0-1"))]
             debug_assert!(this.diagnostic_font_resources.is_none());
             if font_fallback_redraw_needed(&this.font_repository, &report) {
                 window.request_redraw();
