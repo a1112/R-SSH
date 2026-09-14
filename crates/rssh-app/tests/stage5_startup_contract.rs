@@ -36,12 +36,21 @@ fn cpu_renderer_separates_basic_gif_and_legacy_image_decoders() {
 fn packaged_gui_feature_excludes_diagnostics_transfers_and_optional_images() {
     let manifest = read_repository_file("crates/rssh-app/Cargo.toml");
 
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     assert!(
         manifest.contains(
             "production-gui = [\"native-gui\", \"ssh\", \"local-pty\", \"image-basic\", \"production-fonts\"]"
         )
     );
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     assert!(manifest.contains("diagnostic-tools = [\"rssh-fonts/diagnostic-tools\"]"));
+    #[cfg(feature = "rterm-legacy-0-1")]
+    {
+        assert!(manifest.contains(
+            "production-gui = [\"native-gui\", \"ssh\", \"local-pty\", \"image-basic\", \"production-fonts\", \"rterm-legacy-0-1\"]"
+        ));
+        assert!(manifest.contains("diagnostic-tools = []"));
+    }
     assert!(manifest.contains("transfer-tools = []"));
     assert!(
         !manifest
@@ -60,6 +69,7 @@ fn packaged_gui_feature_excludes_diagnostics_transfers_and_optional_images() {
 }
 
 #[test]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn production_fonts_select_the_shared_lazy_feature_without_diagnostics() {
     let app_manifest = read_repository_file("crates/rssh-app/Cargo.toml");
     let fonts_manifest = read_repository_file("crates/rterm-fonts/Cargo.toml");
@@ -83,12 +93,34 @@ fn production_fonts_select_the_shared_lazy_feature_without_diagnostics() {
 }
 
 #[test]
+#[cfg(not(feature = "rterm-legacy-0-1"))]
 fn production_fonts_share_the_normal_catalog_source_allocation() {
     const LATIN: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Latin.fixture.ttf");
     let source = FontSource::new("production-latin", LATIN.to_vec());
     let catalog = FontCatalog::from_sources("en-US", [source]).expect("production catalog");
 
     assert_eq!(catalog.memory_metrics().retained_source_bytes, LATIN.len());
+}
+
+// Frozen font catalogs support real loading, but cannot certify shared allocation.
+#[test]
+#[cfg(feature = "rterm-legacy-0-1")]
+fn legacy_production_fonts_load_without_claiming_shared_allocation() {
+    let app_manifest = read_repository_file("crates/rssh-app/Cargo.toml");
+    let fonts_manifest = read_repository_file("crates/rterm-fonts/Cargo.toml");
+    assert_eq!(
+        app_manifest
+            .lines()
+            .find(|line| line.starts_with("production-fonts =")),
+        Some("production-fonts = []")
+    );
+    assert!(!fonts_manifest.contains("shared-source-ownership ="));
+    assert!(!fonts_manifest.contains("diagnostic-tools ="));
+
+    const LATIN: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Latin.fixture.ttf");
+    let source = FontSource::new("production-latin", LATIN.to_vec());
+    let catalog = FontCatalog::from_sources("en-US", [source]).expect("legacy production catalog");
+    assert_eq!(catalog.face_count(), 1);
 }
 
 #[test]
@@ -140,12 +172,23 @@ fn packaged_font_dependency_cannot_name_private_proof_constructors() {
     }
 
     let diagnostic = compile_font_proof_consumer("diagnostic", true);
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     assert!(
         diagnostic.status.success(),
         "diagnostic feature did not expose proof constructors: stdout={} stderr={}",
         String::from_utf8_lossy(&diagnostic.stdout),
         String::from_utf8_lossy(&diagnostic.stderr)
     );
+    #[cfg(feature = "rterm-legacy-0-1")]
+    {
+        assert!(
+            !diagnostic.status.success(),
+            "frozen fonts exposed diagnostic proof features"
+        );
+        let stderr = String::from_utf8_lossy(&diagnostic.stderr);
+        assert!(stderr.contains("diagnostic-tools"), "{stderr}");
+        assert!(stderr.contains("does not have that feature"), "{stderr}");
+    }
 }
 
 fn compile_font_proof_consumer(label: &str, diagnostic_tools: bool) -> Output {
