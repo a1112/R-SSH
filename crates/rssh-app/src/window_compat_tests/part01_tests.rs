@@ -2318,7 +2318,7 @@
     #[test]
     fn native_gpu_ownership_stays_pointer_indirect() {
         fn gpu_field(app: &NativeWindowApp) -> Option<&crate::window_gpu::WindowGpu> {
-            app.gpu.as_deref()
+            app.gpu_owners.active.as_deref()
         }
 
         std::hint::black_box(gpu_field);

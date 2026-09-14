@@ -1166,7 +1166,7 @@
                 PresentationOwner::Bootstrap
             );
             assert_eq!(detached.is_benchmark_startup(), benchmark_startup);
-            assert!(detached.gpu.is_none());
+            assert!(detached.gpu_owners.active.is_none());
             assert!(detached.bootstrap_surface.is_none());
             assert!(detached.bootstrap_frame.is_empty());
         }
@@ -1187,7 +1187,7 @@
             .expect("manager should own the pending window");
         assert_eq!(pending.renderer_mode, crate::cli::RendererMode::Auto);
         assert_eq!(pending.presentation_owner, PresentationOwner::Bootstrap);
-        assert!(pending.gpu.is_none());
+        assert!(pending.gpu_owners.active.is_none());
         assert!(pending.bootstrap_surface.is_none());
     }
 
@@ -1497,7 +1497,7 @@
             ..NativeConfigSnapshot::default()
         });
         let mut closing = NativeWindowApp::new(None);
-        closing.gpu = Some(Box::new(
+        closing.gpu_owners.active = Some(Box::new(
             crate::window_gpu::WindowGpu::for_manager_close_test(false, true),
         ));
         let mut manager = NativeWindowManager::new_for_test(active);
@@ -1515,7 +1515,7 @@
     #[test]
     fn window_manager_abandons_recovered_eligible_window_while_another_window_remains_active() {
         let mut recovered = NativeWindowApp::new(None);
-        recovered.gpu = Some(Box::new(
+        recovered.gpu_owners.active = Some(Box::new(
             crate::window_gpu::WindowGpu::for_manager_close_test(true, true),
         ));
         let mut manager = NativeWindowManager::new_for_test(NativeWindowApp::new(None));
@@ -1554,7 +1554,7 @@
         for (eligible, replaced) in [(false, true), (true, false)] {
             let active = NativeWindowApp::new(None);
             let mut ordinary = NativeWindowApp::new(None);
-            ordinary.gpu = Some(Box::new(
+            ordinary.gpu_owners.active = Some(Box::new(
                 crate::window_gpu::WindowGpu::for_manager_close_test(eligible, replaced),
             ));
             let mut manager = NativeWindowManager::new_for_test(active);
@@ -1576,7 +1576,7 @@
                 app.handle_pty_output(b"x")
                     .expect("record representative PTY metric");
             }
-            app.gpu = Some(Box::new(
+            app.gpu_owners.active = Some(Box::new(
                 crate::window_gpu::WindowGpu::for_manager_close_test(true, true),
             ));
             manager
@@ -1602,7 +1602,7 @@
     fn window_manager_application_exit_applies_native_close_policy_to_every_gpu_owner() {
         fn native_close_gpu_app() -> Box<NativeWindowApp> {
             let mut app = NativeWindowApp::new(None);
-            app.gpu = Some(Box::new(
+            app.gpu_owners.active = Some(Box::new(
                 crate::window_gpu::WindowGpu::for_manager_close_test(true, false),
             ));
             Box::new(app)
@@ -1625,7 +1625,7 @@
             .chain(manager.pending_apps.iter_mut())
             .chain(manager.retired_apps.iter_mut())
             .map(|app| {
-                app.gpu.as_mut().is_some_and(|gpu| {
+                app.gpu_owners.active.as_mut().is_some_and(|gpu| {
                     gpu.shutdown_after_native_window_close()
                 })
             })

@@ -706,7 +706,7 @@ impl NativeWindowApp {
         else {
             return;
         };
-        let extra = match self.gpu.as_ref() {
+        let extra = match self.gpu_owners.active.as_ref() {
             Some(gpu) => match gpu_ready_extra_with_font_resources(gpu) {
                 Ok(extra) => extra,
                 Err(error) => {
@@ -774,7 +774,7 @@ impl NativeWindowApp {
     fn frame_limit_redraw_pending(&self) -> bool {
         if test_ssh_gui_frame_limit().is_some()
             && self.presentation_owner == PresentationOwner::GpuInitializing
-            && self.gpu.is_none()
+            && self.gpu_owners.active.is_none()
         {
             return false;
         }

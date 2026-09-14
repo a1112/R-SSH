@@ -2278,6 +2278,27 @@ fn bundled_emergency_font_config() -> rssh_fonts::FontConfig {
         .with_font_size(17.0)
 }
 
+/// Owns live and quarantined devices together until the window close policy runs.
+#[derive(Default)]
+pub(crate) struct WindowGpuOwners {
+    pub(crate) active: Option<Box<WindowGpu>>,
+    #[allow(
+        clippy::vec_box,
+        reason = "retain boxed GPU owners without moving teardown state"
+    )]
+    pub(crate) quarantined: Vec<Box<WindowGpu>>,
+}
+
+impl WindowGpuOwners {
+    pub(crate) fn quarantine_active(&mut self) {
+        // Failed recovery can retain driver objects that are unsafe to drop here.
+        // Remove them from present/resize without changing their final-close policy.
+        if let Some(gpu) = self.active.take() {
+            self.quarantined.push(gpu);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

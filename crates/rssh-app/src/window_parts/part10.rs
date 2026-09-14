@@ -3574,14 +3574,14 @@ impl NativeWindowApp {
     }
 
     fn metrics_snapshot(&self) -> WindowMetricsSnapshot {
-        let direct_text = self.gpu.as_ref().and_then(|gpu| gpu.direct_text_metrics());
+        let direct_text = self.gpu_owners.active.as_ref().and_then(|gpu| gpu.direct_text_metrics());
         let gpu = self
-            .gpu
+            .gpu_owners.active
             .as_ref()
             .map_or_else(GpuPresentationMetrics::uninitialized, |gpu| {
                 gpu.metrics().clone()
             });
-        let text_backend = if self.gpu.is_some() {
+        let text_backend = if self.gpu_owners.active.is_some() {
             "shaped-gpu-atlas"
         } else {
             "bitmap-emergency"
@@ -3589,7 +3589,7 @@ impl NativeWindowApp {
         let mut snapshot = self
             .metrics
             .snapshot_with_gpu(&gpu, text_backend, direct_text);
-        for quarantined in &self.quarantined_gpus {
+        for quarantined in &self.gpu_owners.quarantined {
             snapshot.gpu_abandoned_lost_surfaces = snapshot.gpu_abandoned_lost_surfaces
                 .saturating_add(quarantined.metrics().abandoned_lost_surfaces);
         }
@@ -3612,13 +3612,13 @@ impl NativeWindowApp {
     }
 
     fn shutdown_gpu_for_window_close(&mut self) {
-        for gpu in self.gpu.iter_mut().chain(self.quarantined_gpus.iter_mut()) {
+        for gpu in self.gpu_owners.active.iter_mut().chain(self.gpu_owners.quarantined.iter_mut()) {
             gpu.shutdown_for_window_close();
         }
     }
 
     fn shutdown_gpu_after_native_window_close(&mut self) {
-        for gpu in self.gpu.iter_mut().chain(self.quarantined_gpus.iter_mut()) {
+        for gpu in self.gpu_owners.active.iter_mut().chain(self.gpu_owners.quarantined.iter_mut()) {
             gpu.shutdown_after_native_window_close();
         }
     }
@@ -7241,7 +7241,7 @@ fn lua_window_effective_config_field_text_part3(
         size: PhysicalSize<u32>,
     ) -> Result<(), Box<dyn Error>> {
         let gpu_resize_error = self
-            .gpu
+            .gpu_owners.active
             .as_mut()
             .and_then(|gpu| gpu.resize_surface(size).err());
         if let Some(error) = gpu_resize_error {

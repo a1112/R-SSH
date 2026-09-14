@@ -577,8 +577,7 @@ impl NativeWindowApp {
                 ssh_host_key_prompts: HashMap::new(),
                 ssh_secret_prompts: HashMap::new(),
                 ssh_connection_states: HashMap::new(),
-                gpu: None,
-                quarantined_gpus: Vec::new(),
+                gpu_owners: crate::window_gpu::WindowGpuOwners::default(),
                 renderer: {
                     let mut renderer = GpuFramePlanner::new(PixelRenderer::new());
                     renderer.set_reverse_video_cursor_min_contrast(Some(
@@ -7368,7 +7367,7 @@ impl NativeWindowApp {
             self.presentation_owner = PresentationOwner::GpuInitializing;
             self.metrics.mark_gpu_started();
             let gpu = self.initialize_gpu(event_loop)?;
-            self.gpu = Some(Box::new(gpu));
+            self.gpu_owners.active = Some(Box::new(gpu));
             self.presentation_owner = PresentationOwner::GpuActive;
             self.metrics.mark_gpu_finished();
         } else {
@@ -7435,7 +7434,7 @@ impl NativeWindowApp {
         if self.renderer_mode != RendererMode::Auto
             || self.presentation_owner != PresentationOwner::Bootstrap
             || self.rendered_frames == 0
-            || self.gpu.is_some()
+            || self.gpu_owners.active.is_some()
         {
             return;
         }
@@ -7556,7 +7555,7 @@ impl NativeWindowApp {
                     gpu.resize_surface(size)
                 }) {
                     Ok(owner) => {
-                        self.gpu = Some(gpu);
+                        self.gpu_owners.active = Some(gpu);
                         self.presentation_owner = owner;
                         self.pending_frame_damage.clear();
                         self.frame_needs_full_repaint = true;
@@ -7581,11 +7580,7 @@ impl NativeWindowApp {
     }
 
     fn activate_cpu_fallback(&mut self) {
-        // A failed recovery may still own driver objects that cannot be safely
-        // destroyed here. Keep them away from present/resize until actual close.
-        if let Some(gpu) = self.gpu.take() {
-            self.quarantined_gpus.push(gpu);
-        }
+        self.gpu_owners.quarantine_active();
         self.metrics.mark_renderer(RendererKind::Cpu);
         self.presentation_owner = deferred_gpu_initialization_owner(false);
         self.pending_frame_damage.clear();
@@ -7644,7 +7639,7 @@ impl NativeWindowApp {
         }
         let gpu_ready_to_present = self.presentation_owner == PresentationOwner::GpuActive
             || (self.presentation_owner == PresentationOwner::GpuInitializing
-                && self.gpu.is_some());
+                && self.gpu_owners.active.is_some());
         if !gpu_ready_to_present {
             if test_ssh_gui_frame_limit().is_some()
                 && self.presentation_owner == PresentationOwner::GpuInitializing
@@ -7677,7 +7672,7 @@ impl NativeWindowApp {
                 .prepare_gpu_frame(&snapshot, geometry, scrollbar, damage_row_offset);
         let gpu_dpi_scale = self.gpu_dpi_scale();
 
-        let outcome = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref()) {
+        let outcome = if let (Some(gpu), Some(window)) = (self.gpu_owners.active.as_mut(), self.window.as_ref()) {
             gpu.present(
                 window,
                 &snapshot,
@@ -7722,7 +7717,7 @@ impl NativeWindowApp {
 
         if presented {
             let missing_glyphs = self
-                .gpu
+                .gpu_owners.active
                 .as_ref()
                 .and_then(|gpu| gpu.direct_text_metrics())
                 .map(|(report, _)| report.missing_glyphs.clone())
