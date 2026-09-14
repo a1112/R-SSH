@@ -39,3 +39,12 @@ The exact committed consumer must subsequently be prepared with unchanged
 compilation and tests. Keep those results separate from full workspace/CI and
 performance certification. Independent review found no semantic must-fix issue;
 the unrelated include-fragment formatting it identified was removed.
+
+Follow-up: exact `6ffcb898` prepared frozen consumer passed `cargo check --locked
+-p rssh-app --all-targets -j 2`, clearing the original 30 compile errors. Modern
+eight-stage tests passed 22 with one child-only ignored entry executed by its
+parent. The inherited-environment wrapper also launches that modern parent;
+legacy execution reproduced 0 versus 8 results, so it now shares the same modern
+capability guard. The remaining 20 common attribution/harness tests passed with
+the legacy selector. A fresh final committed frozen consumer is still required
+for the final runtime results; prior receipts are not relabeled.

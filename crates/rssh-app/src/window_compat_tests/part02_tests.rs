@@ -6644,6 +6644,7 @@ return config
 
         #[cfg(target_os = "windows")]
         #[test]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         fn exact_gpu_stop_stage_parent_ignores_inherited_child_environment() {
             use std::collections::BTreeSet;
 
