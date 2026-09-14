@@ -106,6 +106,7 @@ fn production_fonts_share_the_normal_catalog_source_allocation() {
 #[test]
 #[cfg(feature = "rterm-legacy-0-1")]
 fn legacy_production_fonts_load_without_claiming_shared_allocation() {
+    const LATIN: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Latin.fixture.ttf");
     let app_manifest = read_repository_file("crates/rssh-app/Cargo.toml");
     let fonts_manifest = read_repository_file("crates/rterm-fonts/Cargo.toml");
     assert_eq!(
@@ -117,7 +118,6 @@ fn legacy_production_fonts_load_without_claiming_shared_allocation() {
     assert!(!fonts_manifest.contains("shared-source-ownership ="));
     assert!(!fonts_manifest.contains("diagnostic-tools ="));
 
-    const LATIN: &[u8] = include_bytes!("../../../tests/fixtures/fonts/NotoSans-Latin.fixture.ttf");
     let source = FontSource::new("production-latin", LATIN.to_vec());
     let catalog = FontCatalog::from_sources("en-US", [source]).expect("legacy production catalog");
     assert_eq!(catalog.face_count(), 1);

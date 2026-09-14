@@ -4019,6 +4019,7 @@ T23-CONFIG-6df071e5fcfa|crates/rssh-app/src/window_config_tests.rs|font_values_l
 T23-CONFIG-1910954fabea|crates/rssh-app/src/window_config_tests.rs|render_and_overlay_values_live_in_the_shared_applied_config_snapshot|1|rssh-app|window_config_tests::tests|config
 T23-CONFIG-6f905aa9ef48|crates/rssh-app/src/window_config_tests.rs|terminal_identity_and_palette_values_share_the_applied_config_snapshot|1|rssh-app|window_config_tests::tests|config
 T23-CONFIG-638ae4b9ef80|crates/rssh-app/src/window_config_tests.rs|renderer_timing_and_cursor_values_share_the_applied_config_snapshot|1|rssh-app|window_config_tests::tests|config
+T23-CONFIG-575dda762094|crates/rssh-app/src/window_gpu.rs|legacy_diagnostic_font_options_reject_proof_but_allow_production_catalog|1|rssh-app|window_gpu::tests|config
 T23-PLATFORM-5ff5d701ce00|crates/rssh-app/src/window_gpu.rs|window_gpu_constructor_accepts_owned_display_handle|1|rssh-app|window_gpu::tests|platform
 T23-PANES-6d66266c69f8|crates/rssh-app/src/window_gpu.rs|window_gpu_surface_preparation_and_worker_initialization_are_split|1|rssh-app|window_gpu::tests|panes
 T23-OVERLAYS-c3a0ca2cf4fa|crates/rssh-app/src/window_gpu.rs|diagnostic_gpu_backend_prepare_accepts_explicit_selection_without_running_hardware|1|rssh-app|window_gpu::tests|overlays

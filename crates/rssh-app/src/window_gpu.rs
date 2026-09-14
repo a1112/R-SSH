@@ -2287,6 +2287,49 @@ mod tests {
     };
 
     use rssh_core::TerminalSize;
+
+    #[cfg(feature = "rterm-legacy-0-1")]
+    #[test]
+    fn legacy_diagnostic_font_options_reject_proof_but_allow_production_catalog() {
+        use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
+        let (_, catalog, summary) = prepare_diagnostic_font_catalog(
+            PlatformFontRepository::production_index_for_os("test"),
+            None,
+            None,
+        )
+        .expect("real production catalog");
+        assert!(catalog.face_count() > 0);
+        assert!(summary.is_none());
+        for (mode, specimen) in [
+            (Some(DiagnosticFontMode::Lazy), None),
+            (Some(DiagnosticFontMode::SharedAll), None),
+            (Some(DiagnosticFontMode::CurrentCopied), None),
+            (None, Some(DiagnosticFontSpecimen::Cjk)),
+        ] {
+            let error = prepare_diagnostic_font_catalog(
+                PlatformFontRepository::production_index_for_os("test"),
+                mode,
+                specimen,
+            )
+            .err()
+            .expect("legacy proof is unavailable");
+            assert_eq!(
+                error
+                    .downcast_ref::<io::Error>()
+                    .expect("typed error")
+                    .kind(),
+                io::ErrorKind::Unsupported
+            );
+        }
+    }
+
+    fn test_headless_renderer(context: &GpuContext) -> Result<GpuLayerRenderer, Box<dyn Error>> {
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
+        let renderer = GpuLayerRenderer::new_headless(context, 64 * 1024)?;
+        #[cfg(feature = "rterm-legacy-0-1")]
+        let renderer = GpuLayerRenderer::new(context, wgpu::TextureFormat::Rgba8Unorm, 64 * 1024)?;
+        Ok(renderer)
+    }
     use rssh_diagnostics::DiagnosticGpuBackend;
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     use rssh_fonts::TerminalShaper;
@@ -2442,6 +2485,7 @@ mod tests {
 
     #[cfg(feature = "diagnostic-tools")]
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn diagnostic_font_mode_maps_exactly_without_changing_production_default() {
         use rssh_diagnostics::DiagnosticFontMode;
 
@@ -2465,6 +2509,7 @@ mod tests {
 
     #[cfg(feature = "diagnostic-tools")]
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn stage7_attribution_ready_marker_owns_complete_adapter_identity() {
         let mut metrics = GpuPresentationMetrics::uninitialized();
         metrics.backend = "Vulkan".to_owned();
@@ -2506,6 +2551,7 @@ mod tests {
 
     #[cfg(feature = "diagnostic-tools")]
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn diagnostic_font_specimens_activate_one_bounded_batch_without_tofu() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
 
@@ -2537,6 +2583,7 @@ mod tests {
 
     #[cfg(feature = "diagnostic-tools")]
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn diagnostic_font_resource_summary_serializes_irreversible_identity_without_paths() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
 
@@ -2561,6 +2608,7 @@ mod tests {
 
     #[cfg(feature = "diagnostic-tools")]
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn diagnostic_font_frame_evidence_is_derived_from_the_presented_specimen_frame() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
 
@@ -2587,6 +2635,7 @@ mod tests {
 
     #[cfg(feature = "diagnostic-tools")]
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn diagnostic_font_summary_finalizes_only_the_first_presented_proof_frame() {
         use std::cell::Cell;
 
@@ -2621,6 +2670,7 @@ mod tests {
 
     #[cfg(feature = "diagnostic-tools")]
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn diagnostic_font_summary_is_rederived_from_the_actual_presented_catalog_epoch() {
         use rssh_diagnostics::{DiagnosticFontMode, DiagnosticFontSpecimen};
 
@@ -2721,8 +2771,7 @@ mod tests {
         let catalog = repository
             .build_catalog(production_font_catalog_mode())
             .expect("production lazy catalog");
-        let mut renderer =
-            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        let mut renderer = test_headless_renderer(&context).expect("GPU layer renderer");
         renderer
             .enable_text(
                 catalog,
@@ -2750,20 +2799,34 @@ mod tests {
 
         assert!(report.missing_glyphs.is_empty());
         assert_eq!(report.prepared_rows, [0]);
-        assert_eq!(
-            report.catalog_generation,
-            repository
-                .diagnostics()
-                .expect("modern font diagnostics")
-                .generation
-        );
-        assert_eq!(
-            repository
-                .diagnostics()
-                .expect("modern font diagnostics")
-                .active_source_count,
-            6
-        );
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
+        {
+            assert_eq!(
+                report.catalog_generation,
+                repository
+                    .diagnostics()
+                    .expect("modern font diagnostics")
+                    .generation
+            );
+            assert_eq!(
+                repository
+                    .diagnostics()
+                    .expect("modern font diagnostics")
+                    .active_source_count,
+                6
+            );
+        }
+        #[cfg(feature = "rterm-legacy-0-1")]
+        {
+            assert_eq!(
+                renderer
+                    .text_catalog_mut()
+                    .expect("live catalog")
+                    .face_count(),
+                6
+            );
+            assert!(repository.diagnostics().is_err());
+        }
     }
 
     #[test]
@@ -2819,8 +2882,7 @@ mod tests {
         let catalog = repository
             .build_catalog(FontCatalogMode::Lazy)
             .expect("primary catalog");
-        let mut renderer =
-            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        let mut renderer = test_headless_renderer(&context).expect("GPU layer renderer");
         renderer
             .enable_text(
                 catalog,
@@ -2862,12 +2924,32 @@ mod tests {
         )
         .expect("late missing source expansion and one full-frame retry");
 
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         assert_eq!(report.catalog_generation, 3);
+        #[cfg(feature = "rterm-legacy-0-1")]
+        assert_eq!(
+            renderer
+                .text_catalog_mut()
+                .expect("live catalog")
+                .generation(),
+            3
+        );
         assert_eq!(report.prepared_rows, [0, 1]);
         assert!(report.missing_glyphs.is_empty());
-        let diagnostics = repository.diagnostics().expect("modern font diagnostics");
-        assert_eq!(diagnostics.active_source_count, 3);
-        assert_eq!(diagnostics.generation, 3);
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
+        {
+            let diagnostics = repository.diagnostics().expect("modern font diagnostics");
+            assert_eq!(diagnostics.active_source_count, 3);
+            assert_eq!(diagnostics.generation, 3);
+        }
+        #[cfg(feature = "rterm-legacy-0-1")]
+        assert_eq!(
+            renderer
+                .text_catalog_mut()
+                .expect("live catalog")
+                .face_count(),
+            3
+        );
     }
 
     #[test]
@@ -2878,8 +2960,7 @@ mod tests {
         let catalog = repository
             .build_catalog(FontCatalogMode::Lazy)
             .expect("primary catalog");
-        let mut renderer =
-            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        let mut renderer = test_headless_renderer(&context).expect("GPU layer renderer");
         renderer
             .enable_text(
                 catalog,
@@ -2906,7 +2987,16 @@ mod tests {
             1.0,
         )
         .expect("one bounded restart leaves another candidate");
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         assert_eq!(first.catalog_generation, 3);
+        #[cfg(feature = "rterm-legacy-0-1")]
+        assert_eq!(
+            renderer
+                .text_catalog_mut()
+                .expect("live catalog")
+                .generation(),
+            3
+        );
         assert!(!first.missing_glyphs.is_empty());
         assert!(font_fallback_redraw_needed(&repository, &first));
         let followup = prepare_gpu_text_frame(
@@ -2920,7 +3010,16 @@ mod tests {
             1.0,
         )
         .expect("explicit full redraw without input or animation");
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         assert_eq!(followup.catalog_generation, 4);
+        #[cfg(feature = "rterm-legacy-0-1")]
+        assert_eq!(
+            renderer
+                .text_catalog_mut()
+                .expect("live catalog")
+                .generation(),
+            4
+        );
         assert!(followup.missing_glyphs.is_empty());
         assert_eq!(followup.prepared_rows, [0, 1]);
         assert!(!font_fallback_redraw_needed(&repository, &followup));
@@ -2952,8 +3051,7 @@ mod tests {
         let catalog = repository
             .build_catalog(FontCatalogMode::Lazy)
             .expect("primary catalog");
-        let mut renderer =
-            GpuLayerRenderer::new_headless(&context, 64 * 1024).expect("GPU layer renderer");
+        let mut renderer = test_headless_renderer(&context).expect("GPU layer renderer");
         renderer
             .enable_text(
                 catalog,
@@ -2979,14 +3077,35 @@ mod tests {
         )
         .expect("one late expansion followed by stable tofu");
 
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         assert_eq!(report.catalog_generation, 3);
+        #[cfg(feature = "rterm-legacy-0-1")]
+        assert_eq!(
+            renderer
+                .text_catalog_mut()
+                .expect("live catalog")
+                .generation(),
+            3
+        );
         assert_eq!(report.missing_glyphs, ['中', '文']);
-        let diagnostics = repository.diagnostics().expect("modern font diagnostics");
-        assert_eq!(diagnostics.active_source_count, 3);
-        assert_eq!(diagnostics.generation, 3);
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
+        {
+            let diagnostics = repository.diagnostics().expect("modern font diagnostics");
+            assert_eq!(diagnostics.active_source_count, 3);
+            assert_eq!(diagnostics.generation, 3);
+        }
+        #[cfg(feature = "rterm-legacy-0-1")]
+        assert_eq!(
+            renderer
+                .text_catalog_mut()
+                .expect("live catalog")
+                .face_count(),
+            3
+        );
     }
 
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn gpu_text_frame_invalid_late_fallback_discards_partial_state_before_error() {
         let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
             .expect("headless adapter");
@@ -3033,6 +3152,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     fn recovery_retires_real_cpu_font_state_before_building_the_replacement() {
         let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
             .expect("headless adapter");
@@ -3667,6 +3787,9 @@ mod tests {
         );
     }
 
+    // Lazy-resource accounting is a modern capability; legacy recovery has real
+    // device/readback coverage in rterm_compat_gpu::tests.
+    #[cfg(not(feature = "rterm-legacy-0-1"))]
     mod device_loss {
         use super::*;
 

@@ -6956,16 +6956,21 @@ return config
         }
 
         #[cfg(target_os = "windows")]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         const NATIVE_OWNER_ROLE: &str = "RSSH_STAGE7_NATIVE_OWNER_ROLE";
         #[cfg(target_os = "windows")]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         const NATIVE_OWNER_NONCE: &str = "RSSH_STAGE7_NATIVE_OWNER_NONCE";
         #[cfg(target_os = "windows")]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         const NATIVE_OWNER_STAGE: &str = "RSSH_STAGE7_NATIVE_OWNER_STAGE";
         #[cfg(target_os = "windows")]
         const NATIVE_OWNER_RESULT: &str = "RSSH_STAGE7_NATIVE_OWNER_RESULT";
         #[cfg(target_os = "windows")]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         const NATIVE_OWNER_CHILD_DEADLINE: Duration = Duration::from_secs(30);
         #[cfg(target_os = "windows")]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         const NATIVE_OWNER_WRAPPER_DEADLINE: Duration = Duration::from_secs(45);
 
         #[cfg(target_os = "windows")]
@@ -7160,6 +7165,7 @@ return config
         }
 
         #[cfg(target_os = "windows")]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         fn spawn_bounded_native_owner_child(
             index: usize,
             nonce: &str,
@@ -7238,6 +7244,7 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 native owner child' -FilePath $env
         }
 
         #[cfg(target_os = "windows")]
+        #[cfg_attr(feature = "rterm-legacy-0-1", allow(dead_code, reason = "shared timeout tests retain the modern success result type"))]
         struct BoundedNativeOwnerChild {
             output: std::process::Output,
             wall_elapsed: Duration,
@@ -7362,6 +7369,7 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath '
         #[cfg(target_os = "windows")]
         #[test]
         #[ignore = "launched only by the bounded eight-stage attribution parent"]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         fn exact_gpu_stop_stage_native_owner_child() {
             assert_eq!(
                 std::env::var(NATIVE_OWNER_ROLE).as_deref(),
@@ -7399,6 +7407,7 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath '
 
         #[cfg(target_os = "windows")]
         #[test]
+        #[cfg(not(feature = "rterm-legacy-0-1"))]
         fn exact_gpu_stop_stage_real_owner_reaches_full_frame_without_product_services() {
             let mut results = std::collections::BTreeSet::new();
             for (index, stage) in GpuAttributionStage::ORDERED.into_iter().enumerate() {
