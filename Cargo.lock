@@ -4919,6 +4919,7 @@ dependencies = [
  "unicode-width",
  "unicode_names2",
  "wezterm-color-types",
+ "wgpu",
  "winit",
 ]
 

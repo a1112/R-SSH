@@ -2,6 +2,12 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      stage7_gate_only:
+        description: Run the complete Stage 7 Gate 0 proof for this ref
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -12,7 +18,13 @@ permissions:
 jobs:
   fixed-performance:
     name: Fixed-runner performance budgets
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.stage7_gate_only != true &&
+        github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      )
     runs-on: [self-hosted, Windows, X64, rssh-performance]
     environment: performance
     permissions:
@@ -432,8 +444,117 @@ jobs:
           path: artifacts/rterm-release-comparison/report.json
           if-no-files-found: error
 
+  stage7-attribution-matrix:
+    name: Stage 7 cumulative GPU attribution matrix
+    needs: fixed-performance
+    if: >-
+      always() &&
+      github.event_name == 'workflow_dispatch' &&
+      (
+        inputs.stage7_gate_only == true ||
+        (
+          github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+          needs.fixed-performance.result == 'success'
+        )
+      )
+    runs-on: [self-hosted, Windows, X64, rssh-performance]
+    timeout-minutes: 360
+    environment: performance
+    permissions:
+      contents: read
+    concurrency:
+      group: stage7-attribution-${{ vars.RSSH_PERF_BASELINE_MACHINE_CLASS }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@451ce45ce31d200b52705aadd15ce75018b006de # 1.89.0
+
+      - name: Configure Stage 7 runner-local paths
+        shell: pwsh
+        run: |
+          # Keep all locked-build outputs off the checkout so stale binaries
+          # and workspace storage cannot affect the protected benchmark.
+          $targetDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-target"
+          $tempDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-tmp"
+          $evidenceDirectory = Join-Path $env:RUNNER_TEMP "rssh-stage7-evidence"
+          New-Item -ItemType Directory -Force -Path $targetDirectory, $tempDirectory, $evidenceDirectory | Out-Null
+          "CARGO_TARGET_DIR=$targetDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TEMP=$tempDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TMP=$tempDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RSSH_STAGE7_EVIDENCE_ROOT=$evidenceDirectory" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Collect Stage 7 font cohort and runner fingerprint
+        shell: pwsh
+        run: >
+          ./scripts/ci/run-stage7-font-proof.ps1
+          -Profile release
+          -Warmups 5
+          -MeasuredRounds 30
+          -OutputDirectory "$env:RSSH_STAGE7_EVIDENCE_ROOT/font"
+
+      - name: Collect Stage 7 cumulative attribution matrix
+        shell: pwsh
+        run: >
+          ./scripts/ci/run-stage7-attribution-matrix.ps1
+          -Profile release
+          -Warmups 5
+          -Samples 30
+          -OutputDirectory "$env:RSSH_STAGE7_EVIDENCE_ROOT/stages"
+          -SkipBuild
+
+      - name: Run Stage 7 deterministic attribution proofs
+        shell: pwsh
+        run: >
+          ./scripts/ci/run-stage7-attribution-deterministic-tests.ps1
+          -OutputDirectory "$env:RSSH_STAGE7_EVIDENCE_ROOT/tests"
+
+      - name: Prove immutable external R-Term Git consumption
+        shell: pwsh
+        env:
+          CARGO_HOME: ${{ runner.temp }}/rssh-stage7-cargo-home
+        run: >
+          python scripts/ci/prove-rterm-external-source.py
+          --contract scripts/ci/rterm-external-source-proof.json
+          --synthesize
+          --output "$env:RSSH_STAGE7_EVIDENCE_ROOT/external"
+          --keep-on-failure
+
+      - name: Assemble the complete Stage 7 Gate 0 manifest
+        shell: pwsh
+        run: >
+          python scripts/ci/assemble-stage7-evidence.py
+          --contract scripts/ci/stage7-split-contract.json
+          --requested-state attribution-ready
+          --evidence-root "$env:RSSH_STAGE7_EVIDENCE_ROOT"
+          --fragment font/artifact-manifest-fragment.json
+          --fragment stages/artifact-manifest-fragment.json
+          --fragment tests/artifact-manifest-fragment.json
+          --fragment external/artifact-manifest-fragment.json
+          --output stage7-evidence-manifest.json
+
+      - name: Validate the Stage 7 Gate 0 decision
+        shell: pwsh
+        run: >
+          python scripts/ci/check-stage7-split-gate.py
+          --contract scripts/ci/stage7-split-contract.json
+          --requested-state attribution-ready
+          --evidence-manifest "$env:RSSH_STAGE7_EVIDENCE_ROOT/stage7-evidence-manifest.json"
+
+      - name: Upload the complete Stage 7 Gate 0 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage7-attribution-matrix-windows-x64
+          if-no-files-found: error
+          path: ${{ runner.temp }}/rssh-stage7-evidence
+
   build-package:
     name: Build and test unsigned package (${{ matrix.runtime_target }})
+    if: github.event_name != 'workflow_dispatch' || inputs.stage7_gate_only != true
     needs: fixed-performance
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90

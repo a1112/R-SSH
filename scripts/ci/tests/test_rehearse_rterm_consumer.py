@@ -154,6 +154,12 @@ class RTermConsumerRehearsalTests(unittest.TestCase):
             self.assertFalse(evidence["ok"])
             self.assertEqual(evidence["commands"][-1]["returncode"], 7)
             self.assertTrue((output / "work" / "candidate-consumer").is_dir())
+            self.assertTrue(result.stderr, "failed rehearsal must emit a diagnostic")
+            diagnostic = json.loads(result.stderr)
+            self.assertEqual(diagnostic["mode"], "candidate")
+            self.assertEqual(diagnostic["failed_command"]["kind"], "consumer")
+            self.assertEqual(diagnostic["failed_command"]["returncode"], 7)
+            self.assertIn("verify.py", diagnostic["failed_command"]["argv"])
 
     def test_overlay_paths_must_be_contained_and_cannot_own_product_crates(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -41,6 +41,147 @@ fn assert_rgba_close(actual: &[u8], expected: &[u8], tolerance: u8) {
     }
 }
 
+mod lazy_image_pipeline {
+    use super::*;
+
+    fn image_snapshot_graph() -> RenderGraph {
+        const RED_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal
+            .feed(format!("\x1b]1337;File=inline=1;width=2px;height=2px:{RED_PNG}\x07").as_bytes());
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut graph = RenderGraph::new(2, 2);
+        graph.push_snapshot_images(&snapshot, RenderGeometry::new(2, 2, 2, 2), 0, None);
+        assert_eq!(graph.planned_image_draw_count(), 1);
+        graph
+    }
+
+    #[test]
+    fn image_pipeline_materializes_once_on_first_image() {
+        let _gpu = gpu_test_guard();
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut renderer = GpuLayerRenderer::new_headless(&context, 4096).expect("layer renderer");
+
+        let initial = renderer.initialization_resources();
+        assert_eq!(initial.pipeline_count, 1);
+        assert_eq!(initial.pipeline_layout_count, 1);
+        assert_eq!(initial.image_texture_bytes, 0);
+
+        renderer
+            .render_headless_rgba8(&RenderGraph::new(2, 2), Duration::from_secs(5))
+            .expect("empty frame");
+        assert_eq!(renderer.initialization_resources(), initial);
+
+        let image = image_snapshot_graph();
+        renderer
+            .render_headless_rgba8(&image, Duration::from_secs(5))
+            .expect("first image frame");
+        let materialized = renderer.initialization_resources();
+        assert_eq!(materialized.pipeline_count, 2);
+        assert_eq!(materialized.pipeline_layout_count, 2);
+        assert!(materialized.image_texture_bytes > 0);
+        let texture_metrics = renderer.texture_cache_metrics();
+
+        renderer
+            .render_headless_rgba8(&image, Duration::from_secs(5))
+            .expect("repeated image frame");
+        assert_eq!(renderer.initialization_resources(), materialized);
+        let repeated_texture_metrics = renderer.texture_cache_metrics();
+        assert_eq!(repeated_texture_metrics.entries, texture_metrics.entries);
+        assert_eq!(
+            repeated_texture_metrics.retained_bytes,
+            texture_metrics.retained_bytes
+        );
+        assert_eq!(repeated_texture_metrics.uploads, texture_metrics.uploads);
+        assert_eq!(
+            repeated_texture_metrics.evictions,
+            texture_metrics.evictions
+        );
+
+        let mut constrained =
+            GpuLayerRenderer::new_with_budgets(&context, wgpu::TextureFormat::Rgba8Unorm, 4096, 8)
+                .expect("constrained layer renderer");
+        let before_failure = constrained.initialization_resources();
+        let error: rterm_render_wgpu::gpu::GpuLayerError = constrained
+            .upload(&image)
+            .expect_err("the 2x2 image must exceed the retained-byte budget");
+        assert!(error.to_string().contains("budget"));
+        assert_eq!(constrained.initialization_resources(), before_failure);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn upload_reports_image_pipeline_creation_failure_without_committing_resources() {
+        let _gpu = gpu_test_guard();
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut renderer = GpuLayerRenderer::new_headless(&context, 4096).expect("layer renderer");
+        let image = image_snapshot_graph();
+        let before = renderer.initialization_resources();
+
+        renderer.inject_image_pipeline_creation_failure_for_test();
+        let error: rterm_render_wgpu::gpu::GpuLayerError = renderer
+            .upload(&image)
+            .expect_err("injected image pipeline creation must fail");
+        assert!(error.to_string().contains("image pipeline"));
+        assert_eq!(renderer.initialization_resources(), before);
+        assert_eq!(renderer.texture_cache_metrics().entries, 0);
+
+        renderer.upload(&image).expect("one-shot failure can retry");
+        assert_eq!(renderer.initialization_resources().pipeline_count, 2);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn headless_reports_image_pipeline_creation_failure_without_committing_resources() {
+        let _gpu = gpu_test_guard();
+        let context = pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+            .expect("headless adapter");
+        let mut renderer = GpuLayerRenderer::new_headless(&context, 4096).expect("layer renderer");
+        let image = image_snapshot_graph();
+        let before = renderer.initialization_resources();
+
+        renderer.inject_image_pipeline_creation_failure_for_test();
+        let error: rterm_render_wgpu::gpu::GpuLayerError = renderer
+            .render_headless_rgba8(&image, Duration::from_secs(5))
+            .expect_err("injected image pipeline creation must fail");
+        assert!(error.to_string().contains("image pipeline"));
+        assert_eq!(renderer.initialization_resources(), before);
+        assert_eq!(renderer.texture_cache_metrics().entries, 0);
+
+        renderer
+            .render_headless_rgba8(&image, Duration::from_secs(5))
+            .expect("one-shot failure can retry");
+        assert_eq!(renderer.initialization_resources().pipeline_count, 2);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn device_loss_during_first_image_creation_keeps_the_recovery_error_kind() {
+        let _gpu = gpu_test_guard();
+        let mut context =
+            pollster::block_on(GpuContext::new_headless(GpuContextOptions::default()))
+                .expect("headless adapter");
+        let mut renderer = GpuLayerRenderer::new_headless(&context, 4096).expect("layer renderer");
+        let image = image_snapshot_graph();
+
+        context.inject_device_loss_during_direct_upload_for_test();
+        renderer.inject_image_pipeline_creation_failure_for_test();
+        let error = context
+            .render_graph(&mut renderer, &image, || {})
+            .expect_err("device loss must outrank the image pipeline validation error");
+
+        assert_eq!(
+            error.kind(),
+            rterm_render_wgpu::gpu::GpuContextErrorKind::DeviceLost
+        );
+        assert_eq!(context.metrics().device_losses, 1);
+        assert_eq!(renderer.initialization_resources().pipeline_count, 1);
+        assert_eq!(renderer.texture_cache_metrics().entries, 0);
+    }
+}
+
 fn red_green_blue_vertical_png_bytes() -> &'static [u8] {
     &[
         0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,

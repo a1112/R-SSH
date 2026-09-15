@@ -88,6 +88,34 @@ fn package_smoke_and_machine_readable_manifests_are_mandatory() {
 }
 
 #[test]
+fn diagnostic_font_mode_is_excluded_from_the_production_package_feature_graph() {
+    let app_manifest = read_repo_file("crates/rssh-app/Cargo.toml");
+    let fonts_manifest = read_repo_file("crates/rterm-fonts/Cargo.toml");
+    let release = read_repo_file(".github/workflows/release.yml");
+    let production_gui = app_manifest
+        .lines()
+        .find(|line| line.starts_with("production-gui ="))
+        .expect("production GUI feature");
+    let production_fonts = app_manifest
+        .lines()
+        .find(|line| line.starts_with("production-fonts ="))
+        .expect("production font feature");
+
+    assert!(production_gui.contains("production-fonts"));
+    assert!(!production_gui.contains("diagnostic-tools"));
+    assert_eq!(
+        production_fonts,
+        "production-fonts = [\"rssh-fonts/shared-source-ownership\"]"
+    );
+    assert!(fonts_manifest.contains("shared-source-ownership = []"));
+    assert!(fonts_manifest.contains("diagnostic-tools = []"));
+    assert!(release.contains(
+        "cargo build --locked --release -p rssh-app --no-default-features --features production-gui"
+    ));
+    assert!(!release.contains("--features production-gui,diagnostic-tools"));
+}
+
+#[test]
 fn linux_release_jobs_guard_openssh_server_installation() {
     let workflow = read_repo_file(".github/workflows/release.yml");
     let ci = read_repo_file(".github/workflows/ci.yml");

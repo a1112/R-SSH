@@ -15,10 +15,14 @@ std::thread_local! {
 }
 
 use super::{
-    GpuContext, GpuContextGeneration, GpuImage, GpuLayer, GpuLayerError, GpuQuad, PixelRect,
-    images::image_layer,
+    GpuContext, GpuContextGeneration, GpuImage, GpuInitializationResourceSnapshot, GpuLayer,
+    GpuLayerError, GpuQuad, PixelRect,
+    images::{GpuImagePipeline, image_layer},
     quads::{INSTANCE_SIZE, encode_instance},
-    text::{GpuText, GpuTextAtlasMetrics, GpuTextConfig, GpuTextPrepareReport},
+    text::{
+        GpuText, GpuTextAtlasMetrics, GpuTextCatalogStatus, GpuTextConfig, GpuTextCpuFontMetrics,
+        GpuTextOwnerMaterialization, GpuTextPrepareReport,
+    },
 };
 use rssh_fonts::{FontCatalog, FontConfig};
 use rterm_render_cpu::{
@@ -33,6 +37,9 @@ pub const DEFAULT_GPU_INSTANCE_BYTE_BUDGET: usize = 64 * 1024 * 1024;
 pub const DEFAULT_GPU_IMAGE_BYTE_BUDGET: usize = 64 * 1024 * 1024;
 pub const DEFAULT_GPU_READBACK_BYTE_BUDGET: usize = 64 * 1024 * 1024;
 const MAX_GPU_READBACK_WAIT: Duration = Duration::from_secs(5);
+
+#[cfg(any(test, debug_assertions))]
+const INVALID_IMAGE_SHADER_FOR_TEST: &str = "this is intentionally invalid WGSL";
 
 const QUAD_SHADER: &str = r"
 struct Viewport {
@@ -790,22 +797,12 @@ impl TextureCache {
         })
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "cache admission, LRU eviction, device validation, upload, and accounting remain one audited transaction"
-    )]
-    fn prepare(
-        &mut self,
+    fn validate(
+        &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
-        textures: &mut [PlannedTexture],
+        textures: &[PlannedTexture],
     ) -> Result<(), GpuLayerError> {
         let max_dimension = device.limits().max_texture_dimension_2d;
-        let requested = textures
-            .iter()
-            .map(|texture| texture.identity.clone())
-            .collect::<HashSet<_>>();
         let requested_bytes = textures.iter().try_fold(0_usize, |total, texture| {
             if texture.identity.width == 0
                 || texture.identity.height == 0
@@ -836,6 +833,25 @@ impl TextureCache {
                 self.budget_bytes
             )));
         }
+        Ok(())
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "cache admission, LRU eviction, device validation, upload, and accounting remain one audited transaction"
+    )]
+    fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        textures: &mut [PlannedTexture],
+    ) -> Result<(), GpuLayerError> {
+        self.validate(device, textures)?;
+        let requested = textures
+            .iter()
+            .map(|texture| texture.identity.clone())
+            .collect::<HashSet<_>>();
 
         let missing_bytes = textures
             .iter()
@@ -1030,6 +1046,72 @@ impl LayerPipeline {
     }
 }
 
+impl GpuImagePipeline {
+    fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        viewport_bind_group_layout: &wgpu::BindGroupLayout,
+        shader_source: &str,
+    ) -> Result<Self, GpuLayerError> {
+        let internal_scope = device.push_error_scope(wgpu::ErrorFilter::Internal);
+        let out_of_memory_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+        let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("rssh-terminal-image-shader"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(shader_source)),
+        });
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("rssh-terminal-image-bind-group-layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("rssh-terminal-image-pipeline-layout"),
+            bind_group_layouts: &[Some(viewport_bind_group_layout), Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let pipeline = LayerPipeline::new(
+            device,
+            format,
+            &pipeline_layout,
+            &shader,
+            None,
+            "rssh-terminal-image-pipeline",
+        )
+        .pipeline;
+        let candidate = Self {
+            pipeline,
+            bind_group_layout,
+        };
+        let validation_error = pollster::block_on(validation_scope.pop());
+        let out_of_memory_error = pollster::block_on(out_of_memory_scope.pop());
+        let internal_error = pollster::block_on(internal_scope.pop());
+        let errors = [
+            ("out-of-memory", out_of_memory_error),
+            ("internal", internal_error),
+            ("validation", validation_error),
+        ]
+        .into_iter()
+        .filter_map(|(kind, error)| error.map(|error| format!("{kind}: {error}")))
+        .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            return Err(GpuLayerError::message(format!(
+                "create GPU image pipeline: {}",
+                errors.join("; ")
+            )));
+        }
+        Ok(candidate)
+    }
+}
+
 /// Persistent instanced renderer for non-text terminal layers.
 #[derive(Debug)]
 pub struct GpuLayerRenderer {
@@ -1038,18 +1120,23 @@ pub struct GpuLayerRenderer {
     queue: wgpu::Queue,
     format: wgpu::TextureFormat,
     bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
     viewport: wgpu::Buffer,
     quads: LayerPipeline,
-    images: LayerPipeline,
-    image_bind_group_layout: wgpu::BindGroupLayout,
+    images: Option<GpuImagePipeline>,
     instances: PersistentInstances,
     texture_cache: TextureCache,
     readback_budget_bytes: usize,
     prepared_batches: Vec<DrawBatch>,
     prepared_textures: Vec<TextureIdentity>,
     texture_materializations: u64,
+    base_text_renderer_materializations: u64,
+    cursor_text_renderer_materializations: u64,
+    accounted_text_materializations: GpuTextOwnerMaterialization,
     prepared_size: (u32, u32),
     text: Option<GpuText>,
+    #[cfg(any(test, debug_assertions))]
+    image_pipeline_creation_failure_injections: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1062,6 +1149,23 @@ struct ReadbackLayout {
 }
 
 impl GpuLayerRenderer {
+    /// Creates an RGBA renderer for a headless context without requiring the
+    /// caller to depend directly on wgpu's texture-format type.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the budget cannot hold one instance.
+    pub fn new_headless(
+        context: &GpuContext,
+        instance_budget_bytes: usize,
+    ) -> Result<Self, GpuLayerError> {
+        Self::new(
+            context,
+            wgpu::TextureFormat::Rgba8Unorm,
+            instance_budget_bytes,
+        )
+    }
+
     /// Creates pipelines with a strict upper bound for retained instance bytes.
     ///
     /// # Errors
@@ -1105,10 +1209,6 @@ impl GpuLayerRenderer {
     /// # Errors
     ///
     /// Returns an error when a budget is too small for its minimum resource.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "device-bound pipeline construction keeps all resources on one audited context generation"
-    )]
     pub fn new_with_all_budgets(
         context: &GpuContext,
         format: wgpu::TextureFormat,
@@ -1167,41 +1267,18 @@ impl GpuLayerRenderer {
             label: Some("rssh-terminal-quad-shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(QUAD_SHADER)),
         });
-        let image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("rssh-terminal-image-shader"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(IMAGE_SHADER)),
-        });
-        let image_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("rssh-terminal-image-bind-group-layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                }],
-            });
         let quad_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("rssh-terminal-quad-pipeline-layout"),
             bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
-        let image_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("rssh-terminal-image-pipeline-layout"),
-                bind_group_layouts: &[Some(&bind_group_layout), Some(&image_bind_group_layout)],
-                immediate_size: 0,
-            });
         Ok(Self {
             generation: context.generation(),
             device: device.clone(),
             queue: queue.clone(),
             format,
             bind_group,
+            bind_group_layout,
             viewport,
             quads: LayerPipeline::new(
                 device,
@@ -1211,24 +1288,29 @@ impl GpuLayerRenderer {
                 Some(wgpu::BlendState::ALPHA_BLENDING),
                 "rssh-terminal-quad-pipeline",
             ),
-            images: LayerPipeline::new(
-                device,
-                format,
-                &image_pipeline_layout,
-                &image_shader,
-                None,
-                "rssh-terminal-image-pipeline",
-            ),
-            image_bind_group_layout,
+            images: None,
             instances: PersistentInstances::new(instance_budget_bytes),
             texture_cache: TextureCache::new(image_budget_bytes)?,
             readback_budget_bytes,
             prepared_batches: Vec::new(),
             prepared_textures: Vec::new(),
             texture_materializations: 0,
+            base_text_renderer_materializations: 0,
+            cursor_text_renderer_materializations: 0,
+            accounted_text_materializations: GpuTextOwnerMaterialization::default(),
             prepared_size: (0, 0),
             text: None,
+            #[cfg(any(test, debug_assertions))]
+            image_pipeline_creation_failure_injections: 0,
         })
+    }
+
+    #[cfg(any(test, debug_assertions))]
+    #[doc(hidden)]
+    pub fn inject_image_pipeline_creation_failure_for_test(&mut self) {
+        self.image_pipeline_creation_failure_injections = self
+            .image_pipeline_creation_failure_injections
+            .saturating_add(1);
     }
 
     /// Installs the opt-in direct GPU text backend. This does not change the
@@ -1244,7 +1326,7 @@ impl GpuLayerRenderer {
         font_config: FontConfig,
         config: GpuTextConfig,
     ) -> Result<(), GpuLayerError> {
-        self.text = Some(GpuText::new(
+        let text = GpuText::new(
             self.generation,
             self.device.clone(),
             self.queue.clone(),
@@ -1252,8 +1334,31 @@ impl GpuLayerRenderer {
             catalog,
             font_config,
             config,
-        )?);
+        )?;
+        self.accounted_text_materializations = GpuTextOwnerMaterialization::default();
+        self.text = Some(text);
+        self.reconcile_text_renderer_materializations();
         Ok(())
+    }
+
+    fn reconcile_text_renderer_materializations(&mut self) {
+        let current = self.text.as_ref().map_or_else(
+            GpuTextOwnerMaterialization::default,
+            GpuText::owner_materialization,
+        );
+        self.base_text_renderer_materializations =
+            self.base_text_renderer_materializations.saturating_add(
+                current
+                    .base_renderer_count
+                    .saturating_sub(self.accounted_text_materializations.base_renderer_count),
+            );
+        self.cursor_text_renderer_materializations =
+            self.cursor_text_renderer_materializations.saturating_add(
+                current
+                    .cursor_renderer_count
+                    .saturating_sub(self.accounted_text_materializations.cursor_renderer_count),
+            );
+        self.accounted_text_materializations = current;
     }
 
     /// Prepares terminal glyphs from the authoritative shaped row and raster
@@ -1272,10 +1377,50 @@ impl GpuLayerRenderer {
         dpi_scale: f32,
         zoom: f32,
     ) -> Result<GpuTextPrepareReport, GpuLayerError> {
-        self.text
+        let result = self
+            .text
             .as_mut()
             .ok_or_else(|| GpuLayerError::message("GPU text is not enabled"))?
-            .prepare(snapshot, geometry, damage, paint, dpi_scale, zoom)
+            .prepare(snapshot, geometry, damage, paint, dpi_scale, zoom);
+        self.reconcile_text_renderer_materializations();
+        result
+    }
+
+    /// Prepares one complete frame only when the app's preflight generation is
+    /// still current. A mismatch asks the caller to restart the whole frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same bounded shaping and atlas errors as [`Self::prepare_text`].
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "generation joins the existing explicit whole-frame text preparation contract"
+    )]
+    pub fn prepare_text_for_catalog_generation(
+        &mut self,
+        expected_generation: u64,
+        snapshot: &TerminalRenderSnapshot,
+        geometry: RenderGeometry,
+        damage: &[DamageRegion],
+        paint: &TextPaintConfig,
+        dpi_scale: f32,
+        zoom: f32,
+    ) -> Result<GpuTextCatalogStatus, GpuLayerError> {
+        let result = self
+            .text
+            .as_mut()
+            .ok_or_else(|| GpuLayerError::message("GPU text is not enabled"))?
+            .prepare_for_catalog_generation(
+                expected_generation,
+                snapshot,
+                geometry,
+                damage,
+                paint,
+                dpi_scale,
+                zoom,
+            );
+        self.reconcile_text_renderer_materializations();
+        result
     }
 
     #[must_use]
@@ -1285,6 +1430,40 @@ impl GpuLayerRenderer {
 
     pub fn text_catalog_mut(&mut self) -> Option<&mut FontCatalog> {
         self.text.as_mut().map(GpuText::catalog_mut)
+    }
+
+    #[must_use]
+    pub fn text_catalog_generation(&self) -> Option<u64> {
+        self.text.as_ref().map(GpuText::catalog_generation)
+    }
+
+    #[must_use]
+    pub fn text_cpu_font_metrics(&self) -> Option<GpuTextCpuFontMetrics> {
+        self.text.as_ref().map(GpuText::cpu_font_metrics)
+    }
+
+    /// Releases CPU-side font state before a lost renderer is retained solely
+    /// to defer destruction of unsafe driver GPU objects.
+    pub fn retire_text_cpu_font_state(&mut self) {
+        if let Some(text) = self.text.as_mut() {
+            text.retire_cpu_font_state();
+        }
+    }
+
+    /// Clears a partially prepared frame after app-owned font preflight grows
+    /// the catalog and before the caller restarts the complete frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if rebuilding the empty GPU text scope fails.
+    pub fn discard_prepared_text_frame(&mut self) -> Result<(), GpuLayerError> {
+        let result = self
+            .text
+            .as_mut()
+            .ok_or_else(|| GpuLayerError::message("GPU text is not enabled"))?
+            .discard_prepared_frame();
+        self.reconcile_text_renderer_materializations();
+        result
     }
 
     /// Updates the persistent instance buffer, writing only its dirty range.
@@ -1297,17 +1476,13 @@ impl GpuLayerRenderer {
         let graph = extended.as_ref().unwrap_or(graph);
         let mut prepared =
             graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
-        self.texture_materializations = self
-            .texture_materializations
-            .saturating_add(prepared.texture_materializations);
-        self.texture_cache.prepare(
-            &self.device,
-            &self.queue,
-            &self.image_bind_group_layout,
-            &mut prepared.textures,
-        )?;
+        let texture_materializations = prepared.texture_materializations;
+        self.prepare_image_resources(&mut prepared.textures)?;
         self.instances
             .upload(&self.device, &self.queue, &prepared.bytes)?;
+        self.texture_materializations = self
+            .texture_materializations
+            .saturating_add(texture_materializations);
         self.prepared_batches = prepared.batches;
         self.prepared_textures = prepared
             .textures
@@ -1317,6 +1492,43 @@ impl GpuLayerRenderer {
         self.prepared_size = (graph.width, graph.height);
         self.write_viewport();
         Ok(())
+    }
+
+    fn prepare_image_resources(
+        &mut self,
+        textures: &mut [PlannedTexture],
+    ) -> Result<(), GpuLayerError> {
+        if textures.is_empty() {
+            return Ok(());
+        }
+        self.texture_cache.validate(&self.device, textures)?;
+        if self.images.is_none() {
+            #[cfg(any(test, debug_assertions))]
+            let shader_source = if self.image_pipeline_creation_failure_injections == 0 {
+                IMAGE_SHADER
+            } else {
+                self.image_pipeline_creation_failure_injections = self
+                    .image_pipeline_creation_failure_injections
+                    .saturating_sub(1);
+                INVALID_IMAGE_SHADER_FOR_TEST
+            };
+            #[cfg(not(any(test, debug_assertions)))]
+            let shader_source = IMAGE_SHADER;
+            let candidate = GpuImagePipeline::new(
+                &self.device,
+                self.format,
+                &self.bind_group_layout,
+                shader_source,
+            )?;
+            self.images = Some(candidate);
+        }
+        let layout = &self
+            .images
+            .as_ref()
+            .expect("image pipeline was materialized for a non-empty texture batch")
+            .bind_group_layout;
+        self.texture_cache
+            .prepare(&self.device, &self.queue, layout, textures)
     }
 
     fn graph_with_text_blocks(&self, graph: &RenderGraph) -> Option<RenderGraph> {
@@ -1368,6 +1580,36 @@ impl GpuLayerRenderer {
         let mut metrics = self.texture_cache.metrics();
         metrics.materializations = self.texture_materializations;
         metrics
+    }
+
+    /// Reports only the buffers, textures, and pipelines owned by this live
+    /// renderer. The caller can merge it with its context snapshot to obtain a
+    /// cumulative initialization-stage view.
+    #[must_use]
+    pub fn initialization_resources(&self) -> GpuInitializationResourceSnapshot {
+        let instance_bytes = u64::try_from(self.instances.capacity_bytes).unwrap_or(u64::MAX);
+        let texture_metrics = self.texture_cache_metrics();
+        let image_texture_bytes = u64::try_from(texture_metrics.retained_bytes).unwrap_or(u64::MAX);
+        let text_atlas = self.text_atlas_metrics().unwrap_or_default();
+        let glyph_atlas_bytes =
+            u64::try_from(text_atlas.physical_texture_bytes).unwrap_or(u64::MAX);
+        let raster_cache_bytes = self.text_cpu_font_metrics().map_or(0, |metrics| {
+            u64::try_from(metrics.raster_cache_bytes).unwrap_or(u64::MAX)
+        });
+        GpuInitializationResourceSnapshot {
+            pipeline_count: 1 + u64::from(self.images.is_some()),
+            pipeline_layout_count: 1 + u64::from(self.images.is_some()),
+            materialized_buffer_count: 1 + u64::from(self.instances.buffer.is_some()),
+            instance_buffer_bytes: instance_bytes,
+            total_allocated_buffer_bytes: 8_u64.saturating_add(instance_bytes),
+            total_allocated_texture_bytes: image_texture_bytes.saturating_add(glyph_atlas_bytes),
+            glyph_atlas_bytes,
+            raster_cache_bytes,
+            image_texture_bytes,
+            base_text_renderer_materialization_count: self.base_text_renderer_materializations,
+            cursor_text_renderer_materialization_count: self.cursor_text_renderer_materializations,
+            ..GpuInitializationResourceSnapshot::default()
+        }
     }
 
     fn validate_readback(&self, width: u32, height: u32) -> Result<ReadbackLayout, GpuLayerError> {
@@ -1452,14 +1694,13 @@ impl GpuLayerRenderer {
         let graph = extended.as_ref().unwrap_or(graph);
         let mut prepared =
             graph.prepare(self.instances.budget_bytes, self.texture_cache.budget_bytes)?;
-        self.texture_cache.prepare(
-            &self.device,
-            &self.queue,
-            &self.image_bind_group_layout,
-            &mut prepared.textures,
-        )?;
+        let texture_materializations = prepared.texture_materializations;
+        self.prepare_image_resources(&mut prepared.textures)?;
         self.instances
             .upload(&self.device, &self.queue, &prepared.bytes)?;
+        self.texture_materializations = self
+            .texture_materializations
+            .saturating_add(texture_materializations);
         self.prepared_batches = prepared.batches;
         self.prepared_textures = prepared
             .textures
@@ -1640,7 +1881,10 @@ impl GpuLayerRenderer {
                 let cached = self.texture_cache.entries.get(identity).ok_or_else(|| {
                     GpuLayerError::message("prepared image texture is absent from cache")
                 })?;
-                pass.set_pipeline(&self.images.pipeline);
+                let images = self.images.as_ref().ok_or_else(|| {
+                    GpuLayerError::message("prepared image pipeline is absent from the renderer")
+                })?;
+                pass.set_pipeline(&images.pipeline);
                 pass.set_bind_group(1, &cached.bind_group, &[]);
             }
         }

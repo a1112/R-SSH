@@ -2933,6 +2933,9 @@ impl NativeWindowApp {
             .grid()
             .size();
         let pty_size = PtySize::try_new(size.columns, size.rows)?;
+        crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::LocalPty,
+        )?;
         self.metrics.start_spawn_timer();
         let session = PtySession::spawn(&command, pty_size)?;
         let process_id = session.process_id();
@@ -3339,6 +3342,9 @@ impl NativeWindowApp {
             })?;
 
         if let PaneLaunchDomain::Ssh(ssh_launch) = launch.domain() {
+            crate::stage7_attribution::audit_product_service_start(
+                crate::stage7_attribution::ProductServiceEntry::NativeSsh,
+            )?;
             return self.spawn_native_ssh_runtime(
                 pane_id,
                 ssh_launch,
@@ -3346,6 +3352,10 @@ impl NativeWindowApp {
                 event_proxy,
             );
         }
+
+        crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::LocalPty,
+        )?;
 
         let term_session_id =
             iterm_session_termid(self.app_window_id.get(), tab_id.get(), pane_id.get());
@@ -3564,14 +3574,14 @@ impl NativeWindowApp {
     }
 
     fn metrics_snapshot(&self) -> WindowMetricsSnapshot {
-        let direct_text = self.gpu.as_ref().and_then(|gpu| gpu.direct_text_metrics());
+        let direct_text = self.gpu_owners.active.as_ref().and_then(|gpu| gpu.direct_text_metrics());
         let gpu = self
-            .gpu
+            .gpu_owners.active
             .as_ref()
             .map_or_else(GpuPresentationMetrics::uninitialized, |gpu| {
                 gpu.metrics().clone()
             });
-        let text_backend = if self.gpu.is_some() {
+        let text_backend = if self.gpu_owners.active.is_some() {
             "shaped-gpu-atlas"
         } else {
             "bitmap-emergency"
@@ -3579,6 +3589,10 @@ impl NativeWindowApp {
         let mut snapshot = self
             .metrics
             .snapshot_with_gpu(&gpu, text_backend, direct_text);
+        for quarantined in &self.gpu_owners.quarantined {
+            snapshot.gpu_abandoned_lost_surfaces = snapshot.gpu_abandoned_lost_surfaces
+                .saturating_add(quarantined.metrics().abandoned_lost_surfaces);
+        }
         "v2-runtime-hub".clone_into(&mut snapshot.runtime_api);
         snapshot.runtime_live_threads = self.runtime.worker().map_or_else(
             || {
@@ -3598,13 +3612,13 @@ impl NativeWindowApp {
     }
 
     fn shutdown_gpu_for_window_close(&mut self) {
-        if let Some(gpu) = self.gpu.as_mut() {
+        for gpu in self.gpu_owners.active.iter_mut().chain(self.gpu_owners.quarantined.iter_mut()) {
             gpu.shutdown_for_window_close();
         }
     }
 
     fn shutdown_gpu_after_native_window_close(&mut self) {
-        if let Some(gpu) = self.gpu.as_mut() {
+        for gpu in self.gpu_owners.active.iter_mut().chain(self.gpu_owners.quarantined.iter_mut()) {
             gpu.shutdown_after_native_window_close();
         }
     }
@@ -3619,6 +3633,10 @@ impl NativeWindowApp {
         self.metrics_snapshot().json_report()
     }
 
+}
+
+// Keyboard and IME event translation has its own implementation boundary.
+impl NativeWindowApp {
     fn handle_keyboard_input(&mut self, key: &winit::event::KeyEvent) -> io::Result<()> {
         let key_event_kind = KittyKeyEventKind::from_winit_key(key);
         self.handle_keyboard_input_event(
@@ -7223,7 +7241,7 @@ fn lua_window_effective_config_field_text_part3(
         size: PhysicalSize<u32>,
     ) -> Result<(), Box<dyn Error>> {
         let gpu_resize_error = self
-            .gpu
+            .gpu_owners.active
             .as_mut()
             .and_then(|gpu| gpu.resize_surface(size).err());
         if let Some(error) = gpu_resize_error {
