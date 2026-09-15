@@ -37,7 +37,7 @@ if ([string]::IsNullOrWhiteSpace($ExpectedTarget) -or [string]::IsNullOrWhiteSpa
 
 Push-Location $repositoryRoot
 try {
-  $buildArguments = @("build", "--locked", "-p", "rssh-app", "--all-targets") + $profileArguments
+  $buildArguments = @("build", "--locked", "-p", "rssh-app", "--bin", "rssh-app", "--test", "openssh_loopback", "--test", "native_window_e2e") + $profileArguments
   $null = Invoke-BoundedProcess -Phase "native E2E build ($Profile)" -FilePath "cargo" -ArgumentList $buildArguments -TimeoutSeconds 1200
 
   $versionResult = Invoke-BoundedProcess -Phase "version identity" -FilePath $executable -ArgumentList @("version", "--json") -TimeoutSeconds 30
@@ -63,7 +63,7 @@ try {
   $null = Invoke-BoundedProcess -Phase "system OpenSSH interoperability ($Profile)" -FilePath "cargo" -ArgumentList $openSshArguments -TimeoutSeconds 300
 
   $testArguments = @(
-    "test", "--locked", "-p", "rssh-app", "--all-targets"
+    "test", "--locked", "-p", "rssh-app", "--test", "native_window_e2e"
   ) + $profileArguments + @(
     "native_window_e2e_presents_ten_frames_from_a_real_pty",
     "--", "--exact", "--nocapture"

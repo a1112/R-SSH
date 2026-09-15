@@ -429,6 +429,15 @@ fn dedicated_native_runners_own_heavy_window_scenarios() {
     let unix = read_repo_file("scripts/ci/run-native-window.sh");
 
     for (runner, contents) in [("Windows", windows), ("Unix", unix)] {
+        let normalized = contents.replace(['"', ','], "");
+        assert!(
+            normalized.contains("--bin rssh-app --test openssh_loopback --test native_window_e2e"),
+            "{runner} must prebuild only the product and the integration harnesses it runs"
+        );
+        assert!(
+            !normalized.contains("-p rssh-app --all-targets"),
+            "{runner} must not compile unrelated app unit tests for an exact integration scenario"
+        );
         for scenario in [
             "native_window_e2e_preserves_gpu_text_at_scale_100",
             "native_window_e2e_preserves_gpu_text_at_scale_125",
@@ -488,6 +497,10 @@ fn linux_display_and_strict_script_contracts_are_explicit() {
 
     assert_linux_openssh_server_contract([("CI", &ci), ("nightly", &nightly)]);
     for workflow in [&ci, &nightly] {
+        assert!(
+            workflow.contains("libxkbcommon-x11-0"),
+            "missing dynamically loaded X11 keyboard library"
+        );
         assert!(workflow.contains("xvfb-run"), "missing X11 native E2E");
         assert!(workflow.contains("weston"), "missing Wayland native E2E");
         assert!(
