@@ -176,6 +176,66 @@ def remove_readonly_tree(path: Path) -> None:
     shutil.rmtree(path, onerror=retry)
 
 
+def artifact_specs(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    specs = contract.get("consumer_artifacts", [])
+    if not isinstance(specs, list):
+        raise RehearsalError("consumer_artifacts must be a list")
+    seen = set()
+    for spec in specs:
+        if not isinstance(spec, dict) or set(spec) != {"after_command", "path"}:
+            raise RehearsalError("artifact requires after_command and path")
+        index, path = spec["after_command"], spec["path"]
+        if type(index) is not int or not 0 <= index < len(contract.get("consumer_commands", [])):
+            raise RehearsalError("artifact command index is out of range")
+        if not isinstance(path, str):
+            raise RehearsalError("artifact path must be a string")
+        resolved = path.replace("{exe_suffix}", ".exe" if os.name == "nt" else "")
+        if (not resolved or any(c in resolved for c in "\\:{}")
+                or PurePosixPath(resolved).is_absolute()
+                or any(p in ("", ".", "..") for p in resolved.split("/"))
+                or resolved in seen):
+            raise RehearsalError("artifact path must be unique and contained in Cargo target")
+        seen.add(resolved)
+    return specs
+
+
+def artifact_identity(target: Path, spec: dict[str, Any]) -> dict[str, Any]:
+    relative = spec["path"].replace("{exe_suffix}", ".exe" if os.name == "nt" else "")
+    path = target / relative
+    for component in (path, *path.parents):
+        info = component.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError(f"artifact path contains a link or reparse point: {component}")
+    if not path.is_file():
+        raise ValueError(f"artifact is not a regular file: {path}")
+    digest, size = hashlib.sha256(), 0
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+            size += len(chunk)
+    if not size:
+        raise ValueError(f"artifact is empty: {path}")
+    return {"after_command": spec["after_command"], "path": relative,
+            "sha256": digest.hexdigest(), "size_bytes": size}
+
+
+def artifact_failure(error: Exception) -> dict[str, Any]:
+    return {"kind": "artifact-identity", "argv": [], "returncode": 1,
+            "stdout": "", "stderr": str(error)}
+
+
+def verify_recovery_path(work: Path, backup: Path) -> None:
+    for component in (backup, *backup.parents):
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError(f"recovery path contains a link or reparse point: {component}")
+    if not backup.resolve().is_relative_to(work.resolve()):
+        raise ValueError("recovery path escapes owned work directory")
+
+
 def run_mode(
     *,
     mode: str,
@@ -189,6 +249,9 @@ def run_mode(
     overlay: list[str],
     contract_path: Path | None = None,
 ) -> tuple[dict[str, Any], Path]:
+    specs = artifact_specs(contract)
+    artifacts: list[dict[str, Any]] = []
+    prior_artifacts: list[dict[str, Any]] = []
     source = work / f"{mode}-rterm"
     consumer = work / f"{mode}-consumer"
     clone_at(repo, source, source_commit)
@@ -217,6 +280,11 @@ def run_mode(
 
     environment = os.environ.copy()
     environment.setdefault("CARGO_TARGET_DIR", str(work / "cargo-target"))
+    target = Path(environment["CARGO_TARGET_DIR"])
+    if not target.is_absolute():
+        target = consumer / target
+    target = Path(os.path.abspath(target))
+    environment["CARGO_TARGET_DIR"] = str(target)
     environment.update(
         {
             "RTERM_REHEARSAL_MODE": mode,
@@ -278,6 +346,27 @@ def run_mode(
     for index, value in enumerate(consumer_commands):
         if any(command["returncode"] != 0 for command in commands):
             break
+        try:
+            for spec in specs:
+                if spec["after_command"] != index:
+                    continue
+                relative = spec["path"].replace("{exe_suffix}", ".exe" if os.name == "nt" else "")
+                prior = target / relative
+                if prior.exists() or prior.is_symlink():
+                    old_identity = artifact_identity(target, spec)
+                    # Move only the checked regular file, never directories.
+                    # Retain it on failure, without discarding Cargo's deps cache.
+                    backup = work / f"{mode}-prior-artifacts" / relative
+                    verify_recovery_path(work, backup)
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    verify_recovery_path(work, backup)
+                    if backup.exists():
+                        raise ValueError(f"refusing existing prior artifact backup: {backup}")
+                    shutil.move(str(prior), str(backup))
+                    prior_artifacts.append({**old_identity, "backup_path": str(backup)})
+        except (OSError, ValueError) as error:
+            commands.append(artifact_failure(error))
+            break
         commands.append(
             run_command(
                 command_list(value, f"consumer command {index}"),
@@ -286,6 +375,22 @@ def run_mode(
                 "consumer",
             )
         )
+        if commands[-1]["returncode"] == 0:
+            try:
+                for spec in specs:
+                    if spec["after_command"] == index:
+                        artifacts.append(artifact_identity(target, spec))
+            except (OSError, ValueError) as error:
+                commands.append(artifact_failure(error))
+
+    # Keep the original hash even on failure; later tests may have rebuilt or
+    # modified the executable. Record each mode before the next overwrites it.
+    try:
+        for artifact in artifacts:
+            if artifact_identity(target, artifact) != artifact:
+                raise ValueError(f"artifact changed after its build command: {artifact['path']}")
+    except (OSError, ValueError) as error:
+        commands.append(artifact_failure(error))
 
     identity = None
     if preparation is not None and preparation.get("ok") is True:
@@ -304,6 +409,8 @@ def run_mode(
         "overlay_paths": overlay,
         "probe_copied_from_candidate": copied_probe,
         "commands": commands,
+        "artifacts": artifacts,
+        "prior_artifacts": prior_artifacts,
     }
     if verified:
         evidence.update(preparation=preparation, post_consumer_identity=identity,

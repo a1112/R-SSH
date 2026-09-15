@@ -54,6 +54,23 @@ changed generated lockfile. Existing consumer commands still must all succeed.
 Failures retain receipts, command diagnostics and temporary checkouts; success
 removes owned temporary checkouts but preserves the evidence JSON.
 
+`consumer_artifacts` binds required Cargo-target-relative files to a zero-based
+consumer command index. The production contract requires the executable from
+command 4 (`cargo build`), with `{exe_suffix}` expanded for the host platform.
+Before that command, an existing declared regular file is moved to the owned
+temporary recovery directory and recorded in `prior_artifacts`. Cargo must
+recreate the declared path; an old profile's output or a redirected target
+cannot silently satisfy the requirement. The dependency cache remains in place.
+Failure retains the recovery path; successful cleanup removes these old copies.
+Immediately after that command succeeds, each mode records the file's SHA-256,
+byte size, relative path and command index in `artifacts`. Missing, empty or
+linked files fail the rehearsal. The recorded identity is checked again after
+all consumer commands; later mutation fails while preserving the original hash.
+Candidate evidence is written before rollback can overwrite a shared target.
+The six original consumer commands are unchanged. These records describe the
+tested executable, not a retained package archive or a performance certificate;
+package hashes and both-profile packaged GUI/SSH/GPU acceptance remain separate.
+
 ## History extraction
 
 `docs/release/rterm-history-paths.txt` is the reviewed old-to-current path map for

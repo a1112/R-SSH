@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -31,7 +32,7 @@ class VerifiedRehearsalTests(unittest.TestCase):
             "--candidate-ref", self.candidate, "--consumer-ref", self.candidate,
             "--output-dir", str(self.output),
         ], capture_output=True, text=True, timeout=120,
-            env={**os.environ, "CARGO_NET_OFFLINE": "true", "TMPDIR": str(self.root), "TEMP": str(self.root), "TMP": str(self.root)})
+            env={**os.environ, "CARGO_TARGET_DIR": str(self.root / "cargo-target"), "CARGO_NET_OFFLINE": "true", "TMPDIR": str(self.root), "TEMP": str(self.root), "TMP": str(self.root)})
 
     def test_both_profiles_keep_receipts_and_all_consumer_commands(self):
         result = self.rehearse()
@@ -104,6 +105,120 @@ class VerifiedRehearsalTests(unittest.TestCase):
         self.assertEqual(contract.get("consumer_preparation"), "verified-dual-adapter-v1")
         self.assertEqual(contract["last_known_good_rterm_ref"], "0e8ebd5de22758275cbb6a849c19c032268d7fac")
         self.assertEqual(contract["consumer_prepare_command"], ["cargo", "generate-lockfile"])
+
+    def configure_artifact(self, body=None):
+        self.contract["consumer_artifacts"] = [{
+            "after_command": 0, "path": "debug/rssh-app{exe_suffix}",
+        }]
+        self.write("verify.py", body if body is not None else (
+            "import os\nfrom pathlib import Path\n"
+            "p = Path(os.environ['CARGO_TARGET_DIR']) / 'debug' / ('rssh-app.exe' if os.name == 'nt' else 'rssh-app')\n"
+            "p.parent.mkdir(parents=True, exist_ok=True)\n"
+            "p.write_bytes(os.environ['RTERM_REHEARSAL_MODE'].encode())\n"
+        ))
+        self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
+        self.candidate = self.commit("artifact contract")
+
+    def test_artifact_hashes_are_retained_per_profile_before_shared_target_overwrite(self):
+        self.configure_artifact()
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for mode in ("candidate", "rollback"):
+            evidence = json.loads((self.output / f"{mode}.json").read_text())
+            self.assertIn("artifacts", evidence)
+            self.assertEqual(len(evidence["artifacts"]), 1)
+            artifact = evidence["artifacts"][0]
+            self.assertEqual(artifact["sha256"], hashlib.sha256(mode.encode()).hexdigest())
+            self.assertEqual(artifact["size_bytes"], len(mode))
+            self.assertEqual(artifact["after_command"], 0)
+
+    def test_missing_required_artifact_fails_and_retains_evidence(self):
+        self.configure_artifact("pass\n")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertEqual(evidence["commands"][-1]["kind"], "artifact-identity")
+
+    def test_rollback_cannot_borrow_candidate_artifact(self):
+        self.configure_artifact()
+        self.write("verify.py", (self.repo / "verify.py").read_text().replace(
+            "p.write_bytes(os.environ['RTERM_REHEARSAL_MODE'].encode())",
+            "if os.environ['RTERM_REHEARSAL_MODE'] == 'candidate': p.write_bytes(b'candidate')"))
+        self.candidate = self.commit("rollback does not produce artifact")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "rollback.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertEqual(evidence["artifacts"], [])
+
+    def test_redirected_output_cannot_borrow_stale_declared_artifact(self):
+        self.configure_artifact()
+        self.write("verify.py", (self.repo / "verify.py").read_text().replace(
+            "/ 'debug' /", "/ 'other-triple' / 'debug' /"))
+        self.candidate = self.commit("redirected build output")
+        stale = self.root / "cargo-target/debug" / ("rssh-app.exe" if os.name == "nt" else "rssh-app")
+        stale.parent.mkdir(parents=True)
+        stale.write_bytes(b'old build')
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertEqual(evidence["artifacts"], [])
+
+    def test_recovery_directory_link_cannot_move_artifact_outside_owned_work(self):
+        self.configure_artifact()
+        outside = self.root / "outside"
+        outside.mkdir()
+        self.write("contracts/probe/probe.py", (
+            "import os, subprocess\nfrom pathlib import Path\n"
+            "link = Path.cwd().parents[2] / 'candidate-prior-artifacts'\n"
+            f"outside = Path({str(outside)!r})\n"
+            "if os.name == 'nt':\n"
+            "    subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', 'New-Item -ItemType Junction -Path $env:RSSH_TEST_LINK -Target $env:RSSH_TEST_TARGET | Out-Null'], env={**os.environ, 'RSSH_TEST_LINK': str(link), 'RSSH_TEST_TARGET': str(outside)}, check=True)\n"
+            "else: link.symlink_to(outside, target_is_directory=True)\n"
+        ))
+        self.candidate = self.commit("linked recovery directory")
+        stale = self.root / "cargo-target/debug" / ("rssh-app.exe" if os.name == "nt" else "rssh-app")
+        stale.parent.mkdir(parents=True)
+        stale.write_bytes(b'old build')
+        result = self.rehearse()
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertEqual(evidence["commands"][0]["returncode"], 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertEqual(stale.read_bytes(), b'old build')
+
+    def test_artifact_changed_by_later_consumer_command_is_rejected(self):
+        self.configure_artifact()
+        self.write("mutate.py", (self.repo / "verify.py").read_text().replace(
+            "os.environ['RTERM_REHEARSAL_MODE'].encode()", "b'changed'"))
+        self.contract["consumer_commands"].append([sys.executable, "mutate.py"])
+        self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
+        self.candidate = self.commit("mutating built artifact")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertEqual(evidence["commands"][-1]["kind"], "artifact-identity")
+
+    def test_product_contract_requires_built_executable_identity(self):
+        contract = json.loads((fixtures.ROOT / "scripts/ci/rterm-release-contract.json").read_text())
+        self.assertEqual(contract.get("consumer_artifacts"), [{
+            "after_command": 4, "path": "debug/rssh-app{exe_suffix}",
+        }])
+
+    def test_real_cargo_build_regenerates_declared_output_with_cached_dependencies(self):
+        self.configure_artifact()
+        self.contract["consumer_commands"] = [["cargo", "build", "--locked", "-p", "rssh-app"]]
+        self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
+        self.candidate = self.commit("actual cargo artifact")
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        rollback = json.loads((self.output / "rollback.json").read_text())
+        self.assertEqual(len(rollback["prior_artifacts"]), 1)
+        self.assertEqual(len(rollback["artifacts"]), 1)
+        self.assertGreater(rollback["artifacts"][0]["size_bytes"], 0)
 
     def test_preparation_failure_retains_error_and_never_runs_consumer(self):
         self.write("crates/rssh-app/Cargo.toml", fixtures.APP.decode().replace('version = "0.1.0"', 'version = "99.0.0"'))
