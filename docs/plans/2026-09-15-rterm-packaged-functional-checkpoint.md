@@ -52,3 +52,31 @@ profiles before closing this Task 5 acceptance slice. Hosted software GPU
 results are not hardware performance evidence. Task 6 and the original
 fixed-runner/extraction gates remain separate; no physical split is authorized
 or performed by this integration.
+
+## Follow-up: integration-test build isolation
+
+For `5781429b`, both CI runs (34925524032 and 34925526601) rejected the
+candidate at the final original-artifact identity check. The retained command
+evidence shows all three candidate package scenarios passed. However, Cargo
+implicitly rebuilt `rssh-app` for its integration tests; dev-dependency features
+can change that executable even with identical explicit production features.
+The rollback profile was not reached, so this is not dual-profile acceptance.
+
+A real Cargo fixture with a feature-changing dev dependency reproduced the
+same `artifact changed after its build command` failure. Package test builds
+now use a separate `packaged-functional` target beneath the existing target,
+with link/reparse and containment checks before and after directory creation.
+The test target is recorded in the receipt. Tests still execute the attested
+payload, and original executable, archive, payload and source checks are kept.
+The regression executes both binaries and verifies that the packaged one has
+production behavior while Cargo's implicit test binary has dev-feature behavior.
+
+Functional run 34925526682 separately lost the text input in the nested
+Wayland/foot host-terminal scenario: driver commands completed, but the fixture
+recorded an empty line instead of the required marker. The retained evidence
+does not establish why the text was lost. A failed-job-only rerun was requested;
+no input assertion or timeout was relaxed, and the build-isolation change is
+not a claimed fix for that independent failure.
+The unchanged-SHA failed-job rerun subsequently passed, and Functional run
+34925526682 completed successfully. This establishes a successful rerun, not
+that the intermittent input-loss cause has been identified or eliminated.

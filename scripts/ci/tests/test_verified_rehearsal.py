@@ -179,6 +179,58 @@ class VerifiedRehearsalTests(unittest.TestCase):
         self.assertFalse(evidence["ok"])
         self.assertFalse(evidence["package"]["tests"]["ok"])
 
+    def test_package_test_dev_features_cannot_replace_production_artifact(self):
+        self.configure_package_tests()
+        # Like the real app's test-support dependency, dev features can change
+        # the normal binary that Cargo implicitly builds for integration tests.
+        self.write("crates/feature-fixture/Cargo.toml", (
+            '[package]\nname = "feature-fixture"\nversion = "0.1.0"\n'
+            '[features]\ntest-support = []\n'))
+        self.write("crates/feature-fixture/src/lib.rs", (
+            'pub fn identity() -> bool { cfg!(feature = "test-support") }\n'))
+        path = "crates/rssh-app/Cargo.toml"
+        self.write(path, (self.repo / path).read_text() + (
+            '\n[dependencies.feature-fixture]\npath = "../feature-fixture"\n'
+            '[dev-dependencies.feature-fixture]\npath = "../feature-fixture"\n'
+            'features = ["test-support"]\n'))
+        self.write("crates/rssh-app/src/main.rs", (
+            'extern crate feature_fixture;\n'
+            'fn main() { println!("{}", feature_fixture::identity()); }\n'))
+        path = "crates/rssh-app/tests/openssh_loopback.rs"
+        self.write(path, (self.repo / path).read_text().replace("#[test]", (
+            'fn assert_identity(binary: &str, expected: &str) {\n'
+            'let output = std::process::Command::new(binary).output().unwrap();\n'
+            'assert!(output.status.success());\n'
+            'assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), expected);\n'
+            '}\n#[test]')).replace('assert!(path.contains("payload"));', (
+            'assert!(path.contains("payload"));\n'
+            'assert_identity(&path, "false");\n'
+            'assert_identity(env!("CARGO_BIN_EXE_rssh-app"), "true");\n')))
+        self.candidate = self.commit("dev feature changes implicit test binary")
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for mode in ("candidate", "rollback"):
+            evidence = json.loads((self.output / f"{mode}.json").read_text())
+            self.assertTrue(evidence["ok"])
+            self.assertTrue(evidence["package"]["tests"]["ok"])
+            self.assertEqual(evidence["package"]["tests"]["cargo_target_dir"],
+                             str(self.root / "cargo-target" / "packaged-functional"))
+            self.assertEqual(evidence["package"]["binary_sha256"], evidence["artifacts"][0]["sha256"])
+
+    def test_package_test_target_link_is_rejected(self):
+        self.configure_package_tests()
+        target = self.root / "cargo-target"
+        target.mkdir()
+        external = self.root / "external"
+        external.mkdir()
+        fixtures.PrepareConsumerTests.directory_link(self, target / "packaged-functional", external)
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["package"]["ok"])
+        self.assertIn("link or reparse point", evidence["package"]["error"])
+        self.assertFalse(list(external.iterdir()))
+
     def test_ignored_required_package_test_cannot_pass(self):
         self.configure_package_tests()
         path = "crates/rssh-app/tests/openssh_loopback.rs"

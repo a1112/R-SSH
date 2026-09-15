@@ -85,7 +85,8 @@ def run_package_tests(consumer, binary, environment, run_command):
         ("native_window_e2e", "native_window_e2e_presents_ten_frames_from_a_real_pty", False),
         ("native_window_e2e", "native_window_e2e_preserves_gpu_text_at_scale_100", True),
     ]
-    result = {"ok": False, "binary": str(binary), "binary_sha256": digest_file(binary), "commands": []}
+    result = {"ok": False, "binary": str(binary), "binary_sha256": digest_file(binary),
+              "cargo_target_dir": environment["CARGO_TARGET_DIR"], "commands": []}
     env = {**environment, "RSSH_TEST_APP_EXECUTABLE": str(binary), "RSSH_REQUIRE_OPENSSH": "1"}
     for suite, scenario, ignored in scenarios:
         command = ["cargo", "test", "--locked", "-p", "rssh-app",
@@ -148,7 +149,15 @@ def assemble_package(consumer, target, artifact, receipt, output, mode, environm
                       runtime_target=runtime, profile=receipt["profile"],
                       consumer_commit=receipt["consumer_commit"], source_commit=receipt["source_commit"])
         if test_mode:
-            result["tests"] = run_package_tests(consumer, payload / binary, environment, run_command)
+            # Integration tests implicitly rebuild the app with dev-dependency
+            # features, even when its explicit features match the production
+            # build. Keep that output separate from the attested executable.
+            test_target = target / "packaged-functional"
+            verify_path(target, test_target)
+            test_target.mkdir(parents=True, exist_ok=True)
+            verify_path(target, test_target)
+            test_environment = {**environment, "CARGO_TARGET_DIR": str(test_target)}
+            result["tests"] = run_package_tests(consumer, payload / binary, test_environment, run_command)
             result["commands"].extend(result["tests"]["commands"])
             if not result["tests"]["ok"]:
                 raise ValueError("packaged functional scenario failed or was not executed")
