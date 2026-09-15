@@ -89,8 +89,26 @@ Malformed package manifests produce structured failure evidence as well.
 
 These are unsigned rehearsal packages built by the existing debug-profile
 consumer command, not signed release packages or fixed-runner performance
-evidence. Package assembly and identity verification do not claim that packaged
-GUI, native SSH or GPU scenarios have run; those remain explicit acceptance work.
+evidence. Package assembly alone does not claim that packaged scenarios ran.
+
+`consumer_package_tests: native-gui-ssh-gpu-v1` additionally requires three
+existing Rust scenarios for each profile: native SSH disconnect/reconnect,
+ten GPU-presented frames from a real local PTY, and GPU text at 100% scale. Each
+command uses the packaged executable via `RSSH_TEST_APP_EXECUTABLE`, requires
+OpenSSH tools, and retains its result under `package.tests`. Cargo uses the same
+production GUI/transfer feature set as the original build. The GPU scale test
+is explicitly selected with `--ignored`; every exact selection must report one
+passed, zero failed and zero ignored tests. Missing/filtered/ignored scenarios
+are failures, not successful skips. Archive/payload identity is checked again
+after testing, followed by the existing source and final retained-archive checks.
+Tests execute the verified staging payload. For Unix archives, regular-file
+permissions must also match the payload, and the binary/launchers must retain
+execute bits; byte equality alone cannot establish an executable package.
+
+Hosted Linux runs these scenarios under Xvfb/X11 with Vulkan support. Software
+GPU adapters on hosted runners establish functional rendering only, not physical
+GPU or performance certification. These three scenarios do not cover every SSH
+GUI prompt/authentication combination or replace the fixed-runner gates.
 
 ## History extraction
 

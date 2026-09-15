@@ -6,6 +6,8 @@ import sys
 import unittest
 import zipfile
 import tarfile
+import io
+import runpy
 
 import test_prepare_rterm_consumer as fixtures
 
@@ -132,6 +134,90 @@ class VerifiedRehearsalTests(unittest.TestCase):
             self.write(relative, "fixture packaging resource\n")
         self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
         self.candidate = self.commit("native package contract")
+
+    def configure_package_tests(self):
+        self.configure_package()
+        self.contract["consumer_package_tests"] = "native-gui-ssh-gpu-v1"
+        self.contract["consumer_commands"] = [["cargo", "build", "--locked", "-p", "rssh-app", "--no-default-features", "--features", "production-gui,transfer-tools"]]
+        manifest = "crates/rssh-app/Cargo.toml"
+        self.write(manifest, (self.repo / manifest).read_text().replace("[features]", "[features]\ntransfer-tools = []"))
+        body = (
+            "let path = std::env::var(\"RSSH_TEST_APP_EXECUTABLE\").unwrap();\n"
+            "assert!(path.contains(\"payload\"));\n"
+            "assert!(!std::fs::read(path).unwrap().is_empty());\n"
+            "assert_eq!(std::env::var(\"RSSH_REQUIRE_OPENSSH\").unwrap(), \"1\");\n"
+        )
+        self.write("crates/rssh-app/tests/openssh_loopback.rs", (
+            "#[test]\nfn rssh_app_native_ssh_disconnects_and_reconnects_with_closed_lifecycle() {" + body + "}\n"))
+        self.write("crates/rssh-app/tests/native_window_e2e.rs", (
+            "#[test]\nfn native_window_e2e_presents_ten_frames_from_a_real_pty() {" + body + "}\n"
+            "#[test]\n#[ignore]\nfn native_window_e2e_preserves_gpu_text_at_scale_100() {" + body + "}\n"))
+        self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
+        self.candidate = self.commit("package test contract")
+
+    def test_package_scenarios_execute_against_each_packaged_binary(self):
+        self.configure_package_tests()
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for mode in ("candidate", "rollback"):
+            evidence = json.loads((self.output / f"{mode}.json").read_text())
+            self.assertIn("tests", evidence["package"])
+            tests = evidence["package"]["tests"]
+            self.assertTrue(tests["ok"])
+            self.assertEqual(len(tests["commands"]), 3)
+            for command in tests["commands"]:
+                self.assertIn("--exact", command["argv"])
+                self.assertIn("1 passed; 0 failed; 0 ignored", command["stdout"])
+
+    def test_zero_selected_package_tests_cannot_pass(self):
+        self.configure_package_tests()
+        self.write("crates/rssh-app/tests/openssh_loopback.rs", "#[test]\nfn unrelated_test() {}\n")
+        self.candidate = self.commit("missing required package scenario")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertFalse(evidence["package"]["tests"]["ok"])
+
+    def test_ignored_required_package_test_cannot_pass(self):
+        self.configure_package_tests()
+        path = "crates/rssh-app/tests/openssh_loopback.rs"
+        self.write(path, (self.repo / path).read_text().replace("#[test]", "#[test]\n#[ignore]"))
+        self.candidate = self.commit("ignored required package scenario")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertFalse(evidence["package"]["tests"]["ok"])
+        self.assertEqual(len(evidence["package"]["tests"]["commands"]), 1)
+
+    def test_product_contract_requires_package_scenarios_and_display_runner(self):
+        contract = json.loads((fixtures.ROOT / "scripts/ci/rterm-release-contract.json").read_text())
+        self.assertEqual(contract.get("consumer_package_tests"), "native-gui-ssh-gpu-v1")
+        workflow = (fixtures.ROOT / ".github/workflows/ci.yml").read_text()
+        self.assertIn("  rterm-consumer-contract:", workflow)
+        job = workflow.split("  rterm-consumer-contract:", 1)[1].split("  deterministic-performance:", 1)[0]
+        self.assertIn("xvfb-run -a", job)
+        self.assertIn("openssh-client", job)
+
+    def test_archive_executable_permission_loss_is_rejected(self):
+        payload = self.root / "payload"
+        payload.mkdir()
+        binary = payload / "rssh-app"
+        binary.write_bytes(b'program')
+        manifest = {"artifact": {"binary": "rssh-app"}, "package": {"source_commit": self.candidate}, "signing": {"unsigned": True}}
+        (payload / "manifest.json").write_text(json.dumps(manifest))
+        archive = self.root / "no-execute.tar.gz"
+        with tarfile.open(archive, "w:gz") as bundle:
+            for path in payload.iterdir():
+                data = path.read_bytes()
+                info = tarfile.TarInfo("payload/" + path.name)
+                info.size = len(data)
+                info.mode = 0o644
+                bundle.addfile(info, io.BytesIO(data))
+        verifier = runpy.run_path(str(fixtures.ROOT / "scripts/ci/rterm_package_evidence.py"))["verify_archive"]
+        with self.assertRaisesRegex(ValueError, "executable|permission"):
+            verifier(archive, payload, hashlib.sha256(b'program').hexdigest(), self.candidate)
 
     def test_native_packages_retain_archive_hash_and_matching_binary_for_both_profiles(self):
         self.configure_package()

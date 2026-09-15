@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
 import stat
 import tarfile
@@ -19,6 +20,7 @@ def digest_file(path):
 
 def verify_archive(archive, payload, expected_binary_hash, consumer_commit):
     expected = {}
+    expected_modes = {}
     for parent, directories, files in os.walk(payload):
         for name in directories + files:
             info = (Path(parent) / name).lstat()
@@ -27,7 +29,9 @@ def verify_archive(archive, payload, expected_binary_hash, consumer_commit):
         for name in files:
             path = Path(parent) / name
             expected["payload/" + path.relative_to(payload).as_posix()] = digest_file(path)
+            expected_modes["payload/" + path.relative_to(payload).as_posix()] = stat.S_IMODE(path.stat().st_mode)
     actual = {}
+    archive_modes = {}
     with (zipfile.ZipFile(archive) if archive.suffix == ".zip" else tarfile.open(archive)) as bundle:
         entries = bundle.infolist() if archive.suffix == ".zip" else bundle.getmembers()
         for entry in entries:
@@ -46,6 +50,7 @@ def verify_archive(archive, payload, expected_binary_hash, consumer_commit):
                     continue
                 if not entry.isfile():
                     raise ValueError("non-regular package archive member")
+                archive_modes[name] = entry.mode
                 stream = bundle.extractfile(entry)
             if name in actual:
                 stream.close()
@@ -60,6 +65,13 @@ def verify_archive(archive, payload, expected_binary_hash, consumer_commit):
             or not isinstance(manifest["artifact"].get("binary"), str)):
         raise ValueError("malformed native package manifest")
     binary = manifest["artifact"]["binary"]
+    if archive.suffix != ".zip":
+        if os.name != "nt" and archive_modes != expected_modes:
+            raise ValueError("package archive permissions differ from payload")
+        for relative in (binary, "rssh-console.sh", "rssh-app"):
+            member = "payload/" + relative
+            if member in actual and not archive_modes[member] & 0o111:
+                raise ValueError("packaged executable lacks execute permission")
     if actual.get("payload/" + binary) != expected_binary_hash:
         raise ValueError("packaged executable differs from verified build")
     if manifest["package"]["source_commit"] != consumer_commit or manifest["signing"]["unsigned"] is not True:
@@ -67,7 +79,33 @@ def verify_archive(archive, payload, expected_binary_hash, consumer_commit):
     return binary
 
 
-def assemble_package(consumer, target, artifact, receipt, output, mode, environment, run_command, verify_path):
+def run_package_tests(consumer, binary, environment, run_command):
+    scenarios = [
+        ("openssh_loopback", "rssh_app_native_ssh_disconnects_and_reconnects_with_closed_lifecycle", False),
+        ("native_window_e2e", "native_window_e2e_presents_ten_frames_from_a_real_pty", False),
+        ("native_window_e2e", "native_window_e2e_preserves_gpu_text_at_scale_100", True),
+    ]
+    result = {"ok": False, "binary": str(binary), "binary_sha256": digest_file(binary), "commands": []}
+    env = {**environment, "RSSH_TEST_APP_EXECUTABLE": str(binary), "RSSH_REQUIRE_OPENSSH": "1"}
+    for suite, scenario, ignored in scenarios:
+        command = ["cargo", "test", "--locked", "-p", "rssh-app",
+                   "--no-default-features", "--features", "production-gui,transfer-tools",
+                   "--test", suite, scenario, "--", "--exact", "--nocapture", "--test-threads=1"]
+        if ignored:
+            command.append("--ignored")
+        record = run_command(command, consumer, env, "packaged-functional")
+        result["commands"].append(record)
+        if record["returncode"] != 0:
+            return result
+        if not re.search(r"test result: ok\. 1 passed; 0 failed; 0 ignored;", record["stdout"]):
+            record["returncode"] = 1
+            record["stderr"] += "\nrequired package scenario did not execute exactly one passing test"
+            return result
+    result["ok"] = True
+    return result
+
+
+def assemble_package(consumer, target, artifact, receipt, output, mode, environment, run_command, verify_path, test_mode=None):
     result = {"ok": False, "commands": []}
     try:
         host = {"Windows": "windows", "Linux": "linux", "Darwin": "macos"}[platform.system()]
@@ -109,6 +147,15 @@ def assemble_package(consumer, target, artifact, receipt, output, mode, environm
                       binary=binary, binary_sha256=artifact["sha256"],
                       runtime_target=runtime, profile=receipt["profile"],
                       consumer_commit=receipt["consumer_commit"], source_commit=receipt["source_commit"])
+        if test_mode:
+            result["tests"] = run_package_tests(consumer, payload / binary, environment, run_command)
+            result["commands"].extend(result["tests"]["commands"])
+            if not result["tests"]["ok"]:
+                raise ValueError("packaged functional scenario failed or was not executed")
+            verify_path(output, archive)
+            verify_path(output, payload)
+            verify_archive(archive, payload, artifact["sha256"], receipt["consumer_commit"])
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, tarfile.TarError) as error:
+        result["ok"] = False
         result["error"] = str(error)
     return result

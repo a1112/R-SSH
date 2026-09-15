@@ -252,6 +252,9 @@ def run_mode(
     package_mode = contract.get("consumer_package")
     if package_mode not in (None, "native-unsigned-v1"):
         raise RehearsalError("unknown consumer package mode")
+    package_tests = contract.get("consumer_package_tests")
+    if package_tests not in (None, "native-gui-ssh-gpu-v1") or (package_tests and not package_mode):
+        raise RehearsalError("package scenarios require the native package contract")
     specs = artifact_specs(contract)
     artifacts: list[dict[str, Any]] = []
     prior_artifacts: list[dict[str, Any]] = []
@@ -393,7 +396,7 @@ def run_mode(
         else:
             packager = runpy.run_path(str(Path(__file__).with_name("rterm_package_evidence.py")))
             package = packager["assemble_package"](consumer, target, artifacts[0], preparation,
-                output, mode, environment, run_command, verify_recovery_path)
+                output, mode, environment, run_command, verify_recovery_path, test_mode=package_tests)
             commands.extend(package["commands"])
             if not package["ok"]:
                 commands.append(artifact_failure(ValueError(package["error"])))
