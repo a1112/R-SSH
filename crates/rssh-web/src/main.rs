@@ -116,7 +116,7 @@ mod tests {
             "--max-sessions".to_owned(),
             "3".to_owned(),
             "--allowed-origin".to_owned(),
-            "http://localhost:5173".to_owned(),
+            "http://localhost:16150".to_owned(),
         ])
         .unwrap();
         assert_eq!(
@@ -127,7 +127,7 @@ mod tests {
         assert_eq!(options.max_sessions, 3);
         assert_eq!(
             options.allowed_origin.as_deref(),
-            Some("http://localhost:5173")
+            Some("http://localhost:16150")
         );
     }
 

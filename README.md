@@ -215,12 +215,12 @@ Vite server in a second terminal:
 
 ```sh
 cargo run -p rssh-web -- --listen 127.0.0.1:7788 \
-  --web-root web/dist --allowed-origin http://127.0.0.1:5173
+  --web-root web/dist --allowed-origin http://127.0.0.1:16150
 cd web
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173` after the bootstrap step. The Vite proxy forwards
+Open `http://127.0.0.1:16150` after the bootstrap step. The Vite proxy forwards
 `/api` and its WebSocket upgrade to the Rust bridge.
 
 ### Tauri terminal

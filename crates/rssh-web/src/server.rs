@@ -831,7 +831,7 @@ mod tests {
         headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:7788"));
         headers.insert(
             header::ORIGIN,
-            HeaderValue::from_static("http://localhost:5173"),
+            HeaderValue::from_static("http://localhost:16150"),
         );
         assert!(!websocket_authenticated(&headers, &state));
     }
