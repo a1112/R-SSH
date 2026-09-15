@@ -36,6 +36,24 @@ declare the same patches in its root manifest using the
 own those patches. Each patch is pinned by its Git tree identity, so content
 drift fails the contract even when the directory name is unchanged.
 
+The production contract selects `verified-dual-adapter-v1`. Both rehearsal
+modes invoke `prepare-rterm-consumer.py` against immutable source/consumer refs
+and the committed contract. Modern feature forwarding is preserved; the exact
+frozen source uses the app-owned legacy selector and allowlisted feature-array
+edits. The preparation receipt (including generated lockfile hash and source
+tree identities) is embedded in each candidate/rollback result. Preparation is
+not itself a compatibility certificate.
+
+Prepared source and consumer checkouts live under an owned external temporary
+directory. Build outputs use `CARGO_TARGET_DIR` (or a separate directory there),
+not either verified checkout. Standalone probe overlays remain in a separate
+probe checkout, never in the verified frozen source. After consumer commands,
+the rehearsal verifies the source tree and retained product bytes again and
+rejects changes outside the original manifest/lock allowlist, including a
+changed generated lockfile. Existing consumer commands still must all succeed.
+Failures retain receipts, command diagnostics and temporary checkouts; success
+removes owned temporary checkouts but preserves the evidence JSON.
+
 ## History extraction
 
 `docs/release/rterm-history-paths.txt` is the reviewed old-to-current path map for

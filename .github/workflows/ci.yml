@@ -103,6 +103,9 @@ jobs:
       - name: Validate the versioned release contract
         run: |
           python -m unittest scripts.ci.tests.test_check_rterm_release_contract scripts.ci.tests.test_rehearse_rterm_consumer -v
+          python -m unittest discover -s scripts/ci/tests -p test_rterm_consumer_profile.py -v
+          python -m unittest discover -s scripts/ci/tests -p test_prepare_rterm_consumer.py -v
+          python -m unittest discover -s scripts/ci/tests -p test_verified_rehearsal.py -v
           python scripts/ci/check-rterm-release-contract.py --contract scripts/ci/rterm-release-contract.json
       - name: Compile the standalone downstream API probe
         run: cargo check --locked --manifest-path contracts/rterm-consumer/Cargo.toml

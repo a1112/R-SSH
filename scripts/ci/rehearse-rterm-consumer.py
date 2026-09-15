@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import runpy
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -184,12 +187,18 @@ def run_mode(
     consumer_commit: str,
     candidate_probe: Path | None,
     overlay: list[str],
+    contract_path: Path | None = None,
 ) -> tuple[dict[str, Any], Path]:
     source = work / f"{mode}-rterm"
     consumer = work / f"{mode}-consumer"
     clone_at(repo, source, source_commit)
-    clone_at(repo, consumer, consumer_commit)
-    overlay_paths(source, consumer, overlay)
+    verified = contract.get("consumer_preparation") == "verified-dual-adapter-v1"
+    prepared_root = work / f"{mode}-prepared"
+    if verified:
+        consumer = prepared_root / "consumer"
+    else:
+        clone_at(repo, consumer, consumer_commit)
+        overlay_paths(source, consumer, overlay)
 
     probe = contract.get("standalone_probe")
     if not isinstance(probe, dict) or not isinstance(probe.get("path"), str):
@@ -207,6 +216,7 @@ def run_mode(
         copied_probe = True
 
     environment = os.environ.copy()
+    environment.setdefault("CARGO_TARGET_DIR", str(work / "cargo-target"))
     environment.update(
         {
             "RTERM_REHEARSAL_MODE": mode,
@@ -231,9 +241,28 @@ def run_mode(
         )
 
     consumer_prepare = contract.get("consumer_prepare_command")
+    preparation = None
+    if verified and all(command["returncode"] == 0 for command in commands):
+        if contract_path is None or consumer_prepare != ["cargo", "generate-lockfile"]:
+            raise RehearsalError("verified preparation requires the immutable contract and cargo generate-lockfile")
+        command = run_command([
+            sys.executable, str(Path(__file__).with_name("prepare-rterm-consumer.py")),
+            "--repo", str(repo), "--source-ref", source_commit,
+            "--consumer-ref", consumer_commit, "--contract", str(contract_path),
+            "--output-dir", str(prepared_root),
+        ], repo, environment, "verified-consumer-prepare")
+        commands.append(command)
+        receipt_path = prepared_root / "preparation.json"
+        preparation = json.loads(receipt_path.read_text()) if receipt_path.exists() else {
+            "ok": False, "error": command["stderr"],
+        }
+        if command["returncode"] == 0 and preparation.get("ok") is not True:
+            command["returncode"] = 1
+            command["stderr"] = "preparation did not return a successful receipt"
     if (
         all(command["returncode"] == 0 for command in commands)
         and consumer_prepare is not None
+        and not verified
     ):
         commands.append(
             run_command(
@@ -258,23 +287,52 @@ def run_mode(
             )
         )
 
+    identity = None
+    if preparation is not None and preparation.get("ok") is True:
+        try:
+            verify_prepared_identity(repo, prepared_root, preparation, contract_path)
+            identity = {"ok": True}
+        except (OSError, ValueError, KeyError) as error:
+            identity = {"ok": False, "error": str(error)}
     evidence = {
         "schema_version": 1,
         "mode": mode,
-        "ok": bool(commands) and all(command["returncode"] == 0 for command in commands),
+        "ok": bool(commands) and all(command["returncode"] == 0 for command in commands)
+        and (not verified or identity == {"ok": True}),
         "source_commit": source_commit,
         "consumer_commit": consumer_commit,
         "overlay_paths": overlay,
         "probe_copied_from_candidate": copied_probe,
         "commands": commands,
     }
+    if verified:
+        evidence.update(preparation=preparation, post_consumer_identity=identity,
+                        prepared_root=str(prepared_root))
     write_json_atomic(output / f"{mode}.json", evidence)
     if not evidence["ok"]:
-        failed = next(command for command in commands if command["returncode"] != 0)
+        failed = next((command for command in commands if command["returncode"] != 0), identity)
         # Include bounded, JSON-escaped command output in the job log as well
         # as the artifact, so failed hosted jobs remain diagnosable.
         print(json.dumps({"mode": mode, "failed_command": failed}, sort_keys=True), file=sys.stderr)
     return evidence, probe_root
+
+
+def verify_prepared_identity(repo: Path, root: Path, receipt: dict, contract_path: Path) -> None:
+    """Check actual checkout bytes again, never Git index flags or a success marker."""
+    preparer = runpy.run_path(str(Path(__file__).with_name("prepare-rterm-consumer.py")))
+    source, consumer = receipt["source_commit"], receipt["consumer_commit"]
+    _, overlay, digest = preparer["validated_contract"](repo, consumer, contract_path)
+    if digest != receipt["contract_sha256"]:
+        raise ValueError("preparation contract identity changed")
+    expected = preparer["expected_files"](repo, source, consumer, overlay)
+    manifest = preparer["APP_MANIFEST"]
+    original = preparer["git"](repo, "show", f"{consumer}:{manifest}")
+    generated = preparer["prepare_app_manifest"](original, receipt["profile"])
+    lock = (root / "consumer/Cargo.lock").read_bytes()
+    if hashlib.sha256(lock).hexdigest() != receipt["lockfile_sha256"]:
+        raise ValueError("prepared lockfile changed during consumer commands")
+    preparer["verify_checkout"](root / "source", preparer["tree_files"](repo, source), {})
+    preparer["verify_checkout"](root / "consumer", expected, {manifest: generated, "Cargo.lock": lock})
 
 
 def main() -> int:
@@ -290,16 +348,41 @@ def main() -> int:
         repo = arguments.repo.resolve()
         output = arguments.output_dir.resolve()
         contract = json.loads(arguments.contract.read_text(encoding="utf-8"))
-        overlay = contract_overlay_paths(contract)
         candidate_commit = resolve_commit(repo, arguments.candidate_ref)
         consumer_commit = resolve_commit(repo, arguments.consumer_ref)
+        committed_contract = subprocess.run(
+            ["git", "-C", str(repo), "show", f"{consumer_commit}:scripts/ci/rterm-release-contract.json"],
+            capture_output=True, check=False,
+        )
+        if committed_contract.returncode == 0:
+            # The immutable product contract, not an untrusted selector, decides
+            # which preparation policy applies. Legacy generic fixtures without
+            # a product contract retain their explicit external-contract support.
+            if arguments.contract.read_bytes() != committed_contract.stdout:
+                raise RehearsalError("contract must match the immutable consumer commit")
+            contract = json.loads(committed_contract.stdout)
+        preparation_mode = contract.get("consumer_preparation")
+        if preparation_mode not in (None, "verified-dual-adapter-v1"):
+            raise RehearsalError("unknown consumer preparation mode")
+        overlay = contract_overlay_paths(contract)
+        if preparation_mode is not None:
+            # Validate before executing even the standalone probe: its command
+            # is contract-controlled, too. The preparer validates again later.
+            preparer = runpy.run_path(str(Path(__file__).with_name("prepare-rterm-consumer.py")))
+            contract, overlay, _ = preparer["validated_contract"](
+                repo, consumer_commit, arguments.contract.resolve()
+            )
         rollback_ref = contract.get("last_known_good_rterm_ref")
         if not isinstance(rollback_ref, str) or SHA1.fullmatch(rollback_ref) is None:
             raise RehearsalError("last_known_good_rterm_ref must be an immutable commit")
         rollback_commit = resolve_commit(repo, rollback_ref)
         work = output / "work"
-        if work.exists():
+        if work.exists() or any((output / f"{mode}.json").exists() for mode in ("candidate", "rollback")):
             raise RehearsalError(f"refusing existing rehearsal work directory: {work}")
+        if preparation_mode is not None:
+            # Owned temporary checkout root; receipts remain in output on cleanup.
+            # The preparer deliberately rejects directories inside the source repo.
+            work = Path(tempfile.mkdtemp(prefix="rssh-verified-rehearsal-"))
 
         candidate, candidate_probe = run_mode(
             mode="candidate",
@@ -311,6 +394,7 @@ def main() -> int:
             consumer_commit=consumer_commit,
             candidate_probe=None,
             overlay=overlay,
+            contract_path=arguments.contract.resolve(),
         )
         if not candidate["ok"]:
             return 1
@@ -324,6 +408,7 @@ def main() -> int:
             consumer_commit=consumer_commit,
             candidate_probe=candidate_probe,
             overlay=overlay,
+            contract_path=arguments.contract.resolve(),
         )
         if not rollback["ok"]:
             return 1
@@ -341,7 +426,7 @@ def main() -> int:
             )
         )
         return 0
-    except (OSError, json.JSONDecodeError, RehearsalError) as error:
+    except (OSError, ValueError, RehearsalError) as error:
         print(str(error), file=sys.stderr)
         return 2
 

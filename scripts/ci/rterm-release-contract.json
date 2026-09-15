@@ -10,6 +10,7 @@
     "rollback_prepare_command": ["cargo", "generate-lockfile"]
   },
   "consumer_prepare_command": ["cargo", "generate-lockfile"],
+  "consumer_preparation": "verified-dual-adapter-v1",
   "consumer_commands": [
     [
       "cargo",
