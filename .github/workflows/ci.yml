@@ -99,7 +99,8 @@ jobs:
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install --yes \
             build-essential \
             libssl-dev \
-            pkg-config
+            pkg-config libxkbcommon-x11-0 openssh-client xvfb xauth \
+            libvulkan1 mesa-vulkan-drivers
       - name: Validate the versioned release contract
         run: |
           python -m unittest scripts.ci.tests.test_check_rterm_release_contract scripts.ci.tests.test_rehearse_rterm_consumer -v
@@ -111,6 +112,7 @@ jobs:
         run: cargo check --locked --manifest-path contracts/rterm-consumer/Cargo.toml
       - name: Rehearse clean candidate and last-known-good consumers
         run: >-
+          xvfb-run -a env -u WAYLAND_DISPLAY
           python scripts/ci/rehearse-rterm-consumer.py
           --repo .
           --contract scripts/ci/rterm-release-contract.json
@@ -125,6 +127,8 @@ jobs:
           path: |
             evidence/rterm-release/candidate.json
             evidence/rterm-release/rollback.json
+            evidence/rterm-release/*-package/*.zip
+            evidence/rterm-release/*-package/*.tar.gz
           if-no-files-found: error
 
   deterministic-performance:

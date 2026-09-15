@@ -54,6 +54,62 @@ changed generated lockfile. Existing consumer commands still must all succeed.
 Failures retain receipts, command diagnostics and temporary checkouts; success
 removes owned temporary checkouts but preserves the evidence JSON.
 
+`consumer_artifacts` binds required Cargo-target-relative files to a zero-based
+consumer command index. The production contract requires the executable from
+command 4 (`cargo build`), with `{exe_suffix}` expanded for the host platform.
+Before that command, an existing declared regular file is moved to the owned
+temporary recovery directory and recorded in `prior_artifacts`. Cargo must
+recreate the declared path; an old profile's output or a redirected target
+cannot silently satisfy the requirement. The dependency cache remains in place.
+Failure retains the recovery path; successful cleanup removes these old copies.
+Immediately after that command succeeds, each mode records the file's SHA-256,
+byte size, relative path and command index in `artifacts`. Missing, empty or
+linked files fail the rehearsal. The recorded identity is checked again after
+all consumer commands; later mutation fails while preserving the original hash.
+Candidate evidence is written before rollback can overwrite a shared target.
+The six original consumer commands are unchanged. These records describe the
+tested executable, not a retained package archive or a performance certificate;
+archive identities use the separate `package` record described below.
+
+The production contract now selects `consumer_package: native-unsigned-v1`.
+After the unchanged consumer commands, the rehearsal invokes the existing
+`package-native.ps1` or `package-native.sh` from the verified consumer checkout.
+Each mode owns a fresh package directory and an unsigned native archive. The
+packager receives the exact consumer commit for manifest provenance. Archive
+members are read without extraction and compared with the assembled payload;
+the packaged executable must match the earlier build hash. The retained
+`package` record binds archive SHA-256/size, binary SHA-256, runtime target,
+profile and source/consumer commits. CI uploads both mode archives alongside
+the evidence JSON. Failure cannot become a successful rehearsal, and source
+and original executable identity are rechecked after packaging.
+Before overall success and temporary-checkout cleanup, both retained archives
+are checked again for their original size/hash and non-linked paths. A later
+mode cannot modify an earlier archive without invalidating its evidence.
+Malformed package manifests produce structured failure evidence as well.
+
+These are unsigned rehearsal packages built by the existing debug-profile
+consumer command, not signed release packages or fixed-runner performance
+evidence. Package assembly alone does not claim that packaged scenarios ran.
+
+`consumer_package_tests: native-gui-ssh-gpu-v1` additionally requires three
+existing Rust scenarios for each profile: native SSH disconnect/reconnect,
+ten GPU-presented frames from a real local PTY, and GPU text at 100% scale. Each
+command uses the packaged executable via `RSSH_TEST_APP_EXECUTABLE`, requires
+OpenSSH tools, and retains its result under `package.tests`. Cargo uses the same
+production GUI/transfer feature set as the original build. The GPU scale test
+is explicitly selected with `--ignored`; every exact selection must report one
+passed, zero failed and zero ignored tests. Missing/filtered/ignored scenarios
+are failures, not successful skips. Archive/payload identity is checked again
+after testing, followed by the existing source and final retained-archive checks.
+Tests execute the verified staging payload. For Unix archives, regular-file
+permissions must also match the payload, and the binary/launchers must retain
+execute bits; byte equality alone cannot establish an executable package.
+
+Hosted Linux runs these scenarios under Xvfb/X11 with Vulkan support. Software
+GPU adapters on hosted runners establish functional rendering only, not physical
+GPU or performance certification. These three scenarios do not cover every SSH
+GUI prompt/authentication combination or replace the fixed-runner gates.
+
 ## History extraction
 
 `docs/release/rterm-history-paths.txt` is the reviewed old-to-current path map for
