@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import unittest
+import zipfile
+import tarfile
 
 import test_prepare_rterm_consumer as fixtures
 
@@ -118,6 +120,84 @@ class VerifiedRehearsalTests(unittest.TestCase):
         ))
         self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
         self.candidate = self.commit("artifact contract")
+
+    def configure_package(self):
+        self.configure_artifact()
+        self.contract["consumer_package"] = "native-unsigned-v1"
+        for relative in ("scripts/ci/package-native.ps1", "scripts/ci/package-native.sh",
+                         "packaging/rssh-console.cmd", "packaging/rssh-console.sh", "packaging/Info.plist"):
+            self.write(relative, (fixtures.ROOT / relative).read_text(encoding="utf-8"))
+        for relative in ("README.md", "LICENSE", "examples/rssh-profiles.toml",
+                         "tests/fixtures/fonts/MANIFEST.tsv", "tests/fixtures/fonts/LICENSES/test.txt"):
+            self.write(relative, "fixture packaging resource\n")
+        self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
+        self.candidate = self.commit("native package contract")
+
+    def test_native_packages_retain_archive_hash_and_matching_binary_for_both_profiles(self):
+        self.configure_package()
+        result = self.rehearse()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for mode in ("candidate", "rollback"):
+            evidence = json.loads((self.output / f"{mode}.json").read_text())
+            self.assertIn("package", evidence)
+            package = evidence["package"]
+            archive = self.output / package["path"]
+            self.assertTrue(package["ok"])
+            self.assertEqual(package["sha256"], hashlib.sha256(archive.read_bytes()).hexdigest())
+            self.assertEqual(package["binary_sha256"], evidence["artifacts"][0]["sha256"])
+            member = "payload/" + package["binary"]
+            if archive.suffix == ".zip":
+                with zipfile.ZipFile(archive) as bundle:
+                    binary = bundle.read(member)
+            else:
+                with tarfile.open(archive) as bundle:
+                    binary = bundle.extractfile(member).read()
+            self.assertEqual(binary, mode.encode())
+
+    def test_packaging_failure_cannot_report_success(self):
+        self.configure_package()
+        for relative in ("scripts/ci/package-native.ps1", "scripts/ci/package-native.sh"):
+            self.write(relative, "exit 7\n")
+        self.candidate = self.commit("failed packaging")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertFalse(evidence["package"]["ok"])
+
+    def test_product_contract_requires_native_package(self):
+        contract = json.loads((fixtures.ROOT / "scripts/ci/rterm-release-contract.json").read_text())
+        self.assertEqual(contract.get("consumer_package"), "native-unsigned-v1")
+
+    def test_rollback_cannot_change_retained_candidate_package(self):
+        self.configure_package()
+        self.write("verify.py", (self.repo / "verify.py").read_text() + (
+            "if os.environ['RTERM_REHEARSAL_MODE'] == 'rollback':\n"
+            f"    for p in Path({str(self.output / 'candidate-package')!r}).glob('*-unsigned.*'): p.write_bytes(b'tampered')\n"
+        ))
+        self.candidate = self.commit("rollback tampers retained candidate archive")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence = json.loads((self.output / "candidate.json").read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertFalse(evidence["package"]["ok"])
+
+    def test_malformed_package_manifest_retains_failure_evidence(self):
+        self.configure_package()
+        ps = "scripts/ci/package-native.ps1"
+        self.write(ps, (self.repo / ps).read_text().replace(
+            "$artifactPath =", '[IO.File]::WriteAllText((Join-Path $packageRootPath "manifest.json"), "[]")\n$artifactPath ='))
+        sh = "scripts/ci/package-native.sh"
+        self.write(sh, (self.repo / sh).read_text().replace(
+            "package_parent=", "printf '[]' > \"$package_root/manifest.json\"\npackage_parent="))
+        self.candidate = self.commit("malformed package manifest")
+        result = self.rehearse()
+        self.assertNotEqual(result.returncode, 0)
+        evidence_path = self.output / "candidate.json"
+        self.assertTrue(evidence_path.exists(), result.stderr)
+        evidence = json.loads(evidence_path.read_text())
+        self.assertFalse(evidence["ok"])
+        self.assertFalse(evidence["package"]["ok"])
 
     def test_artifact_hashes_are_retained_per_profile_before_shared_target_overwrite(self):
         self.configure_artifact()

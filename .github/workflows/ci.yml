@@ -125,6 +125,8 @@ jobs:
           path: |
             evidence/rterm-release/candidate.json
             evidence/rterm-release/rollback.json
+            evidence/rterm-release/*-package/*.zip
+            evidence/rterm-release/*-package/*.tar.gz
           if-no-files-found: error
 
   deterministic-performance:

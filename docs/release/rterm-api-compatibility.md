@@ -69,7 +69,28 @@ all consumer commands; later mutation fails while preserving the original hash.
 Candidate evidence is written before rollback can overwrite a shared target.
 The six original consumer commands are unchanged. These records describe the
 tested executable, not a retained package archive or a performance certificate;
-package hashes and both-profile packaged GUI/SSH/GPU acceptance remain separate.
+archive identities use the separate `package` record described below.
+
+The production contract now selects `consumer_package: native-unsigned-v1`.
+After the unchanged consumer commands, the rehearsal invokes the existing
+`package-native.ps1` or `package-native.sh` from the verified consumer checkout.
+Each mode owns a fresh package directory and an unsigned native archive. The
+packager receives the exact consumer commit for manifest provenance. Archive
+members are read without extraction and compared with the assembled payload;
+the packaged executable must match the earlier build hash. The retained
+`package` record binds archive SHA-256/size, binary SHA-256, runtime target,
+profile and source/consumer commits. CI uploads both mode archives alongside
+the evidence JSON. Failure cannot become a successful rehearsal, and source
+and original executable identity are rechecked after packaging.
+Before overall success and temporary-checkout cleanup, both retained archives
+are checked again for their original size/hash and non-linked paths. A later
+mode cannot modify an earlier archive without invalidating its evidence.
+Malformed package manifests produce structured failure evidence as well.
+
+These are unsigned rehearsal packages built by the existing debug-profile
+consumer command, not signed release packages or fixed-runner performance
+evidence. Package assembly and identity verification do not claim that packaged
+GUI, native SSH or GPU scenarios have run; those remain explicit acceptance work.
 
 ## History extraction
 

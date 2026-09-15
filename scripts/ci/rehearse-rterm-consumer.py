@@ -249,6 +249,9 @@ def run_mode(
     overlay: list[str],
     contract_path: Path | None = None,
 ) -> tuple[dict[str, Any], Path]:
+    package_mode = contract.get("consumer_package")
+    if package_mode not in (None, "native-unsigned-v1"):
+        raise RehearsalError("unknown consumer package mode")
     specs = artifact_specs(contract)
     artifacts: list[dict[str, Any]] = []
     prior_artifacts: list[dict[str, Any]] = []
@@ -383,6 +386,18 @@ def run_mode(
             except (OSError, ValueError) as error:
                 commands.append(artifact_failure(error))
 
+    package = None
+    if package_mode and all(command["returncode"] == 0 for command in commands):
+        if not verified or len(artifacts) != 1:
+            commands.append(artifact_failure(ValueError("native package requires one verified executable")))
+        else:
+            packager = runpy.run_path(str(Path(__file__).with_name("rterm_package_evidence.py")))
+            package = packager["assemble_package"](consumer, target, artifacts[0], preparation,
+                output, mode, environment, run_command, verify_recovery_path)
+            commands.extend(package["commands"])
+            if not package["ok"]:
+                commands.append(artifact_failure(ValueError(package["error"])))
+
     # Keep the original hash even on failure; later tests may have rebuilt or
     # modified the executable. Record each mode before the next overwrites it.
     try:
@@ -411,6 +426,7 @@ def run_mode(
         "commands": commands,
         "artifacts": artifacts,
         "prior_artifacts": prior_artifacts,
+        "package": package,
     }
     if verified:
         evidence.update(preparation=preparation, post_consumer_identity=identity,
@@ -440,6 +456,25 @@ def verify_prepared_identity(repo: Path, root: Path, receipt: dict, contract_pat
         raise ValueError("prepared lockfile changed during consumer commands")
     preparer["verify_checkout"](root / "source", preparer["tree_files"](repo, source), {})
     preparer["verify_checkout"](root / "consumer", expected, {manifest: generated, "Cargo.lock": lock})
+
+
+def verify_retained_packages(output: Path, modes: list[dict[str, Any]]) -> bool:
+    valid = True
+    for evidence in modes:
+        package = evidence.get("package")
+        if package is None:
+            continue
+        try:
+            current = artifact_identity(output, {"path": package["path"], "after_command": 0})
+            if any(current[key] != package[key] for key in ("sha256", "size_bytes")):
+                raise ValueError("retained package changed after mode completion")
+        except (OSError, ValueError, KeyError) as error:
+            evidence["ok"] = package["ok"] = False
+            package["error"] = str(error)
+            write_json_atomic(output / f"{evidence['mode']}.json", evidence)
+            print(json.dumps({"mode": evidence["mode"], "package_error": str(error)}), file=sys.stderr)
+            valid = False
+    return valid
 
 
 def main() -> int:
@@ -518,6 +553,8 @@ def main() -> int:
             contract_path=arguments.contract.resolve(),
         )
         if not rollback["ok"]:
+            return 1
+        if not verify_retained_packages(output, [candidate, rollback]):
             return 1
         remove_readonly_tree(work)
         print(
