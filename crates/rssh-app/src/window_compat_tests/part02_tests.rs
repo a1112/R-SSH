@@ -7252,19 +7252,29 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 native owner child' -FilePath $env
         }
 
         #[cfg(target_os = "windows")]
-        fn windows_process_is_alive(process_id: u32) -> bool {
+        fn windows_process_is_alive(process_id: u32, timeout: Duration) -> Result<bool, String> {
             const SCRIPT: &str = r#"
 $process = Get-Process -Id ([int]$env:RSSH_STAGE7_PROBE_PID) -ErrorAction SilentlyContinue
 if ($null -ne $process) { exit 0 }
 exit 1
 "#;
-            std::process::Command::new("pwsh.exe")
+            if timeout.is_zero() {
+                return Err("PID probe deadline already expired".to_owned());
+            }
+            let mut command = std::process::Command::new("pwsh.exe");
+            command
                 .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
                 .env("RSSH_STAGE7_PROBE_PID", process_id.to_string())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .map_or(true, |status| status.success())
+                .stderr(std::process::Stdio::null());
+            let output = rssh_test_support::ChildGuard::spawn(command, timeout)
+                .and_then(rssh_test_support::ChildGuard::wait)
+                .map_err(|error| format!("bounded PID probe: {error}"))?;
+            match output.status.code() {
+                Some(0) => Ok(true),
+                Some(1) => Ok(false),
+                status => Err(format!("unexpected PID probe exit: {status:?}")),
+            }
         }
 
         #[cfg(target_os = "windows")]
@@ -7311,8 +7321,17 @@ Assert-BoundedProcessHarness
         fn exact_gpu_stop_stage_outer_kill_reaps_the_wrapper_descendant_tree() {
             const SCRIPT: &str = r#"
 . $env:RSSH_STAGE7_PROCESS_HARNESS
-$descendant = '$PID | Set-Content -LiteralPath $env:RSSH_STAGE7_DESCENDANT_PID -Encoding ascii; Start-Sleep -Seconds 60'
-$null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $descendant) -TimeoutSeconds 60
+# The descendant deliberately never publishes readiness. Its cold startup or
+# scheduling must not delay observing the process already assigned to the job.
+$descendant = 'Start-Sleep -Seconds 60'
+$publishIdentity = {
+  param($process)
+  if ($process.HasExited) { throw 'descendant exited before identity publication' }
+  $temporary = $env:RSSH_STAGE7_DESCENDANT_PID + '.tmp'
+  [IO.File]::WriteAllText($temporary, $process.Id.ToString())
+  [IO.File]::Move($temporary, $env:RSSH_STAGE7_DESCENDANT_PID)
+}
+$null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath 'pwsh.exe' -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $descendant) -TimeoutSeconds 60 -ObserveStartedProcessForTest $publishIdentity
 "#;
             let sentinel = std::env::temp_dir().join(format!(
                 "rssh-stage7-descendant-{}-{}.pid",
@@ -7331,14 +7350,21 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath '
             let started = std::time::Instant::now();
             let mut child = Some(command.spawn().expect("spawn outer-kill wrapper"));
             while !sentinel.exists() && started.elapsed() < Duration::from_secs(8) {
+                if child.as_mut().expect("live wrapper").try_wait().expect("poll wrapper startup").is_some() {
+                    let output = child.take().expect("exited wrapper").wait_with_output().expect("collect wrapper startup error");
+                    panic!("outer-kill wrapper exited before publishing PID: {:?}; stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
+                }
                 std::thread::sleep(Duration::from_millis(20));
             }
             if !sentinel.exists() {
                 let mut wrapper = child.take().expect("live outer-kill wrapper");
                 let _ = wrapper.kill();
-                let _ = wrapper.wait();
-                panic!("bounded descendant did not publish its PID sentinel");
+                let output = wrapper.wait_with_output().expect("reap wrapper startup timeout");
+                panic!("bounded wrapper did not publish descendant PID within 8s; stderr: {}", String::from_utf8_lossy(&output.stderr));
             }
+            let descendant_pid = std::fs::read_to_string(&sentinel)
+                .ok()
+                .and_then(|text| text.trim().parse::<u32>().ok());
             let error = collect_bounded_wrapper_output(
                 child.take().expect("live outer-kill wrapper"),
                 started,
@@ -7349,22 +7375,21 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath '
             .expect("the test-only outer deadline must fire");
             assert!(error.contains("exceeded"), "unexpected outer error: {error}");
 
-            let descendant_pid = std::fs::read_to_string(&sentinel)
-                .expect("read descendant PID sentinel")
-                .trim()
-                .parse::<u32>()
-                .expect("numeric descendant PID");
+            let descendant_pid = descendant_pid.expect("numeric descendant PID");
             let reaped_deadline = std::time::Instant::now() + Duration::from_secs(10);
-            while windows_process_is_alive(descendant_pid)
-                && std::time::Instant::now() < reaped_deadline
-            {
+            loop {
+                let remaining = reaped_deadline.saturating_duration_since(std::time::Instant::now());
+                assert!(!remaining.is_zero(), "outer kill left descendant PID {descendant_pid} alive");
+                if !windows_process_is_alive(descendant_pid, remaining).expect("bounded descendant exit probe") {
+                    break;
+                }
                 std::thread::sleep(Duration::from_millis(50));
             }
-            assert!(
-                !windows_process_is_alive(descendant_pid),
-                "outer kill left descendant PID {descendant_pid} alive"
-            );
             std::fs::remove_file(&sentinel).expect("remove descendant PID sentinel");
+            assert!(
+                windows_process_is_alive(std::process::id(), Duration::ZERO).is_err(),
+                "an expired probe must not report a live process as absent"
+            );
         }
 
         #[cfg(target_os = "windows")]
