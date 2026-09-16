@@ -567,15 +567,17 @@ impl NativeWindowApp {
                 // the SSH GUI entry point overrides this with the requested
                 // hybrid/cpu mode before the event loop starts.
                 renderer_mode: RendererMode::Gpu,
-                diagnostic_gpu_backend: None,
                 presentation_owner: PresentationOwner::Bootstrap,
                 deferred_gpu_generation: 0,
-                startup_mode: NativeStartupMode::Normal,
+                startup: NativeStartupState {
+                    mode: NativeStartupMode::Normal,
+                    diagnostic_gpu_backend: None,
+                },
                 transport_start_requested: false,
                 ssh_host_key_prompts: HashMap::new(),
                 ssh_secret_prompts: HashMap::new(),
                 ssh_connection_states: HashMap::new(),
-                gpu: None,
+                gpu_owners: crate::window_gpu::WindowGpuOwners::default(),
                 renderer: {
                     let mut renderer = GpuFramePlanner::new(PixelRenderer::new());
                     renderer.set_reverse_video_cursor_min_contrast(Some(
@@ -760,7 +762,7 @@ impl NativeWindowApp {
     }
 
     fn set_benchmark_startup(&mut self, enabled: bool) {
-        self.startup_mode = if enabled {
+        self.startup.mode = if enabled {
             NativeStartupMode::Benchmark
         } else {
             NativeStartupMode::Normal
@@ -7365,7 +7367,7 @@ impl NativeWindowApp {
             self.presentation_owner = PresentationOwner::GpuInitializing;
             self.metrics.mark_gpu_started();
             let gpu = self.initialize_gpu(event_loop)?;
-            self.gpu = Some(Box::new(gpu));
+            self.gpu_owners.active = Some(Box::new(gpu));
             self.presentation_owner = PresentationOwner::GpuActive;
             self.metrics.mark_gpu_finished();
         } else {
@@ -7405,14 +7407,17 @@ impl NativeWindowApp {
             self.webgpu_force_fallback_adapter,
             matches!(self.front_end, NativeRenderFrontEnd::Software),
         );
-        if let Some(backend) = self.diagnostic_gpu_backend {
-            pollster::block_on(WindowGpu::new_with_diagnostic_backend(
+        let (font_mode, font_specimen) = self.diagnostic_font_options();
+        if self.startup.diagnostic_gpu_backend.is_some() || font_mode.is_some() {
+            pollster::block_on(WindowGpu::new_with_diagnostic_options(
                 event_loop.owned_display_handle(),
                 window,
                 size,
                 high_performance,
                 force_fallback_adapter,
-                Some(backend),
+                self.startup.diagnostic_gpu_backend,
+                font_mode,
+                font_specimen,
             ))
         } else {
             pollster::block_on(WindowGpu::new(
@@ -7429,11 +7434,18 @@ impl NativeWindowApp {
         if self.renderer_mode != RendererMode::Auto
             || self.presentation_owner != PresentationOwner::Bootstrap
             || self.rendered_frames == 0
-            || self.gpu.is_some()
+            || self.gpu_owners.active.is_some()
         {
             return;
         }
 
+        if let Err(error) = crate::stage7_attribution::audit_product_service_start(
+            crate::stage7_attribution::ProductServiceEntry::PostReadyCoordinator,
+        ) {
+            eprintln!("deferred GPU initialization blocked by scheduling audit: {error}");
+            self.activate_cpu_fallback();
+            return;
+        }
         self.presentation_owner = PresentationOwner::GpuInitializing;
         self.deferred_gpu_generation = self.deferred_gpu_generation.saturating_add(1);
         let generation = self.deferred_gpu_generation;
@@ -7462,14 +7474,17 @@ impl NativeWindowApp {
             self.webgpu_force_fallback_adapter,
             matches!(self.front_end, NativeRenderFrontEnd::Software),
         );
-        let prepared_gpu = match if let Some(backend) = self.diagnostic_gpu_backend {
-            WindowGpu::prepare_with_diagnostic_backend(
+        let (font_mode, font_specimen) = self.diagnostic_font_options();
+        let prepared_gpu = match if self.startup.diagnostic_gpu_backend.is_some() || font_mode.is_some() {
+            WindowGpu::prepare_with_diagnostic_options(
                 display,
                 window,
                 surface_size,
                 high_performance,
                 force_fallback_adapter,
-                Some(backend),
+                self.startup.diagnostic_gpu_backend,
+                font_mode,
+                font_specimen,
             )
         } else {
             WindowGpu::prepare(
@@ -7540,7 +7555,7 @@ impl NativeWindowApp {
                     gpu.resize_surface(size)
                 }) {
                     Ok(owner) => {
-                        self.gpu = Some(gpu);
+                        self.gpu_owners.active = Some(gpu);
                         self.presentation_owner = owner;
                         self.pending_frame_damage.clear();
                         self.frame_needs_full_repaint = true;
@@ -7565,7 +7580,7 @@ impl NativeWindowApp {
     }
 
     fn activate_cpu_fallback(&mut self) {
-        self.gpu = None;
+        self.gpu_owners.quarantine_active();
         self.metrics.mark_renderer(RendererKind::Cpu);
         self.presentation_owner = deferred_gpu_initialization_owner(false);
         self.pending_frame_damage.clear();
@@ -7606,7 +7621,7 @@ impl NativeWindowApp {
         let surface_geometry = self.render_geometry();
         let placement = self.frame_content_placement();
         let geometry = self.frame_render_geometry(surface_geometry, placement);
-        let snapshot = self.render_snapshot();
+        let snapshot = self.with_diagnostic_font_specimen(self.render_snapshot());
         self.metrics.record_terminal_linkage_snapshot(&snapshot);
         if self.final_linkage_frame_is_reserved() {
             return;
@@ -7624,7 +7639,7 @@ impl NativeWindowApp {
         }
         let gpu_ready_to_present = self.presentation_owner == PresentationOwner::GpuActive
             || (self.presentation_owner == PresentationOwner::GpuInitializing
-                && self.gpu.is_some());
+                && self.gpu_owners.active.is_some());
         if !gpu_ready_to_present {
             if test_ssh_gui_frame_limit().is_some()
                 && self.presentation_owner == PresentationOwner::GpuInitializing
@@ -7657,7 +7672,7 @@ impl NativeWindowApp {
                 .prepare_gpu_frame(&snapshot, geometry, scrollbar, damage_row_offset);
         let gpu_dpi_scale = self.gpu_dpi_scale();
 
-        let outcome = if let (Some(gpu), Some(window)) = (self.gpu.as_mut(), self.window.as_ref()) {
+        let outcome = if let (Some(gpu), Some(window)) = (self.gpu_owners.active.as_mut(), self.window.as_ref()) {
             gpu.present(
                 window,
                 &snapshot,
@@ -7702,7 +7717,7 @@ impl NativeWindowApp {
 
         if presented {
             let missing_glyphs = self
-                .gpu
+                .gpu_owners.active
                 .as_ref()
                 .and_then(|gpu| gpu.direct_text_metrics())
                 .map(|(report, _)| report.missing_glyphs.clone())

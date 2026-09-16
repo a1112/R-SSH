@@ -252,6 +252,8 @@ class RTermReleaseContractTests(unittest.TestCase):
         ):
             self.assertIn(required, job)
         self.assertIn("permissions:\n  contents: read", workflow)
+        upload = job[job.index("      - name: Upload R-Term release evidence"):]
+        self.assertIn("if: always()", upload)
         for forbidden in (
             "run-ssh-gui-startup",
             "first_frame_private_bytes",

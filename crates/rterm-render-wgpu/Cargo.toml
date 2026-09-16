@@ -14,6 +14,7 @@ image-legacy = ["rterm-render-cpu/image-legacy"]
 
 [dependencies]
 glyphon = "=0.12.0"
+pollster = "0.4"
 raw-window-handle = { version = "0.6", features = ["std"] }
 rterm-render-core = { path = "../rterm-render-core", version = "0.1.0" }
 rterm-render-cpu = { path = "../rterm-render-cpu", version = "0.1.0", default-features = false }
@@ -31,7 +32,6 @@ wgpu = { version = "=30.0.0", default-features = false, features = ["metal"] }
 wgpu = { version = "=30.0.0", default-features = false, features = ["gles", "vulkan"] }
 
 [dev-dependencies]
-pollster = "0.4"
 rterm-types = { path = "../rterm-types", version = "0.1.0" }
 serde_json = "1"
 

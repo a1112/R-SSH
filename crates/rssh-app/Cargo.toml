@@ -15,7 +15,10 @@ developer-full = [
     "transfer-tools",
     "diagnostic-tools",
 ]
-production-gui = ["native-gui", "ssh", "local-pty", "image-basic"]
+production-gui = ["native-gui", "ssh", "local-pty", "image-basic", "production-fonts"]
+production-fonts = ["rssh-fonts/shared-source-ownership"]
+# Reserved for verified frozen-source preparation; never enabled by normal profiles.
+rterm-legacy-0-1 = []
 native-gui = []
 ssh = []
 local-pty = []
@@ -23,7 +26,7 @@ image-basic = ["rterm-render-cpu/image-basic", "rterm-render-wgpu/image-basic"]
 image-gif = ["rterm-render-cpu/image-gif", "rterm-render-wgpu/image-gif"]
 image-legacy = ["rterm-render-cpu/image-legacy", "rterm-render-wgpu/image-legacy"]
 transfer-tools = []
-diagnostic-tools = []
+diagnostic-tools = ["rssh-fonts/diagnostic-tools"]
 functional-test-observer = ["dep:rssh-functional-tests"]
 
 [dependencies]
@@ -60,6 +63,8 @@ wezterm-color-types = "=0.3.0"
 winit = "0.30"
 
 [dev-dependencies]
+# Frozen GPU's headless constructor requires an explicit public texture format.
+wgpu = { version = "=30.0.0", default-features = false, features = ["std"] }
 rterm-runtime = { path = "../rssh-runtime", version = "0.1.0", features = ["test-support"] }
 rssh-test-support = { path = "../rssh-test-support", version = "0.1.0" }
 sha2 = "0.11"

@@ -1,0 +1,54 @@
+{
+  "schema": "rssh.stage7/rterm-external-source-proof/v1",
+  "source_repository": "../..",
+  "lkg_rssh_ref": "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6",
+  "candidate": {
+    "package_paths": [
+      "crates/rterm-types",
+      "crates/rssh-terminal",
+      "crates/rssh-runtime",
+      "crates/rterm-fonts",
+      "crates/rterm-render-core",
+      "crates/rterm-render-cpu",
+      "crates/rterm-render-wgpu"
+    ],
+    "vendor_paths": [
+      "vendor/glyphon-0.12.0",
+      "vendor/gpu-allocator-0.28.0"
+    ],
+    "workspace_files": [
+      "Cargo.toml",
+      "Cargo.lock",
+      "rust-toolchain.toml"
+    ]
+  },
+  "consumer": {
+    "path": "contracts/rterm-consumer",
+    "manifest": "Cargo.toml",
+    "lockfile": "Cargo.lock",
+    "vendor_root": "vendor",
+    "dependencies": [
+      "rterm-types",
+      "rterm-terminal",
+      "rterm-runtime",
+      "rterm-fonts",
+      "rterm-render-core",
+      "rterm-render-cpu",
+      "rterm-render-wgpu"
+    ]
+  },
+  "metadata_command": [
+    "cargo",
+    "metadata",
+    "--locked",
+    "--format-version",
+    "1"
+  ],
+  "locked_commands": [
+    [
+      "cargo",
+      "check",
+      "--locked"
+    ]
+  ]
+}

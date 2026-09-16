@@ -2,9 +2,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use rssh_diagnostics::{
-    DiagnosticGpuBackend, DiagnosticRendererMode, LAUNCHER_USAGE, LauncherCliError,
-    LauncherFailureCode, LauncherOptions, LauncherPhase, LauncherStateMachine, MarkerKind,
-    RunConfiguration, Scenario,
+    DiagnosticAttributionStage, DiagnosticGpuBackend, DiagnosticRendererMode, LAUNCHER_USAGE,
+    LauncherCliError, LauncherFailureCode, LauncherOptions, LauncherPhase, LauncherStateMachine,
+    MarkerKind, RunConfiguration, Scenario,
 };
 
 fn existing_app() -> String {
@@ -133,6 +133,53 @@ fn parser_rejects_repeated_renderer_and_backend_arguments() {
 fn launcher_usage_documents_renderer_and_backend_options() {
     assert!(LAUNCHER_USAGE.contains("[--renderer auto|cpu|gpu]"));
     assert!(LAUNCHER_USAGE.contains("[--gpu-backend dx12|vulkan|gl]"));
+}
+
+#[test]
+fn attribution_stage_cli_accepts_all_exact_kebab_case_values() {
+    for stage in [
+        "cpu-window",
+        "instance-surface",
+        "adapter-device",
+        "configured-surface-clear",
+        "layer-pipelines",
+        "fixture-font-text",
+        "platform-font-index",
+        "full-frame",
+    ] {
+        let mut args = base_args("empty-window");
+        args.extend(["--attribution-stage".to_owned(), stage.to_owned()]);
+
+        let options = LauncherOptions::parse(args).unwrap_or_else(|error| {
+            panic!("private attribution stage {stage} was rejected: {error}")
+        });
+
+        let expected = stage.parse::<DiagnosticAttributionStage>().unwrap();
+        assert_eq!(options.attribution_stage, Some(expected));
+        assert_eq!(
+            options.configuration().requested_attribution_stage,
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn attribution_stage_ready_starts_external_stabilization_and_generic_ready_does_not() {
+    let configuration = RunConfiguration {
+        requested_attribution_stage: Some(DiagnosticAttributionStage::FixtureFontText),
+        ..RunConfiguration::default()
+    };
+    let mut state = LauncherStateMachine::new(configuration);
+    state.child_started(42).unwrap();
+    state.observe_marker(MarkerKind::FirstPresent, 10).unwrap();
+    state.observe_marker(MarkerKind::ScenarioReady, 20).unwrap();
+    assert_eq!(state.phase(), LauncherPhase::AwaitScenarioReady);
+
+    state
+        .observe_marker(MarkerKind::AttributionStageReady, 30)
+        .unwrap();
+    assert_eq!(state.phase(), LauncherPhase::Stabilize);
+    assert_eq!(state.next_deadline_ms(), Some(5_030));
 }
 
 #[test]

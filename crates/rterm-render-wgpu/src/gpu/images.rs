@@ -1,5 +1,13 @@
 use super::{GpuLayer, PixelRect, SignedPixelRect};
 
+/// Device-owned texture-image state that is absent until a prepared frame
+/// contains at least one decoded texture draw.
+#[derive(Debug)]
+pub(super) struct GpuImagePipeline {
+    pub(super) pipeline: wgpu::RenderPipeline,
+    pub(super) bind_group_layout: wgpu::BindGroupLayout,
+}
+
 const KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF: i32 = i32::MIN / 2;
 
 pub(crate) const fn image_layer(z_index: i32) -> GpuLayer {

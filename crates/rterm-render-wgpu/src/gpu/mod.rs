@@ -10,12 +10,12 @@ mod text;
 pub use context::{
     DEFAULT_CPU_FRAME_BYTE_BUDGET, GpuContext, GpuContextError, GpuContextErrorKind,
     GpuContextGeneration, GpuContextOptions, GpuFrameStatus, RgbaFrameLayout,
-    WindowedGpuContextBootstrap,
+    WindowedGpuContextBootstrap, WindowedGpuDevice,
 };
 pub use images::{GpuImage, ImageProtocol};
 pub use metrics::{
-    GpuPresentationMetrics, SurfaceFault, SurfaceRecovery, SurfaceRecoveryState,
-    should_abandon_recovered_window_surface,
+    GpuInitializationResourceSnapshot, GpuInitializationStage, GpuPresentationMetrics,
+    SurfaceFault, SurfaceRecovery, SurfaceRecoveryState, should_abandon_recovered_window_surface,
 };
 pub use quads::{GpuLayer, GpuLayerError, GpuQuad, PixelRect, SignedPixelRect};
 pub(crate) use render_graph::TextureIdentity;
