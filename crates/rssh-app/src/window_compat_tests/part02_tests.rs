@@ -7319,6 +7319,9 @@ Assert-BoundedProcessHarness
         #[cfg(target_os = "windows")]
         #[test]
         fn exact_gpu_stop_stage_outer_kill_reaps_the_wrapper_descendant_tree() {
+            // Cold PowerShell startup compiles the Job Object helper with Add-Type.
+            // Give that setup its own bound before timing the forced termination.
+            const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
             const SCRIPT: &str = r#"
 . $env:RSSH_STAGE7_PROCESS_HARNESS
 # The descendant deliberately never publishes readiness. Its cold startup or
@@ -7349,7 +7352,7 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath '
                 .stderr(std::process::Stdio::piped());
             let started = std::time::Instant::now();
             let mut child = Some(command.spawn().expect("spawn outer-kill wrapper"));
-            while !sentinel.exists() && started.elapsed() < Duration::from_secs(8) {
+            while !sentinel.exists() && started.elapsed() < STARTUP_DEADLINE {
                 if child.as_mut().expect("live wrapper").try_wait().expect("poll wrapper startup").is_some() {
                     let output = child.take().expect("exited wrapper").wait_with_output().expect("collect wrapper startup error");
                     panic!("outer-kill wrapper exited before publishing PID: {:?}; stderr: {}", output.status, String::from_utf8_lossy(&output.stderr));
@@ -7360,14 +7363,14 @@ $null = Invoke-BoundedProcess -Phase 'Stage 7 outer kill descendant' -FilePath '
                 let mut wrapper = child.take().expect("live outer-kill wrapper");
                 let _ = wrapper.kill();
                 let output = wrapper.wait_with_output().expect("reap wrapper startup timeout");
-                panic!("bounded wrapper did not publish descendant PID within 8s; stderr: {}", String::from_utf8_lossy(&output.stderr));
+                panic!("bounded wrapper did not publish descendant PID within {STARTUP_DEADLINE:?}; stderr: {}", String::from_utf8_lossy(&output.stderr));
             }
             let descendant_pid = std::fs::read_to_string(&sentinel)
                 .ok()
                 .and_then(|text| text.trim().parse::<u32>().ok());
             let error = collect_bounded_wrapper_output(
                 child.take().expect("live outer-kill wrapper"),
-                started,
+                std::time::Instant::now(),
                 Duration::from_secs(2),
                 "outer-kill descendant probe",
             )

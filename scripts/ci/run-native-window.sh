@@ -60,7 +60,7 @@ binary="$target_directory/$profile_directory/rssh-app"
 
 cd "$repository_root"
 run_bounded "native E2E build ($profile)" 1200 \
-  cargo build --locked -p rssh-app --all-targets "${profile_arguments[@]}"
+  cargo build --locked -p rssh-app --bin rssh-app --test openssh_loopback --test native_window_e2e "${profile_arguments[@]}"
 
 version_capture="$(mktemp)"
 run_bounded "version identity" 30 "$binary" version --json >"$version_capture"
@@ -91,7 +91,7 @@ run_bounded "system OpenSSH interoperability ($profile)" 300 \
   -- --nocapture
 
 run_bounded "native ten-frame E2E ($profile)" 180 \
-  cargo test --locked -p rssh-app --all-targets "${profile_arguments[@]}" \
+  cargo test --locked -p rssh-app --test native_window_e2e "${profile_arguments[@]}" \
   native_window_e2e_presents_ten_frames_from_a_real_pty -- --exact --nocapture
 
 for scenario in \
