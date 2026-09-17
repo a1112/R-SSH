@@ -3751,16 +3751,10 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        if state == ElementState::Pressed
-            && native_key_should_forward_to_ime(
-                self.use_ime,
-                current_native_ime_platform(),
-                modifiers,
-                self.macos_forward_to_ime_modifier_mask,
-            )
-        {
-            return Ok(());
-        }
+        // winit's macOS backend already asks the IME to interpret the event
+        // before delivering KeyboardInput. An event delivered here was not
+        // consumed (or was explicitly forwarded by the IME). Dropping it by
+        // modifier mask loses Shift punctuation and native shortcuts.
 
         if state != ElementState::Pressed {
             self.handle_keyboard_release_event(

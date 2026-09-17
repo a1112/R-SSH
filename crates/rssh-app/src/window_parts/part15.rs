@@ -2896,32 +2896,6 @@ fn native_window_resize_increments_supported() -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NativeImePlatform {
-    Macos,
-    Other,
-}
-
-fn current_native_ime_platform() -> NativeImePlatform {
-    if cfg!(target_os = "macos") {
-        NativeImePlatform::Macos
-    } else {
-        NativeImePlatform::Other
-    }
-}
-
-fn native_key_should_forward_to_ime(
-    use_ime: bool,
-    platform: NativeImePlatform,
-    modifiers: ModifiersState,
-    macos_forward_to_ime_modifier_mask: ModifiersState,
-) -> bool {
-    use_ime
-        && platform == NativeImePlatform::Macos
-        && !modifiers.is_empty()
-        && modifiers.intersects(macos_forward_to_ime_modifier_mask)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeFullscreenPlatform {
     Macos,
     Other,

@@ -2705,46 +2705,6 @@
     }
 
     #[test]
-    fn macos_ime_forwarding_uses_configured_modifier_mask_only_on_macos_with_ime_enabled() {
-        assert!(super::native_key_should_forward_to_ime(
-            true,
-            super::NativeImePlatform::Macos,
-            ModifiersState::SHIFT,
-            ModifiersState::SHIFT | ModifiersState::CONTROL,
-        ));
-        assert!(super::native_key_should_forward_to_ime(
-            true,
-            super::NativeImePlatform::Macos,
-            ModifiersState::CONTROL | ModifiersState::ALT,
-            ModifiersState::SHIFT | ModifiersState::CONTROL,
-        ));
-        assert!(!super::native_key_should_forward_to_ime(
-            true,
-            super::NativeImePlatform::Macos,
-            ModifiersState::ALT,
-            ModifiersState::SHIFT | ModifiersState::CONTROL,
-        ));
-        assert!(!super::native_key_should_forward_to_ime(
-            false,
-            super::NativeImePlatform::Macos,
-            ModifiersState::SHIFT,
-            ModifiersState::SHIFT,
-        ));
-        assert!(!super::native_key_should_forward_to_ime(
-            true,
-            super::NativeImePlatform::Other,
-            ModifiersState::SHIFT,
-            ModifiersState::SHIFT,
-        ));
-        assert!(!super::native_key_should_forward_to_ime(
-            true,
-            super::NativeImePlatform::Macos,
-            ModifiersState::SHIFT,
-            ModifiersState::empty(),
-        ));
-    }
-
-    #[test]
     fn window_app_parses_wezterm_lua_config_ui_key_cap_rendering() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -2790,6 +2750,45 @@
             first_row.contains("> C-S-T: New Tab"),
             "expected Emacs key cap rendering in first key-assignment row: {first_row:?}"
         );
+    }
+
+    #[test]
+    fn window_app_delivered_shift_text_reaches_pty_with_ime_enabled() {
+        for text in [
+            "(", ")", "（", "）", "!", "@", "#", "$", "%", "^", "&", "*",
+            "_", "+", "{", "}", "|", ":", "\"", "<", ">", "?", "A",
+        ] {
+            let written = Arc::new(Mutex::new(Vec::new()));
+            let mut app = NativeWindowApp::new(None);
+            app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+            app.modifiers = ModifiersState::SHIFT;
+            app.handle_keyboard_input_event(
+                &Key::Character(text.into()),
+                PhysicalKey::Code(WinitKeyCode::Digit9),
+                Some(text),
+                ElementState::Pressed,
+                KittyKeyEventKind::Press,
+            )
+            .unwrap();
+            assert_eq!(
+                written.lock().unwrap().as_slice(),
+                text.as_bytes(),
+                "lost shifted text {text:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn window_app_ime_commits_fullwidth_punctuation_once() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_ime_preedit("（");
+        assert!(written.lock().unwrap().is_empty());
+        app.handle_ime_commit("（），。！？").unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), "（），。！？".as_bytes());
+        assert!(app.ime_preedit.is_none());
     }
 
     #[test]

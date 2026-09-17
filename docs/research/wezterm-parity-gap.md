@@ -564,10 +564,12 @@ override the 2026-08-02 evidence boundaries above.
   commit text now writes to the active pane when `use_ime` is enabled and is
   ignored when disabled; native winit IME preedit text now renders as a Builtin
   overlay at the active pane cursor, is suppressed for `System` or disabled
-  IME, and is cleared by commit or empty preedit. On macOS with `use_ime`
-  enabled, modified key presses whose modifiers intersect
-  `macos_forward_to_ime_modifier_mask` are left for IME routing before native
-  shortcut/input handling. Static Lua `colors.compose_cursor`
+  IME, and is cleared by commit or empty preedit. On macOS, winit performs IME
+  interpretation before delivering keyboard events; delivered events continue
+  through shortcut/input handling, including Shift punctuation.
+  `macos_forward_to_ime_modifier_mask` is retained in parsed configuration,
+  but native per-modifier IME routing is not implemented; it must not be
+  emulated by discarding events already delivered by winit. Static Lua `colors.compose_cursor`
   overrides the cursor color while Builtin preedit text, the leader modifier,
   or a dead key is active unless `use_dead_keys=false`. The documented
   `window:composition_status()` status callback shape now exposes Builtin
