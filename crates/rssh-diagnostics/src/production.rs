@@ -79,7 +79,21 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
         }
     };
     let secret = fixture.as_ref().map(|fixture| fixture.secret.clone());
-    let evidence = StreamEvidence::from_environment(secret.clone());
+    let evidence = match StreamEvidence::from_environment(secret.clone()) {
+        Ok(evidence) => evidence,
+        Err(error) => {
+            let _ = stop_fixture(fixture, None);
+            return failed_execution(
+                run,
+                options,
+                metric,
+                0,
+                RunFailure::from_io("evidence_setup_failed", "launch", error),
+                ProcessExitKind::Natural,
+                None,
+            );
+        }
+    };
     let mut child = match command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1087,11 +1101,18 @@ struct StreamEvidence {
 }
 
 impl StreamEvidence {
-    fn from_environment(secret: Option<String>) -> Self {
-        let root = std::env::var_os("RSSH_DIAGNOSTIC_EVIDENCE_DIR")
-            .map(std::path::PathBuf::from)
-            .filter(|path| std::fs::create_dir(path).is_ok());
-        Self { root, secret }
+    fn from_environment(secret: Option<String>) -> std::io::Result<Self> {
+        Self::create(
+            std::env::var_os("RSSH_DIAGNOSTIC_EVIDENCE_DIR").map(std::path::PathBuf::from),
+            secret,
+        )
+    }
+
+    fn create(root: Option<std::path::PathBuf>, secret: Option<String>) -> std::io::Result<Self> {
+        if let Some(root) = &root {
+            std::fs::create_dir(root)?;
+        }
+        Ok(Self { root, secret })
     }
 
     fn path(&self, name: &str) -> Option<std::path::PathBuf> {
@@ -1721,6 +1742,19 @@ mod tests {
 #[cfg(test)]
 mod raw_capture_tests {
     use super::{BoundedTail, StreamEvidence, unique_nonce};
+
+    #[test]
+    fn reused_capture_directory_is_rejected_without_borrowing_old_evidence() {
+        let root = std::env::temp_dir().join(format!("rssh-capture-{}", unique_nonce()));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("scan.json"), b"old receipt").unwrap();
+        assert!(StreamEvidence::create(Some(root.clone()), None).is_err());
+        assert_eq!(
+            std::fs::read(root.join("scan.json")).unwrap(),
+            b"old receipt"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn secret_scan_checks_full_stream_across_chunks_beyond_tail() {

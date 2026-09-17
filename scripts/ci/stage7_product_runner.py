@@ -57,6 +57,7 @@ def validate_residence(data, scenario, binary, protocol):
     require(run['scenario'] == scenario.replace('-', '_'), 'wrong scenario')
     require(Path(run['app_path']).resolve() == binary.resolve(), 'wrong executable')
     cfg = data['configuration']
+    require((cfg['columns'], cfg['rows'], cfg['scale_factor_milli']) == (80, 24, 1000), 'window geometry changed')
     for key in ('stabilization_ms', 'sample_interval_ms'):
         require(cfg[key] == protocol[key], 'wrong sampling protocol: ' + key)
     require(cfg['sample_count'] == protocol['samples_per_process'], 'wrong sample count')
@@ -190,8 +191,13 @@ def main():
                         scan = json.loads((output / name / 'raw/scan.json').read_text())
                         require(scan['complete'] is True, 'raw capture or secret scan incomplete')
                         require(scan['actual_fixture_secret_checked'] is (scenario == 'ssh1'), 'actual fixture secret not checked')
+                        adapter = {key: data['renderer'].get(key) for key in
+                                   ('adapter_name', 'adapter_vendor_id', 'adapter_device_id', 'adapter_type')}
+                        require(bool(adapter['adapter_name']), 'missing adapter identity')
+                        require(adapter == report.setdefault('adapter', adapter), 'adapter changed across runs')
                     report['runs'].append({'name': name, 'role': role, 'scenario': scenario, 'phase': phase,
-                                           'samples': values, 'stdout_sha256': digest(output / name / 'stdout.txt')})
+                                           'samples': values, 'files': {p.relative_to(output / name).as_posix(): digest(p)
+                                                                      for p in (output / name).rglob('*') if p.is_file()}})
                     if phase == 'measured':
                         collected[scenario][role].append(values)
                     write_json(output / 'report.json', report)
@@ -207,6 +213,8 @@ def main():
     except (OSError, ValueError, KeyError, TypeError) as error:
         report['status'] = 'failed'
         report['error'] = str(error)
+    except KeyboardInterrupt:
+        report['status'] = 'interrupted'
     finally:
         write_json(output / 'report.json', report)
     return 0 if report['status'] == 'passed' else 1

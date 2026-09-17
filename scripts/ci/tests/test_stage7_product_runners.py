@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import platform
 import tempfile
@@ -27,7 +28,8 @@ class ProductRunnerTests(unittest.TestCase):
         protocol = dict(stabilization_ms=5000, sample_interval_ms=100, samples_per_process=10)
         data = dict(schema='rssh.diagnostics/v2', failures=[],
                     run=dict(platform='macos', architecture={'arm64': 'aarch64', 'x86_64': 'x86_64', 'AMD64': 'x86_64'}.get(platform.machine(), platform.machine()), scenario='ssh1', app_path='/tmp/app'),
-                    configuration=dict(stabilization_ms=5000, sample_interval_ms=100, sample_count=10),
+                    configuration=dict(stabilization_ms=5000, sample_interval_ms=100, sample_count=10,
+                                       columns=80, rows=24, scale_factor_milli=1000),
                     readiness=dict(status='ready'), renderer={'final': 'gpu'},
                     process=dict(exit_code=0, exit_kind='requested'), connection=dict(final_state='connected'),
                     memory=dict(metric='macos_phys_footprint_bytes', unit='bytes', samples=[dict(sequence=i, elapsed_ms=5100+i*100, bytes=100) for i in range(10)]),
@@ -64,6 +66,7 @@ class ProductRunnerTests(unittest.TestCase):
             self.assertIn('evidence', (output/'stdout.txt').read_text())
             self.assertEqual(json.loads((output/'command.json').read_text())['returncode'], 7)
 
+    @unittest.skipIf(os.name == 'nt', 'macOS runner uses POSIX process groups')
     def test_timeout_retains_evidence(self):
         import sys
         with tempfile.TemporaryDirectory() as tmp:
