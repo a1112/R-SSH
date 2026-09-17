@@ -66,7 +66,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
     let mut command = match diagnostic_command(options, &run_id, fixture.as_ref()) {
         Ok(command) => command,
         Err(message) => {
-            let _ = stop_fixture(fixture);
+            let _ = stop_fixture(fixture, None);
             return failed_execution(
                 run,
                 options,
@@ -79,6 +79,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
         }
     };
     let secret = fixture.as_ref().map(|fixture| fixture.secret.clone());
+    let evidence = StreamEvidence::from_environment(secret.clone());
     let mut child = match command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -87,7 +88,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
     {
         Ok(child) => child,
         Err(error) => {
-            let _ = stop_fixture(fixture);
+            let _ = stop_fixture(fixture, evidence.root.as_deref());
             return failed_execution(
                 run,
                 options,
@@ -100,13 +101,13 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
         }
     };
     let pid = child.id();
-    let stdout_tail = BoundedTail::new(OUTPUT_TAIL_LIMIT);
-    let stderr_tail = BoundedTail::new(OUTPUT_TAIL_LIMIT);
+    let stdout_tail = BoundedTail::new(OUTPUT_TAIL_LIMIT).with_capture(evidence.path("stdout.txt"));
+    let stderr_tail = BoundedTail::new(OUTPUT_TAIL_LIMIT).with_capture(evidence.path("stderr.txt"));
     let (line_sender, line_receiver) = mpsc::channel();
     let (Some(child_stdout), Some(child_stderr)) = (child.stdout.take(), child.stderr.take())
     else {
         let status = force_reap(&mut child);
-        let _ = stop_fixture(fixture);
+        let _ = stop_fixture(fixture, evidence.root.as_deref());
         return failed_execution(
             run,
             options,
@@ -129,7 +130,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
         Err(error) => {
             let status = force_reap(&mut child);
             join_pipe_threads(stdout_thread, stderr_thread);
-            let _ = stop_fixture(fixture);
+            let _ = stop_fixture(fixture, evidence.root.as_deref());
             return failed_execution(
                 run,
                 options,
@@ -176,7 +177,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
             let status = force_reap(&mut child);
             join_pipe_threads(stdout_thread, stderr_thread);
             let _ = drain_late_markers(&line_receiver, &mut collector);
-            let fixture_failure = stop_fixture(fixture).err();
+            let fixture_failure = stop_fixture(fixture, evidence.root.as_deref()).err();
             let mut failure =
                 failure_with_tails(failure, &stdout_tail, &stderr_tail, secret.as_deref());
             if let Some(fixture_failure) = fixture_failure {
@@ -199,7 +200,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
 
     join_pipe_threads(stdout_thread, stderr_thread);
     if let Err(mut failure) = drain_late_markers(&line_receiver, &mut collector) {
-        if let Err(fixture_failure) = stop_fixture(fixture) {
+        if let Err(fixture_failure) = stop_fixture(fixture, evidence.root.as_deref()) {
             failure.message = format!("{}; fixture teardown: {fixture_failure}", failure.message);
         }
         return failed_execution_with_trace(
@@ -214,7 +215,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
             collector.trace().clone(),
         );
     }
-    if let Err(error) = stop_fixture(fixture) {
+    if let Err(error) = stop_fixture(fixture, evidence.root.as_deref()) {
         return failed_execution_with_trace(
             run,
             options,
@@ -853,15 +854,28 @@ impl SshFixtureContext {
         }))
     }
 
-    fn stop(self) -> Result<(), String> {
-        self.server
+    fn stop(self, evidence_root: Option<&Path>) -> Result<(), String> {
+        let retained = if let Some(root) = evidence_root {
+            // Copy before the fixture removes its private temporary home.
+            std::fs::copy(&self.session_log, root.join("session.log"))
+                .map(|_| ())
+                .map_err(|error| format!("retain session evidence: {error}"))
+        } else {
+            Ok(())
+        };
+        let stopped = self
+            .server
             .stop(Duration::from_secs(5))
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string());
+        retained.and(stopped)
     }
 }
 
-fn stop_fixture(fixture: Option<SshFixtureContext>) -> Result<(), String> {
-    fixture.map_or(Ok(()), SshFixtureContext::stop)
+fn stop_fixture(
+    fixture: Option<SshFixtureContext>,
+    evidence_root: Option<&Path>,
+) -> Result<(), String> {
+    fixture.map_or(Ok(()), |fixture| fixture.stop(evidence_root))
 }
 
 fn native_sampler(pid: u32) -> Result<Box<dyn MemorySampler>, SamplerError> {
@@ -1006,6 +1020,8 @@ fn force_reap(child: &mut Child) -> Option<ExitStatus> {
 struct BoundedTail {
     bytes: Arc<Mutex<VecDeque<u8>>>,
     limit: usize,
+    capture: Option<Arc<Mutex<std::fs::File>>>,
+    capture_error: Option<std::path::PathBuf>,
 }
 
 impl BoundedTail {
@@ -1013,10 +1029,38 @@ impl BoundedTail {
         Self {
             bytes: Arc::new(Mutex::new(VecDeque::with_capacity(limit))),
             limit,
+            capture: None,
+            capture_error: None,
+        }
+    }
+
+    fn with_capture(mut self, path: Option<std::path::PathBuf>) -> Self {
+        self.capture_error = path
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(|parent| parent.join("capture-error"));
+        self.capture = path
+            .and_then(|path| std::fs::File::create(path).ok())
+            .map(|file| Arc::new(Mutex::new(file)));
+        self
+    }
+
+    fn mark_capture_error(&self) {
+        if let Some(path) = &self.capture_error {
+            let _ = std::fs::write(path, b"stream capture failed");
         }
     }
 
     fn push(&self, bytes: &[u8]) {
+        if let Some(file) = &self.capture {
+            let mut file = file
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if file.write_all(bytes).is_err() {
+                // A missing completion receipt makes evidence consumers fail closed.
+                self.mark_capture_error();
+            }
+        }
         let mut tail = self
             .bytes
             .lock()
@@ -1035,6 +1079,65 @@ impl BoundedTail {
     }
 }
 
+/// Optional launcher-owned raw capture. The caller supplies a fresh directory;
+/// no secret value or digest is serialized into the public scan receipt.
+struct StreamEvidence {
+    root: Option<std::path::PathBuf>,
+    secret: Option<String>,
+}
+
+impl StreamEvidence {
+    fn from_environment(secret: Option<String>) -> Self {
+        let root = std::env::var_os("RSSH_DIAGNOSTIC_EVIDENCE_DIR")
+            .map(std::path::PathBuf::from)
+            .filter(|path| std::fs::create_dir(path).is_ok());
+        Self { root, secret }
+    }
+
+    fn path(&self, name: &str) -> Option<std::path::PathBuf> {
+        self.root.as_ref().map(|root| root.join(name))
+    }
+}
+
+impl Drop for StreamEvidence {
+    fn drop(&mut self) {
+        let Some(root) = &self.root else { return };
+        let mut complete = !root.join("capture-error").exists();
+        let mut files = Vec::new();
+        let mut names = vec!["stdout.txt", "stderr.txt"];
+        if self.secret.is_some() {
+            names.push("session.log");
+        }
+        for name in names {
+            match std::fs::read(root.join(name)) {
+                Ok(bytes) => {
+                    let hits = self.secret.as_ref().map_or(0, |secret| {
+                        bytes
+                            .windows(secret.len())
+                            .filter(|part| *part == secret.as_bytes())
+                            .count()
+                    });
+                    complete &= hits == 0;
+                    files.push(
+                        serde_json::json!({"path": name, "bytes": bytes.len(), "hits": hits}),
+                    );
+                }
+                Err(_) => complete = false,
+            }
+        }
+        let receipt = serde_json::json!({
+            "schema": "rssh.diagnostics/raw-capture/v1",
+            "complete": complete,
+            "actual_fixture_secret_checked": self.secret.is_some(),
+            "coverage": ["stdout-including-markers", "stderr", "ssh-session-log-if-applicable"],
+            "files": files,
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&receipt) {
+            let _ = std::fs::write(root.join("scan.json"), bytes);
+        }
+    }
+}
+
 fn spawn_stdout_drain(
     stdout: ChildStdout,
     tail: BoundedTail,
@@ -1046,7 +1149,11 @@ fn spawn_stdout_drain(
         loop {
             bytes.clear();
             match reader.read_until(b'\n', &mut bytes) {
-                Ok(0) | Err(_) => break,
+                Ok(0) => break,
+                Err(_) => {
+                    tail.mark_capture_error();
+                    break;
+                }
                 Ok(_) => {
                     tail.push(&bytes);
                     let line = String::from_utf8_lossy(&bytes)
@@ -1069,7 +1176,11 @@ fn spawn_stderr_drain(
         let mut buffer = [0_u8; 8192];
         loop {
             match stderr.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
+                Ok(0) => break,
+                Err(_) => {
+                    tail.mark_capture_error();
+                    break;
+                }
                 Ok(count) => tail.push(&buffer[..count]),
             }
         }
@@ -1604,5 +1715,52 @@ mod tests {
         let failure = drain_late_markers(&receiver, &mut collector)
             .expect_err("late transport activity must fail the completed attribution run");
         assert_eq!(failure.code, "marker_invalid");
+    }
+}
+
+#[cfg(test)]
+mod raw_capture_tests {
+    use super::{BoundedTail, StreamEvidence, unique_nonce};
+
+    #[test]
+    fn secret_scan_checks_full_stream_across_chunks_beyond_tail() {
+        let root = std::env::temp_dir().join(format!("rssh-capture-{}", unique_nonce()));
+        std::fs::create_dir(&root).unwrap();
+        let evidence = StreamEvidence {
+            root: Some(root.clone()),
+            secret: Some("split-secret".to_owned()),
+        };
+        let stdout = BoundedTail::new(4).with_capture(evidence.path("stdout.txt"));
+        let stderr = BoundedTail::new(4).with_capture(evidence.path("stderr.txt"));
+        stdout.push(b"prefix split-");
+        stdout.push(b"secret suffix beyond the bounded tail");
+        stderr.push(b"safe stderr");
+        std::fs::write(root.join("session.log"), b"safe session").unwrap();
+        drop(stdout);
+        drop(stderr);
+        drop(evidence);
+        let scan: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("scan.json")).unwrap()).unwrap();
+        assert_eq!(scan["complete"], false);
+        assert_eq!(scan["files"][0]["hits"], 1);
+        assert!(!scan.to_string().contains("split-secret"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_session_capture_cannot_report_complete() {
+        let root = std::env::temp_dir().join(format!("rssh-capture-{}", unique_nonce()));
+        std::fs::create_dir(&root).unwrap();
+        let evidence = StreamEvidence {
+            root: Some(root.clone()),
+            secret: Some("fixture-secret".to_owned()),
+        };
+        std::fs::write(root.join("stdout.txt"), b"safe").unwrap();
+        std::fs::write(root.join("stderr.txt"), b"safe").unwrap();
+        drop(evidence);
+        let scan: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("scan.json")).unwrap()).unwrap();
+        assert_eq!(scan["complete"], false);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

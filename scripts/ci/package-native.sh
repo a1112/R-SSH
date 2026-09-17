@@ -126,4 +126,6 @@ PY
 
 package_parent=$(CDPATH= cd -- "$(dirname -- "$package_root")" && pwd)
 package_name=$(basename -- "$package_root")
-tar -czf "$package_parent/$artifact_name" -C "$package_parent" "$package_name"
+# BSD tar otherwise synthesizes AppleDouble ._ entries from macOS metadata,
+# which are not payload files and invalidate the archive identity receipt.
+COPYFILE_DISABLE=1 tar -czf "$package_parent/$artifact_name" -C "$package_parent" "$package_name"
