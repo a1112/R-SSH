@@ -636,6 +636,7 @@ fn read_bounded_line(
 fn create_listener(endpoint: &ObserverEndpoint) -> io::Result<Listener> {
     #[cfg(unix)]
     {
+        #[cfg(not(target_os = "macos"))]
         use interprocess::os::unix::local_socket::ListenerOptionsExt;
 
         let parent = endpoint.socket_path.parent().ok_or_else(|| {
@@ -649,7 +650,24 @@ fn create_listener(endpoint: &ObserverEndpoint) -> io::Result<Listener> {
             .socket_path
             .as_path()
             .to_fs_name::<GenericFilePath>()?;
-        ListenerOptions::new().name(name).mode(0o600).create_sync()
+        #[cfg(not(target_os = "macos"))]
+        {
+            ListenerOptions::new().name(name).mode(0o600).create_sync()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            // Darwin rejects fchmod on an unbound socket. The already-private
+            // 0700 parent protects the bind-to-chmod interval; keep the socket
+            // itself owner-only too, without changing process-wide umask.
+            let listener = ListenerOptions::new().name(name).create_sync()?;
+            std::fs::set_permissions(
+                &endpoint.socket_path,
+                std::fs::Permissions::from_mode(0o600),
+            )?;
+            Ok(listener)
+        }
     }
     #[cfg(windows)]
     {

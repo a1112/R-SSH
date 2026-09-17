@@ -35,7 +35,7 @@ class PrepareConsumerTests(unittest.TestCase):
         self.assertTrue(SCRIPT.is_file(), "verified consumer preparer is missing")
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.repo = self.root / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-b", "main")
