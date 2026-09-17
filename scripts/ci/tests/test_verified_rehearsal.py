@@ -29,14 +29,22 @@ class VerifiedRehearsalTests(unittest.TestCase):
         self.write("scripts/ci/rterm-release-contract.json", json.dumps(self.contract))
         self.candidate = self.commit("verified rehearsal contract")
 
-    def rehearse(self):
+    def rehearse(self, temp_root=None):
         return subprocess.run([
             sys.executable, str(fixtures.ROOT / "scripts/ci/rehearse-rterm-consumer.py"),
             "--repo", str(self.repo), "--contract", str(self.contract_path),
             "--candidate-ref", self.candidate, "--consumer-ref", self.candidate,
             "--output-dir", str(self.output),
         ], capture_output=True, text=True, timeout=120,
-            env={**os.environ, "CARGO_TARGET_DIR": str(self.root / "cargo-target"), "CARGO_NET_OFFLINE": "true", "TMPDIR": str(self.root), "TEMP": str(self.root), "TMP": str(self.root)})
+            env={**os.environ, "CARGO_TARGET_DIR": str(self.root / "cargo-target"), "CARGO_NET_OFFLINE": "true", "TMPDIR": str(temp_root or self.root), "TEMP": str(temp_root or self.root), "TMP": str(temp_root or self.root)})
+
+    @unittest.skipIf(os.name == "nt", "Unix temporary-directory alias")
+    def test_owned_temporary_root_can_use_a_system_style_symlink_alias(self):
+        alias = self.root / "temp-alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        result = self.rehearse(temp_root=alias)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads((self.output / "rollback.json").read_text())["ok"])
 
     def test_both_profiles_keep_receipts_and_all_consumer_commands(self):
         result = self.rehearse()

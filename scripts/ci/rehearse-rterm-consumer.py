@@ -527,7 +527,10 @@ def main() -> int:
         if preparation_mode is not None:
             # Owned temporary checkout root; receipts remain in output on cleanup.
             # The preparer deliberately rejects directories inside the source repo.
-            work = Path(tempfile.mkdtemp(prefix="rssh-verified-rehearsal-"))
+            # macOS exposes its system temporary directory through /var ->
+            # /private/var. Canonicalize this newly created, owned directory;
+            # downstream checks must still reject links in supplied paths.
+            work = Path(tempfile.mkdtemp(prefix="rssh-verified-rehearsal-")).resolve()
 
         candidate, candidate_probe = run_mode(
             mode="candidate",

@@ -173,6 +173,11 @@ fn long_requested_path_round_trips_through_a_short_private_unix_socket() {
     assert!(transport_path.as_os_str().len() < 90);
     assert_ne!(transport_path, requested);
     assert_eq!(
+        transport_path.metadata().unwrap().permissions().mode() & 0o777,
+        0o600,
+        "observer socket must remain owner-only"
+    );
+    assert_eq!(
         transport_path
             .parent()
             .unwrap()
