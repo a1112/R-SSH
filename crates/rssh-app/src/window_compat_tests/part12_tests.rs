@@ -1077,7 +1077,7 @@
             local wezterm = require 'wezterm'
 
             wezterm.on('paste-greeting', function(window, pane)
-              pane:send_paste('hello\nworld')
+              pane:send_paste('()（）!@#$%^&*，。！？\nworld')
             end)
 
             return {}
@@ -1093,7 +1093,7 @@
         );
 
         let expected =
-            encode_window_paste("hello\nworld", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+            encode_window_paste("()（）!@#$%^&*，。！？\nworld", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
         assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
     }
 

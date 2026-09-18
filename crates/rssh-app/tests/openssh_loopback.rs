@@ -255,18 +255,29 @@ fn rssh_app_native_ssh_disconnects_and_reconnects_with_closed_lifecycle() {
     }
     let server = HermeticSshServer::builder()
         .command(
-            "'rssh-test-marker' 'native-reconnect-first'",
-            CommandResponse::status(b"native-reconnect-first", b"", 0),
+            "'rssh-test-marker' 'native-reconnect-first-()（）!@#$%^&*，。！？'",
+            CommandResponse::status(
+                "native-reconnect-first-()（）!@#$%^&*，。！？".as_bytes(),
+                b"",
+                0,
+            ),
         )
         .command(
-            "'rssh-test-marker' 'native-reconnect-second'",
-            CommandResponse::status(b"native-reconnect-second", b"", 0),
+            "'rssh-test-marker' 'native-reconnect-second-()（）!@#$%^&*，。！？'",
+            CommandResponse::status(
+                "native-reconnect-second-()（）!@#$%^&*，。！？".as_bytes(),
+                b"",
+                0,
+            ),
         )
         .start(DEADLINE)
         .expect("start SSH reconnect fixture");
     prepare_identity_for_openssh(&server);
 
-    for marker in ["native-reconnect-first", "native-reconnect-second"] {
+    for marker in [
+        "native-reconnect-first-()（）!@#$%^&*，。！？",
+        "native-reconnect-second-()（）!@#$%^&*，。！？",
+    ] {
         let mut command = Command::new(packaged_or_cargo_app_executable());
         server.temp_home().apply_to(&mut command);
         command

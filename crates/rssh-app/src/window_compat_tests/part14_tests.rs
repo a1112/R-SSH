@@ -2756,7 +2756,7 @@
     fn window_app_delivered_shift_text_reaches_pty_with_ime_enabled() {
         for text in [
             "(", ")", "（", "）", "!", "@", "#", "$", "%", "^", "&", "*",
-            "_", "+", "{", "}", "|", ":", "\"", "<", ">", "?", "A",
+            "_", "+", "{", "}", "|", ":", "\"", "<", ">", "?", "A", "，", "。", "！", "？",
         ] {
             let written = Arc::new(Mutex::new(Vec::new()));
             let mut app = NativeWindowApp::new(None);
@@ -2784,10 +2784,15 @@
         let mut app = NativeWindowApp::new(None);
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.modifiers = ModifiersState::SHIFT;
+        app.handle_ime_preedit("取消");
+        app.handle_ime_preedit("");
+        assert!(written.lock().unwrap().is_empty());
+        assert!(app.ime_preedit.is_none());
         app.handle_ime_preedit("（");
         assert!(written.lock().unwrap().is_empty());
-        app.handle_ime_commit("（），。！？").unwrap();
-        assert_eq!(written.lock().unwrap().as_slice(), "（），。！？".as_bytes());
+        let text = "()（）!@#$%^&*，。！？";
+        app.handle_ime_commit(text).unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), text.as_bytes());
         assert!(app.ime_preedit.is_none());
     }
 
