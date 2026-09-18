@@ -112,7 +112,7 @@ fn functional_observer_publish(
 }
 
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default().plugin(project_window_chrome::init());
     #[cfg(feature = "functional-test-observer")]
     let builder = builder.invoke_handler(tauri::generate_handler![functional_observer_publish]);
     builder
@@ -332,3 +332,5 @@ fn web_root(_app: &tauri::AppHandle) -> Result<PathBuf, Box<dyn std::error::Erro
         Ok(_app.path().resolve("web/dist", BaseDirectory::Resource)?)
     }
 }
+
+mod project_window_chrome;
