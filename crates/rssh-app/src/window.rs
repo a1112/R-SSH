@@ -118,6 +118,8 @@ use rssh_diagnostics::{
     ConnectionState as DiagnosticConnectionState, MarkerKind as DiagnosticMarkerKind,
     RendererKind as DiagnosticRendererKind, Scenario as DiagnosticScenario,
 };
+const PRODUCT_GUI_PROBE_ENV: &str = "RSSH_STAGE7_PRODUCT_GUI_PROBE";
+const PRODUCT_GUI_PROBE_SCHEMA: &str = "rssh.stage7/product-gui-probe/v1";
 #[path = "window_config.rs"]
 mod window_config;
 use window_config::{
@@ -711,6 +713,9 @@ pub fn run(
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
     let config_event_proxy = event_proxy.clone();
+    crate::stage7_attribution::audit_product_service_start(
+        crate::stage7_attribution::ProductServiceEntry::ConfigWatcher,
+    )?;
     if let Err(diagnostic) = lifecycle.install_watcher_sink(Arc::new(move || {
         config_event_proxy
             .send_event(WindowUserEvent::ConfigFileChanged)
@@ -772,13 +777,17 @@ pub fn run_ssh_gui(
         options.renderer
     });
     app.set_benchmark_startup(options.benchmark_startup);
+    let product_markers = install_product_gui_probe(&mut app, options, process_started_at)?;
     if let Some(path) = &options.log {
         app.session_log = Some(Box::new(File::create(path)?) as Box<dyn Write + Send>);
     }
 
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
-    app.event_proxy = Some(event_proxy);
+    app.event_proxy = Some(event_proxy.clone());
+    if product_markers.is_some() {
+        spawn_diagnostic_stdin_shutdown_listener(event_proxy)?;
+    }
     app.set_command_palette_frecency_path(default_command_palette_frecency_path());
     app.set_char_select_recently_used_path(default_char_select_recently_used_path());
     let cli = validate_cli_config_overrides(&[])?;
@@ -792,6 +801,13 @@ pub fn run_ssh_gui(
         .with_config_lifecycle(lifecycle)
         .with_deferred_config();
     event_loop.run_app(&mut manager)?;
+    if let Some(markers) = product_markers {
+        manager.shutdown_runtime_owners();
+        manager.reap_retired_apps();
+        if !markers.emit(DiagnosticMarkerKind::ProcessExited, None, None)? {
+            return Err(io::Error::other("product probe process_exited marker was not unique").into());
+        }
+    }
     if options.console.metrics_json {
         println!("{}", manager.metrics_json_report()?);
     } else if options.console.metrics {
@@ -800,109 +816,6 @@ pub fn run_ssh_gui(
     Ok(())
 }
 
-/// Runs a private GUI scenario for the cross-platform diagnostics launcher.
-/// The empty-window scenario deliberately never starts a PTY or SSH transport.
-pub fn run_diagnostic_gui(
-    options: &DiagnosticGuiOptions,
-    process_started_at: Instant,
-) -> Result<(), Box<dyn Error>> {
-    let markers = DiagnosticMarkerHandle::new(
-        options.run_id.clone(),
-        options.scenario,
-        process_started_at,
-    );
-    markers.emit(DiagnosticMarkerKind::ProcessStarted, None, None)?;
-
-    let mut app = NativeWindowApp::new_with_workspace_class_position_and_osc52_policy(
-        None,
-        Osc52Policy::Off,
-        PtyCommand::default_shell(),
-        None,
-        None,
-        None,
-    );
-    let pending_secret = if options.scenario == DiagnosticScenario::Ssh1 {
-        let host = options.ssh_host.ok_or("ssh1 diagnostic is missing --ssh-host")?;
-        let port = options.ssh_port.ok_or("ssh1 diagnostic is missing --ssh-port")?;
-        let user = options
-            .ssh_user
-            .as_deref()
-            .ok_or("ssh1 diagnostic is missing --ssh-user")?;
-        let authority = match host {
-            std::net::IpAddr::V4(address) => address.to_string(),
-            std::net::IpAddr::V6(address) => format!("[{address}]"),
-        };
-        app.set_initial_pane_launch(PaneLaunch::ssh(SshPaneLaunch::new(
-            format!("{user}@{authority}:{port}"),
-            SshAuthDescription::PasswordPrompt,
-            SshKnownHostsPolicy::AcceptUnknown,
-        )));
-        Some(std::env::var("RSSH_DIAGNOSTIC_SSH_SECRET").map_err(|_| {
-            "ssh1 diagnostic requires RSSH_DIAGNOSTIC_SSH_SECRET on its isolated environment channel"
-        })?)
-    } else {
-        None
-    };
-    configure_diagnostic_gui_initial_size(&mut app, options.columns, options.rows);
-    app.metrics.startup_trace = StartupTrace::from_process_started_at(process_started_at);
-    app.set_renderer_mode(options.renderer);
-    app.set_diagnostic_gpu_backend(options.gpu_backend);
-    app.set_diagnostic_gui(
-        markers.clone(),
-        options.scenario,
-        Duration::from_millis(options.hold_ms),
-        pending_secret,
-    );
-    if let Some(path) = &options.log {
-        app.session_log = Some(Box::new(File::create(path)?) as Box<dyn Write + Send>);
-    }
-
-    let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
-    let event_proxy = event_loop.create_proxy();
-    app.event_proxy = Some(event_proxy.clone());
-    spawn_diagnostic_stdin_shutdown_listener(event_proxy)?;
-    let cli = validate_cli_config_overrides(&[])?;
-    let lifecycle = Box::new(NativeConfigLifecycle::new(
-        ConfigDiscoveryInputs::capture_current_process(),
-        false,
-        None,
-        cli,
-    ));
-    let mut manager = NativeWindowManager::new(app)
-        .with_config_lifecycle(lifecycle)
-        .with_deferred_config();
-    event_loop.run_app(&mut manager)?;
-    manager.shutdown_runtime_owners();
-    manager.reap_retired_apps();
-    markers.emit(DiagnosticMarkerKind::ProcessExited, None, None)?;
-    Ok(())
-}
-
-fn configure_diagnostic_gui_initial_size(app: &mut NativeWindowApp, columns: u16, rows: u16) {
-    let size = TerminalSize::new(columns, rows);
-    app.initial_cols = columns;
-    app.initial_rows = rows;
-    *app.runtime = TerminalRuntime::new(size);
-    app.snapshot = terminal_runtime_snapshot(&app.runtime, PaneStableViewport::default());
-    let frame_size = app.initial_frame_size();
-    app.frame_width = frame_size.width;
-    app.frame_height = frame_size.height;
-    app.window_frame.set_size(frame_size);
-}
-
-fn spawn_diagnostic_stdin_shutdown_listener(
-    event_proxy: EventLoopProxy<WindowUserEvent>,
-) -> io::Result<()> {
-    thread::Builder::new()
-        .name("rssh-diagnostic-stdin".to_owned())
-        .spawn(move || {
-            let mut line = String::new();
-            if io::stdin().read_line(&mut line).is_ok() && !line.is_empty() {
-                let _ = event_proxy.send_event(WindowUserEvent::DiagnosticShutdownRequested);
-            }
-        })
-        .map(drop)
-}
 
 fn configure_ssh_gui_initial_size(app: &mut NativeWindowApp, options: &SshOptions) {
     let size = match &options.target {
@@ -7970,9 +7883,9 @@ mod ssh_gui_startup_contract_tests {
     fn diagnostic_gpu_backend_defaults_to_none_and_setter_stores_selection() {
         let mut app = NativeWindowApp::new(None);
 
-        assert_eq!(app.diagnostic_gpu_backend, None);
+        assert_eq!(app.startup.diagnostic_gpu_backend, None);
         app.set_diagnostic_gpu_backend(Some(DiagnosticGpuBackend::Dx12));
-        assert_eq!(app.diagnostic_gpu_backend, Some(DiagnosticGpuBackend::Dx12));
+        assert_eq!(app.startup.diagnostic_gpu_backend, Some(DiagnosticGpuBackend::Dx12));
     }
 
     #[test]
@@ -8007,5 +7920,33 @@ mod ssh_gui_startup_contract_tests {
             extra["gpu_adapter_type"],
             serde_json::json!("discrete-gpu")
         );
+    }
+
+    #[test]
+    fn product_gui_probe_accepts_the_closed_v1_descriptor() {
+        let probe = parse_product_gui_probe(
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":38000}"#,
+        )
+        .expect("closed product GUI descriptor");
+
+        assert_eq!(probe.run_id, "stage7-product-42");
+        assert_eq!(probe.scenario, DiagnosticScenario::Ssh1);
+        assert_eq!(probe.hold_duration, Duration::from_millis(38_000));
+    }
+
+    #[test]
+    fn product_gui_probe_rejects_unknown_or_secret_fields() {
+        for descriptor in [
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":38000,"secret":"forbidden"}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"not a stable id","scenario":"ssh1","hold_ms":38000}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"local","hold_ms":38000}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":4999}"#,
+            r#"{"schema":"rssh.stage7/product-gui-probe/v1","run_id":"stage7-product-42","scenario":"ssh1","hold_ms":300001}"#,
+        ] {
+            assert!(
+                parse_product_gui_probe(descriptor).is_err(),
+                "accepted invalid product GUI descriptor: {descriptor}"
+            );
+        }
     }
 }

@@ -1,6 +1,8 @@
 use std::{
     collections::VecDeque,
     io::{BufRead, BufReader, Read, Write},
+    net::SocketAddr,
+    path::Path,
     process::{Child, ChildStdout, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex, mpsc},
     thread,
@@ -13,18 +15,19 @@ use rssh_test_support::ssh::HermeticSshServer;
 use crate::WindowsPrivateWorkingSetSampler;
 
 use crate::{
-    CollectedMarkers, ConnectionState, ConnectionSummary, DiagnosticFailure, DiagnosticsResult,
-    LauncherOptions, LauncherPhase, LauncherStateMachine, MarkerCollector, MarkerDisposition,
-    MarkerIdentity, MarkerKind, MemoryMetric, MemorySample, MemorySampler, MemoryStatistics,
-    MemorySummary, Platform, ProcessExitKind, ProcessSummary, Readiness, ReadinessStatus,
-    RendererSummary, RunIdentity, SamplerError, Scenario, SchemaVersion, StartupMilestones,
-    summarize_bytes,
+    CollectedMarkers, ConnectionState, ConnectionSummary, DiagnosticFailure,
+    DiagnosticFontResourceSummary, DiagnosticsResult, LauncherOptions, LauncherPhase,
+    LauncherStateMachine, MarkerCollector, MarkerDisposition, MarkerIdentity, MarkerKind,
+    MemoryMetric, MemorySample, MemorySampler, MemoryStatistics, MemorySummary, Platform,
+    ProcessExitKind, ProcessSummary, Readiness, ReadinessStatus, RendererSummary, RunIdentity,
+    SamplerError, Scenario, SchemaVersion, StartupMilestones, summarize_bytes,
 };
 
 const READINESS_TIMEOUT: Duration = Duration::from_secs(20);
 const PIPE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 const OUTPUT_TAIL_LIMIT: usize = 64 * 1024;
 const FIXTURE_USER: &str = "rssh-diagnostics";
+const PRODUCT_GUI_PROBE_ENV: &str = "RSSH_STAGE7_PRODUCT_GUI_PROBE";
 
 #[derive(Debug)]
 pub struct LauncherExecution {
@@ -60,7 +63,21 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
             );
         }
     };
-    let mut command = diagnostic_command(options, &run_id, fixture.as_ref());
+    let mut command = match diagnostic_command(options, &run_id, fixture.as_ref()) {
+        Ok(command) => command,
+        Err(message) => {
+            let _ = stop_fixture(fixture);
+            return failed_execution(
+                run,
+                options,
+                metric,
+                0,
+                RunFailure::new("command_build_failed", "launch", message),
+                ProcessExitKind::Natural,
+                None,
+            );
+        }
+    };
     let secret = fixture.as_ref().map(|fixture| fixture.secret.clone());
     let mut child = match command
         .stdin(Stdio::piped())
@@ -130,16 +147,25 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
         }
     };
 
-    let mut collector = MarkerCollector::new(MarkerIdentity::new(run_id, pid, options.scenario));
+    let marker_identity = MarkerIdentity::new(run_id, pid, options.scenario);
+    let mut collector = match options.attribution_stage {
+        Some(stage) => MarkerCollector::new_attribution(marker_identity, stage),
+        None => MarkerCollector::new(marker_identity),
+    };
+    let mut font_resources = None;
     let mut state = LauncherStateMachine::new(options.configuration());
     let _ = state.child_started(pid);
+    let mut protocol = ChildProtocol {
+        lines: &line_receiver,
+        collector: &mut collector,
+        state: &mut state,
+        font_resources: &mut font_resources,
+    };
     let run_outcome = run_child(
         options,
         started,
         &mut child,
-        &line_receiver,
-        &mut collector,
-        &mut state,
+        &mut protocol,
         child_memory_source.as_mut(),
     );
 
@@ -149,7 +175,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
             let cleanup_started = Instant::now();
             let status = force_reap(&mut child);
             join_pipe_threads(stdout_thread, stderr_thread);
-            drain_late_markers(&line_receiver, &mut collector);
+            let _ = drain_late_markers(&line_receiver, &mut collector);
             let fixture_failure = stop_fixture(fixture).err();
             let mut failure =
                 failure_with_tails(failure, &stdout_tail, &stderr_tail, secret.as_deref());
@@ -172,7 +198,22 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
     };
 
     join_pipe_threads(stdout_thread, stderr_thread);
-    drain_late_markers(&line_receiver, &mut collector);
+    if let Err(mut failure) = drain_late_markers(&line_receiver, &mut collector) {
+        if let Err(fixture_failure) = stop_fixture(fixture) {
+            failure.message = format!("{}; fixture teardown: {fixture_failure}", failure.message);
+        }
+        return failed_execution_with_trace(
+            run,
+            options,
+            metric,
+            pid,
+            failure_with_tails(failure, &stdout_tail, &stderr_tail, secret.as_deref()),
+            exit_kind,
+            exit_status.code(),
+            Some(teardown_ms),
+            collector.trace().clone(),
+        );
+    }
     if let Err(error) = stop_fixture(fixture) {
         return failed_execution_with_trace(
             run,
@@ -202,6 +243,7 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
         exit_status.code(),
         teardown_ms,
         collector.trace().clone(),
+        font_resources,
     ) {
         Ok(result) => LauncherExecution {
             result,
@@ -221,6 +263,13 @@ pub fn execute_launcher(options: &LauncherOptions) -> LauncherExecution {
     }
 }
 
+struct ChildProtocol<'a> {
+    lines: &'a mpsc::Receiver<String>,
+    collector: &'a mut MarkerCollector,
+    state: &'a mut LauncherStateMachine,
+    font_resources: &'a mut Option<DiagnosticFontResourceSummary>,
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the state-machine phases remain explicit and linear for deadline auditing"
@@ -229,9 +278,7 @@ fn run_child(
     options: &LauncherOptions,
     started: Instant,
     child: &mut Child,
-    lines: &mpsc::Receiver<String>,
-    collector: &mut MarkerCollector,
-    state: &mut LauncherStateMachine,
+    protocol: &mut ChildProtocol<'_>,
     sampler: &mut dyn MemorySampler,
 ) -> Result<(Vec<MemorySample>, ProcessExitKind, ExitStatus, u64), RunFailure> {
     let readiness_deadline = Instant::now() + READINESS_TIMEOUT;
@@ -253,9 +300,15 @@ fn run_child(
                 format!("scenario readiness exceeded {READINESS_TIMEOUT:?}"),
             ));
         }
-        match lines.recv_timeout(PIPE_POLL_INTERVAL) {
+        match protocol.lines.recv_timeout(PIPE_POLL_INTERVAL) {
             Ok(line) => {
-                let ready = process_marker_line(&line, started, collector, Some(state))?;
+                let ready = process_marker_line(
+                    &line,
+                    started,
+                    protocol.collector,
+                    Some(protocol.state),
+                    protocol.font_resources,
+                )?;
                 if ready {
                     break;
                 }
@@ -265,33 +318,44 @@ fn run_child(
         }
     }
 
-    let stabilization_deadline = state.next_deadline_ms().ok_or_else(|| {
+    let stabilization_deadline = protocol.state.next_deadline_ms().ok_or_else(|| {
         RunFailure::new("missing_deadline", "stabilize", "no stabilization deadline")
     })?;
     wait_until_elapsed(
         stabilization_deadline,
         started,
         child,
-        lines,
-        collector,
-        state,
+        protocol.lines,
+        protocol.collector,
+        protocol.state,
+        protocol.font_resources,
     )?;
-    state
+    protocol
+        .state
         .advance_to(elapsed_ms(started))
         .map_err(state_failure)?;
 
     let sampling_started_ms = elapsed_ms(started);
     let mut memory_samples = Vec::with_capacity(usize::try_from(options.sample_count).unwrap_or(0));
     for sequence in 0..options.sample_count {
-        let due = state.next_deadline_ms().ok_or_else(|| {
+        let due = protocol.state.next_deadline_ms().ok_or_else(|| {
             RunFailure::new("missing_deadline", "sample", "sample deadline is missing")
         })?;
-        wait_until_elapsed(due, started, child, lines, collector, state)?;
+        wait_until_elapsed(
+            due,
+            started,
+            child,
+            protocol.lines,
+            protocol.collector,
+            protocol.state,
+            protocol.font_resources,
+        )?;
         let observed_ms = elapsed_ms(started);
         let bytes = sampler.sample().map_err(|error| {
             RunFailure::new("memory_sample_failed", "sample", error.to_string())
         })?;
-        state
+        protocol
+            .state
             .record_sample(observed_ms, bytes)
             .map_err(state_failure)?;
         memory_samples.push(MemorySample {
@@ -302,7 +366,8 @@ fn run_child(
     }
     let sampling_finished_ms = elapsed_ms(started);
 
-    state
+    protocol
+        .state
         .graceful_shutdown_requested(sampling_finished_ms)
         .map_err(state_failure)?;
     let teardown_started = Instant::now();
@@ -324,9 +389,16 @@ fn run_child(
         {
             break (ProcessExitKind::Requested, status);
         }
-        drain_available_markers(lines, started, collector, Some(state))?;
+        drain_available_markers(
+            protocol.lines,
+            started,
+            protocol.collector,
+            Some(protocol.state),
+            protocol.font_resources,
+        )?;
         if Instant::now() >= shutdown_deadline {
-            state
+            protocol
+                .state
                 .force_shutdown(elapsed_ms(started))
                 .map_err(state_failure)?;
             child
@@ -339,12 +411,13 @@ fn run_child(
         }
         thread::sleep(PIPE_POLL_INTERVAL);
     };
-    state
+    protocol
+        .state
         .child_reaped(status.code(), elapsed_ms(started))
         .map_err(state_failure)?;
     let teardown_ms = duration_millis(teardown_started.elapsed());
 
-    let trace = collector.trace();
+    let trace = protocol.collector.trace();
     let mut milestones = trace.milestones.clone();
     milestones.sampling_started_ms = Some(sampling_started_ms);
     milestones.sampling_finished_ms = Some(sampling_finished_ms);
@@ -361,6 +434,7 @@ fn wait_until_elapsed(
     lines: &mpsc::Receiver<String>,
     collector: &mut MarkerCollector,
     state: &mut LauncherStateMachine,
+    font_resources: &mut Option<DiagnosticFontResourceSummary>,
 ) -> Result<(), RunFailure> {
     loop {
         let now_ms = elapsed_ms(started);
@@ -380,7 +454,7 @@ fn wait_until_elapsed(
         let wait = Duration::from_millis(due_ms.saturating_sub(now_ms)).min(PIPE_POLL_INTERVAL);
         match lines.recv_timeout(wait) {
             Ok(line) => {
-                process_marker_line(&line, started, collector, Some(state))?;
+                process_marker_line(&line, started, collector, Some(state), font_resources)?;
             }
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {}
         }
@@ -392,6 +466,7 @@ fn process_marker_line(
     started: Instant,
     collector: &mut MarkerCollector,
     state: Option<&mut LauncherStateMachine>,
+    font_resources: &mut Option<DiagnosticFontResourceSummary>,
 ) -> Result<bool, RunFailure> {
     match collector
         .push_line(line)
@@ -399,12 +474,23 @@ fn process_marker_line(
     {
         MarkerDisposition::Ignored => Ok(false),
         MarkerDisposition::Accepted(record) => {
+            if record.kind == MarkerKind::GpuReady
+                && let Some(value) = record.extra.get("font_resources")
+            {
+                *font_resources = Some(serde_json::from_value(value.clone()).map_err(|error| {
+                    RunFailure::new("font_resources_invalid", "await_markers", error.to_string())
+                })?);
+            }
+            let readiness_marker = state.as_deref().map_or(
+                MarkerKind::ScenarioReady,
+                LauncherStateMachine::readiness_marker,
+            );
             if let Some(state) = state {
                 state
                     .observe_marker(record.kind, elapsed_ms(started))
                     .map_err(state_failure)?;
             }
-            Ok(record.kind == MarkerKind::ScenarioReady)
+            Ok(record.kind == readiness_marker)
         }
     }
 }
@@ -414,17 +500,30 @@ fn drain_available_markers(
     started: Instant,
     collector: &mut MarkerCollector,
     mut state: Option<&mut LauncherStateMachine>,
+    font_resources: &mut Option<DiagnosticFontResourceSummary>,
 ) -> Result<(), RunFailure> {
     while let Ok(line) = lines.try_recv() {
-        process_marker_line(&line, started, collector, state.as_deref_mut())?;
+        process_marker_line(
+            &line,
+            started,
+            collector,
+            state.as_deref_mut(),
+            font_resources,
+        )?;
     }
     Ok(())
 }
 
-fn drain_late_markers(lines: &mpsc::Receiver<String>, collector: &mut MarkerCollector) {
+fn drain_late_markers(
+    lines: &mpsc::Receiver<String>,
+    collector: &mut MarkerCollector,
+) -> Result<(), RunFailure> {
     while let Ok(line) = lines.try_recv() {
-        let _ = collector.push_line(&line);
+        collector
+            .push_line(&line)
+            .map_err(|error| RunFailure::new("marker_invalid", "reap", error.to_string()))?;
     }
+    Ok(())
 }
 
 #[expect(
@@ -441,6 +540,7 @@ fn successful_result(
     exit_code: Option<i32>,
     teardown_ms: u64,
     trace: CollectedMarkers,
+    font_resources: Option<DiagnosticFontResourceSummary>,
 ) -> Result<DiagnosticsResult, RunFailure> {
     let statistics = summarize_bytes(
         &samples
@@ -454,6 +554,13 @@ fn successful_result(
     let last_sample = samples.last().map(|sample| sample.elapsed_ms);
     milestones.sampling_started_ms = first_sample;
     milestones.sampling_finished_ms = last_sample;
+    let readiness_evidence = if options.attribution_stage.is_some() {
+        "validated attribution_stage_ready marker from the requested owner"
+    } else if options.font_mode.is_some() && options.font_specimen.is_some() {
+        "validated font_ownership_ready marker after a complete GPU frame"
+    } else {
+        "validated scenario_ready marker after a presented frame"
+    };
     let result = DiagnosticsResult {
         schema: SchemaVersion::V2,
         run,
@@ -461,7 +568,7 @@ fn successful_result(
         milestones,
         readiness: Readiness {
             status: ReadinessStatus::Ready,
-            evidence: vec!["validated scenario_ready marker after a presented frame".to_owned()],
+            evidence: vec![readiness_evidence.to_owned()],
         },
         renderer: RendererSummary {
             first: trace.first_renderer,
@@ -489,6 +596,10 @@ fn successful_result(
             exit_code,
             teardown_ms: Some(teardown_ms),
         },
+        font_resources,
+        final_attribution_stage: trace.final_attribution_stage,
+        resource_summary_schema: trace.resource_summary_schema,
+        resource_summary: trace.resource_summary,
         failures: Vec::new(),
     };
     result.validate().map_err(|error| {
@@ -567,6 +678,10 @@ fn failed_execution_with_trace(
                 exit_code,
                 teardown_ms,
             },
+            font_resources: None,
+            final_attribution_stage: None,
+            resource_summary_schema: None,
+            resource_summary: None,
             failures: vec![failure.into_schema()],
         },
         success: false,
@@ -577,28 +692,41 @@ fn diagnostic_command(
     options: &LauncherOptions,
     run_id: &str,
     fixture: Option<&SshFixtureContext>,
-) -> Command {
+) -> Result<Command, String> {
     let mut command = Command::new(&options.app);
-    command.args(diagnostic_arguments(options, run_id));
+    if options.product_gui {
+        let address = fixture.map(|fixture| fixture.server.address());
+        let session_log = fixture.map(|fixture| fixture.session_log.as_path());
+        command
+            .args(product_gui_arguments(options, address, session_log)?)
+            .env(
+                PRODUCT_GUI_PROBE_ENV,
+                product_gui_probe_descriptor(options, run_id),
+            );
+    } else {
+        command.args(diagnostic_arguments(options, run_id));
+    }
     command.env("RSSH_BENCHMARK_WINDOW_SCALE_FACTOR", "1");
     if let Some(fixture) = fixture {
         let address = fixture.server.address();
-        command.args([
-            "--ssh-host",
-            &address.ip().to_string(),
-            "--ssh-port",
-            &address.port().to_string(),
-            "--ssh-user",
-            FIXTURE_USER,
-            "--log",
-            fixture.session_log.to_string_lossy().as_ref(),
-        ]);
+        if !options.product_gui {
+            command.args([
+                "--ssh-host",
+                &address.ip().to_string(),
+                "--ssh-port",
+                &address.port().to_string(),
+                "--ssh-user",
+                FIXTURE_USER,
+                "--log",
+                fixture.session_log.to_string_lossy().as_ref(),
+            ]);
+        }
         fixture.server.temp_home().apply_to(&mut command);
         command
             .env("RSSH_DIAGNOSTIC_SSH_SECRET", &fixture.secret)
             .env("SSH_AUTH_SOCK", "rssh-diagnostics-invalid-agent");
     }
-    command
+    Ok(command)
 }
 
 pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> Vec<String> {
@@ -606,11 +734,6 @@ pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> V
         Scenario::EmptyWindow => "empty-window",
         Scenario::Ssh1 => "ssh1",
     };
-    let hold_ms = options
-        .stabilization
-        .saturating_add(options.sample_interval.saturating_mul(options.sample_count))
-        .saturating_add(options.shutdown_timeout)
-        .saturating_add(Duration::from_secs(30));
     let mut arguments = vec![
         "diagnostic-gui".to_owned(),
         "--run-id".to_owned(),
@@ -618,12 +741,23 @@ pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> V
         "--scenario".to_owned(),
         scenario.to_owned(),
         "--hold-ms".to_owned(),
-        duration_millis(hold_ms).to_string(),
+        product_gui_hold_ms(options).to_string(),
         "--renderer".to_owned(),
         options.renderer.to_string(),
     ];
     if let Some(backend) = options.gpu_backend {
         arguments.extend(["--gpu-backend".to_owned(), backend.to_string()]);
+    }
+    if let (Some(mode), Some(specimen)) = (options.font_mode, options.font_specimen) {
+        arguments.extend([
+            "--font-mode".to_owned(),
+            mode.to_string(),
+            "--font-specimen".to_owned(),
+            specimen.to_string(),
+        ]);
+    }
+    if let Some(stage) = options.attribution_stage {
+        arguments.extend(["--attribution-stage".to_owned(), stage.as_str().to_owned()]);
     }
     arguments.extend([
         "--cols".to_owned(),
@@ -632,6 +766,67 @@ pub(crate) fn diagnostic_arguments(options: &LauncherOptions, run_id: &str) -> V
         options.rows.to_string(),
     ]);
     arguments
+}
+
+fn product_gui_hold_ms(options: &LauncherOptions) -> u64 {
+    duration_millis(
+        options
+            .stabilization
+            .saturating_add(options.sample_interval.saturating_mul(options.sample_count))
+            .saturating_add(options.shutdown_timeout)
+            .saturating_add(Duration::from_secs(30)),
+    )
+}
+
+fn product_gui_probe_descriptor(options: &LauncherOptions, run_id: &str) -> String {
+    let scenario = match options.scenario {
+        Scenario::EmptyWindow => "empty-window",
+        Scenario::Ssh1 => "ssh1",
+    };
+    serde_json::json!({
+        "schema": "rssh.stage7/product-gui-probe/v1",
+        "run_id": run_id,
+        "scenario": scenario,
+        "hold_ms": product_gui_hold_ms(options),
+    })
+    .to_string()
+}
+
+fn product_gui_arguments(
+    options: &LauncherOptions,
+    fixture_address: Option<SocketAddr>,
+    session_log: Option<&Path>,
+) -> Result<Vec<String>, String> {
+    let address = match options.scenario {
+        Scenario::EmptyWindow => SocketAddr::from(([127, 0, 0, 1], 9)),
+        Scenario::Ssh1 => fixture_address
+            .ok_or_else(|| "SSH1 product GUI probe requires a loopback fixture".to_owned())?,
+    };
+    let mut arguments = vec![
+        "ssh".to_owned(),
+        "--gui".to_owned(),
+        "--renderer".to_owned(),
+        "auto".to_owned(),
+        "--host".to_owned(),
+        address.ip().to_string(),
+        "--port".to_owned(),
+        address.port().to_string(),
+        "--user".to_owned(),
+        FIXTURE_USER.to_owned(),
+        "--password".to_owned(),
+        "--accept-unknown-host-key".to_owned(),
+        "--cols".to_owned(),
+        options.columns.to_string(),
+        "--rows".to_owned(),
+        options.rows.to_string(),
+    ];
+    if let Some(session_log) = session_log {
+        arguments.extend([
+            "--log".to_owned(),
+            session_log.to_string_lossy().into_owned(),
+        ]);
+    }
+    Ok(arguments)
 }
 
 struct SshFixtureContext {
@@ -958,6 +1153,9 @@ fn empty_trace() -> CollectedMarkers {
         gpu_adapter_vendor_id: None,
         gpu_adapter_device_id: None,
         gpu_adapter_type: None,
+        final_attribution_stage: None,
+        resource_summary_schema: None,
+        resource_summary: None,
     }
 }
 
@@ -978,7 +1176,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::{DiagnosticGpuBackend, DiagnosticRendererMode};
+    use crate::{DiagnosticGpuBackend, DiagnosticRendererMode, MARKER_PREFIX};
 
     fn fixture_options() -> LauncherOptions {
         LauncherOptions {
@@ -992,6 +1190,10 @@ mod tests {
             rows: 24,
             renderer: DiagnosticRendererMode::Gpu,
             gpu_backend: Some(DiagnosticGpuBackend::Dx12),
+            font_mode: None,
+            font_specimen: None,
+            attribution_stage: None,
+            product_gui: false,
             json: true,
         }
     }
@@ -1007,6 +1209,9 @@ mod tests {
             gpu_adapter_vendor_id: Some(0x10de),
             gpu_adapter_device_id: Some(0x2684),
             gpu_adapter_type: Some("discrete-gpu".to_owned()),
+            final_attribution_stage: None,
+            resource_summary_schema: None,
+            resource_summary: None,
         }
     }
 
@@ -1035,10 +1240,65 @@ mod tests {
             Some(0),
             1,
             gpu_identity_trace(),
+            None,
         )
         .expect("valid successful fixture result");
 
         assert_gpu_identity(&result.renderer);
+    }
+
+    #[test]
+    fn successful_font_proof_reports_owner_readiness_and_serializes_auto_renderer() {
+        let mut options = fixture_options();
+        options.renderer = DiagnosticRendererMode::Auto;
+        options.gpu_backend = None;
+        options.font_mode = Some(crate::DiagnosticFontMode::Lazy);
+        options.font_specimen = Some(crate::DiagnosticFontSpecimen::Ascii);
+        let result = successful_result(
+            RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+            &options,
+            MemoryMetric::WindowsPrivateWorkingSetBytes,
+            42,
+            vec![MemorySample {
+                sequence: 0,
+                elapsed_ms: 10,
+                bytes: 1,
+            }],
+            ProcessExitKind::Requested,
+            Some(0),
+            1,
+            gpu_identity_trace(),
+            None,
+        )
+        .expect("valid font proof result");
+        assert_eq!(
+            result.readiness.evidence,
+            ["validated font_ownership_ready marker after a complete GPU frame"]
+        );
+        let serialized = serde_json::to_value(result).expect("serialize real result");
+        assert_eq!(serialized["configuration"]["requested_renderer"], "auto");
+    }
+
+    #[test]
+    fn gpu_ready_marker_captures_font_resources_for_the_launcher_result() {
+        let mut collector =
+            MarkerCollector::new(MarkerIdentity::new("font-proof", 42, Scenario::EmptyWindow));
+        let mut captured = None;
+        let marker = format!(
+            "{MARKER_PREFIX}{{\"schema\":\"rssh.diagnostics/v2\",\"run_id\":\"font-proof\",\"pid\":42,\"scenario\":\"empty_window\",\"kind\":\"gpu_ready\",\"elapsed_ms\":10,\"renderer\":\"gpu\",\"font_resources\":{{\"mode\":\"lazy\",\"specimen\":\"cjk\",\"retained_source_bytes\":64,\"indexed_source_count\":3,\"active_source_count\":2,\"initial_catalog_source_count\":1,\"catalog_builds\":2,\"generation\":2,\"recovery_retained_source_bytes\":64,\"recovery_generation\":2,\"activation_latency_micros\":9,\"tofu_count\":0,\"frame_catalog_generation\":2,\"frame_generation_consistent\":true,\"index_fingerprint_sha256\":\"{}\",\"catalog_fingerprint_sha256\":\"{}\",\"ordered_catalog_fingerprint_sha256\":\"{}\"}}}}",
+            "1".repeat(64),
+            "2".repeat(64),
+            "3".repeat(64),
+        );
+
+        process_marker_line(&marker, Instant::now(), &mut collector, None, &mut captured)
+            .expect("valid font resource marker");
+
+        let captured = captured.expect("font resources captured");
+        assert_eq!(captured.mode, crate::DiagnosticFontMode::Lazy);
+        assert_eq!(captured.specimen, crate::DiagnosticFontSpecimen::Cjk);
+        assert_eq!(captured.initial_catalog_source_count, 1);
+        assert_eq!(captured.frame_generation_consistent, Some(true));
     }
 
     #[test]
@@ -1072,6 +1332,10 @@ mod tests {
             rows: 24,
             renderer: DiagnosticRendererMode::Gpu,
             gpu_backend: Some(DiagnosticGpuBackend::Dx12),
+            font_mode: None,
+            font_specimen: None,
+            attribution_stage: None,
+            product_gui: false,
             json: true,
         };
 
@@ -1111,6 +1375,10 @@ mod tests {
             rows: 24,
             renderer: DiagnosticRendererMode::Auto,
             gpu_backend: None,
+            font_mode: None,
+            font_specimen: None,
+            attribution_stage: None,
+            product_gui: false,
             json: true,
         };
 
@@ -1124,5 +1392,217 @@ mod tests {
             Some("auto")
         );
         assert!(!arguments.iter().any(|argument| argument == "--gpu-backend"));
+    }
+
+    #[test]
+    fn product_gui_empty_window_uses_normal_ssh_entrypoint() {
+        let options = LauncherOptions {
+            stabilization: Duration::from_millis(5_000),
+            sample_interval: Duration::from_millis(100),
+            sample_count: 10,
+            shutdown_timeout: Duration::from_millis(2_000),
+            renderer: DiagnosticRendererMode::Auto,
+            gpu_backend: None,
+            product_gui: true,
+            ..fixture_options()
+        };
+
+        let arguments =
+            product_gui_arguments(&options, None, None).expect("empty product probe arguments");
+        let descriptor = product_gui_probe_descriptor(&options, "product-empty");
+        let descriptor: serde_json::Value =
+            serde_json::from_str(&descriptor).expect("product probe descriptor JSON");
+
+        assert_eq!(&arguments[..2], ["ssh", "--gui"]);
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--renderer", "auto"])
+        );
+        assert!(arguments.windows(2).any(|pair| pair == ["--port", "9"]));
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument == "diagnostic-gui")
+        );
+        assert_eq!(
+            descriptor,
+            serde_json::json!({
+                "schema": "rssh.stage7/product-gui-probe/v1",
+                "run_id": "product-empty",
+                "scenario": "empty-window",
+                "hold_ms": 38000_u64,
+            })
+        );
+        assert!(!descriptor.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn product_gui_ssh1_binds_the_loopback_fixture() {
+        let options = LauncherOptions {
+            scenario: Scenario::Ssh1,
+            renderer: DiagnosticRendererMode::Auto,
+            gpu_backend: None,
+            product_gui: true,
+            ..fixture_options()
+        };
+        let log = PathBuf::from("fixture-session.log");
+        let address = "127.0.0.1:2222".parse().expect("fixture address");
+
+        let arguments = product_gui_arguments(&options, Some(address), Some(&log))
+            .expect("SSH1 product probe arguments");
+
+        for pair in [
+            ["--host", "127.0.0.1"],
+            ["--port", "2222"],
+            ["--user", FIXTURE_USER],
+            ["--log", "fixture-session.log"],
+        ] {
+            assert!(
+                arguments.windows(2).any(|actual| actual == pair),
+                "missing pair {pair:?} in {arguments:?}"
+            );
+        }
+        assert!(arguments.iter().any(|argument| argument == "--password"));
+        assert!(
+            arguments
+                .iter()
+                .any(|argument| argument == "--accept-unknown-host-key")
+        );
+        assert!(
+            !arguments
+                .iter()
+                .any(|argument| argument == "diagnostic-gui")
+        );
+    }
+
+    #[test]
+    fn attribution_stage_is_forwarded_and_captured_in_the_final_launcher_result() {
+        use crate::{
+            DiagnosticAttributionStage, ProjectOwnedResourceMetricsV1,
+            ProjectOwnedResourceSchemaVersion,
+        };
+
+        let options = LauncherOptions {
+            renderer: DiagnosticRendererMode::Cpu,
+            gpu_backend: None,
+            attribution_stage: Some(DiagnosticAttributionStage::CpuWindow),
+            ..fixture_options()
+        };
+        let arguments = diagnostic_arguments(&options, "attribution-run");
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--attribution-stage", "cpu-window"]),
+            "attribution stage was not forwarded: {arguments:?}"
+        );
+
+        let resources = ProjectOwnedResourceMetricsV1 {
+            cpu_staging_bytes: 4,
+            cpu_surface_count: 1,
+            cpu_present_count: 1,
+            ..ProjectOwnedResourceMetricsV1::default()
+        };
+        let mut trace = empty_trace();
+        trace.final_attribution_stage = Some(DiagnosticAttributionStage::CpuWindow);
+        trace.resource_summary_schema = Some(ProjectOwnedResourceSchemaVersion::V1);
+        trace.resource_summary = Some(resources.clone());
+        trace.first_renderer = Some(crate::RendererKind::Cpu);
+        trace.final_renderer = Some(crate::RendererKind::Cpu);
+
+        let result = successful_result(
+            RunIdentity::fixture(Scenario::EmptyWindow, Platform::Windows),
+            &options,
+            MemoryMetric::WindowsPrivateWorkingSetBytes,
+            42,
+            vec![MemorySample {
+                sequence: 0,
+                elapsed_ms: 5_100,
+                bytes: 1,
+            }],
+            ProcessExitKind::Requested,
+            Some(0),
+            1,
+            trace,
+            None,
+        )
+        .expect("complete attribution launcher result");
+        assert_eq!(
+            result.configuration.requested_attribution_stage,
+            Some(DiagnosticAttributionStage::CpuWindow)
+        );
+        assert_eq!(
+            result.final_attribution_stage,
+            Some(DiagnosticAttributionStage::CpuWindow)
+        );
+        assert_eq!(
+            result.resource_summary_schema,
+            Some(ProjectOwnedResourceSchemaVersion::V1)
+        );
+        assert_eq!(result.resource_summary, Some(resources));
+        assert_eq!(
+            result.readiness.evidence,
+            ["validated attribution_stage_ready marker from the requested owner"]
+        );
+    }
+
+    #[test]
+    fn attribution_stage_late_service_marker_is_not_discarded_during_final_drain() {
+        use crate::{DiagnosticAttributionStage, ProjectOwnedResourceMetricsV1};
+
+        let mut collector = MarkerCollector::new_attribution(
+            MarkerIdentity::new("late-stage", 42, Scenario::EmptyWindow),
+            DiagnosticAttributionStage::CpuWindow,
+        );
+        let identity = |kind: &str, elapsed_ms: u64| {
+            format!(
+                "{MARKER_PREFIX}{}",
+                serde_json::json!({
+                    "schema": "rssh.diagnostics/v2",
+                    "run_id": "late-stage",
+                    "pid": 42,
+                    "scenario": "empty_window",
+                    "kind": kind,
+                    "elapsed_ms": elapsed_ms,
+                })
+            )
+        };
+        collector
+            .push_line(&identity("process_started", 0))
+            .unwrap();
+        collector.push_line(&identity("window_created", 1)).unwrap();
+        let first = identity("first_present", 2)
+            .replace("\"elapsed_ms\":2", "\"elapsed_ms\":2,\"renderer\":\"cpu\"");
+        collector.push_line(&first).unwrap();
+        let resources = ProjectOwnedResourceMetricsV1 {
+            cpu_staging_bytes: 4,
+            cpu_surface_count: 1,
+            cpu_present_count: 1,
+            ..ProjectOwnedResourceMetricsV1::default()
+        };
+        let ready = format!(
+            "{MARKER_PREFIX}{}",
+            serde_json::json!({
+                "schema": "rssh.diagnostics/v2",
+                "run_id": "late-stage",
+                "pid": 42,
+                "scenario": "empty_window",
+                "kind": "attribution_stage_ready",
+                "elapsed_ms": 3,
+                "renderer": "cpu",
+                "requested_stage": "cpu-window",
+                "final_stage": "cpu-window",
+                "resource_summary_schema": "rssh.project-owned-resources/v1",
+                "resource_summary": resources,
+            })
+        );
+        collector.push_line(&ready).unwrap();
+
+        let (sender, receiver) = mpsc::channel();
+        sender.send(identity("transport_started", 4)).unwrap();
+        drop(sender);
+        let failure = drain_late_markers(&receiver, &mut collector)
+            .expect_err("late transport activity must fail the completed attribution run");
+        assert_eq!(failure.code, "marker_invalid");
     }
 }

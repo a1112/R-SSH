@@ -557,6 +557,8 @@ function Invoke-BoundedProcess {
 
     [scriptblock] $CaptureDescendantForTest,
 
+    [scriptblock] $ObserveStartedProcessForTest,
+
     [switch] $FailAssignmentForTest
   )
 
@@ -586,6 +588,9 @@ function Invoke-BoundedProcess {
     $started = $true
     $stdout = $ownedProcess.StandardOutput.ReadToEndAsync()
     $stderr = $ownedProcess.StandardError.ReadToEndAsync()
+    if ($null -ne $ObserveStartedProcessForTest) {
+      $null = & $ObserveStartedProcessForTest $process
+    }
     $remaining = Get-RemainingMilliseconds -Deadline $deadline
     if ($remaining -le 0 -or -not $process.WaitForExit($remaining)) {
       $cleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(10)

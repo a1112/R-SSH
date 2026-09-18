@@ -10,6 +10,12 @@
     "rollback_prepare_command": ["cargo", "generate-lockfile"]
   },
   "consumer_prepare_command": ["cargo", "generate-lockfile"],
+  "consumer_preparation": "verified-dual-adapter-v1",
+  "consumer_package": "native-unsigned-v1",
+  "consumer_package_tests": "native-gui-ssh-gpu-v1",
+  "consumer_artifacts": [
+    {"after_command": 4, "path": "debug/rssh-app{exe_suffix}"}
+  ],
   "consumer_commands": [
     [
       "cargo",

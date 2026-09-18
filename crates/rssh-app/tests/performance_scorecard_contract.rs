@@ -800,6 +800,91 @@ fn stage4_memory_trend_uses_a_reported_one_percent_sampling_noise_band() {
     assert!(runner.contains("$parserBaseline * 0.98"));
 }
 
+#[test]
+fn stage7_split_contract_freezes_fail_closed_product_and_evidence_semantics() {
+    let contract = read_repo_json("scripts/ci/stage7-split-contract.json");
+    let schema = read_repo_json("scripts/ci/stage7-evidence-manifest.schema.json");
+
+    assert_eq!(contract["schema"], "rssh.stage7-split-contract/v1");
+    assert_eq!(contract["initial_state"], "blocked");
+    assert_eq!(
+        contract["states"],
+        serde_json::json!([
+            "blocked",
+            "attribution-ready",
+            "windows-memory-go",
+            "cross-platform-go",
+            "extraction-ready",
+            "dual-source-verified",
+            "split-complete"
+        ])
+    );
+    assert_eq!(
+        contract["lkg_rssh_ref"],
+        "21dd01b3d73dd9c9241ac10e7a25d92cb2bcfea6"
+    );
+    assert_eq!(
+        contract["windows_product_gates"],
+        serde_json::json!({
+            "first_present_p50_ms_max": 400,
+            "first_present_p95_ms_max": 500,
+            "first_frame_private_bytes_p95_max": 57_671_680,
+            "first_frame_private_bytes_max_exclusive": 62_914_560,
+            "empty_window_private_working_set_p95_max": 47_185_920,
+            "ssh1_private_working_set_p95_max": 62_914_560,
+            "gpu_steady_bytes_max": 268_435_456,
+            "relative_regression_ratio_max": 1.05
+        })
+    );
+    assert_eq!(
+        contract["windows_backends"]["required_product"],
+        serde_json::json!(["auto"])
+    );
+    assert_eq!(
+        contract["windows_backends"]["diagnostic_only"],
+        serde_json::json!(["dx12", "vulkan", "gl"])
+    );
+    assert_eq!(contract["protocol"]["warmups"], 5);
+    assert_eq!(contract["protocol"]["measured_cold_processes"], 30);
+    assert_eq!(contract["protocol"]["timeout_seconds"], 60);
+    assert_eq!(
+        contract["protocol"]["cross_process_percentiles"],
+        "nearest-rank"
+    );
+    assert_eq!(
+        contract["protocol"]["process_representative"],
+        "nearest-rank-p50"
+    );
+    assert_eq!(contract["protocol"]["maximum"], "raw-maximum");
+    assert_eq!(contract["sampling"]["startup"]["samples_per_process"], 1);
+    assert_eq!(contract["sampling"]["startup"]["stabilization_ms"], 0);
+    assert_eq!(contract["sampling"]["residence"]["stabilization_ms"], 5_000);
+    assert_eq!(contract["sampling"]["residence"]["sample_interval_ms"], 100);
+    assert_eq!(contract["sampling"]["residence"]["samples_per_process"], 10);
+    assert_eq!(
+        schema["properties"]["schema"]["const"],
+        "rssh.stage7-evidence-manifest/v1"
+    );
+
+    let artifact_types = contract["artifact_types"]
+        .as_array()
+        .expect("closed artifact type inventory");
+    let schema_types = schema["$defs"]["entry"]["properties"]["artifact_type"]["enum"]
+        .as_array()
+        .expect("manifest artifact type enum");
+    assert_eq!(artifact_types, schema_types);
+
+    for script in [
+        "scripts/ci/assemble-stage7-evidence.py",
+        "scripts/ci/check-stage7-split-gate.py",
+    ] {
+        assert!(
+            repo_path(script).is_file(),
+            "missing Stage 7 gate tool {script}"
+        );
+    }
+}
+
 fn assert_workload(baseline: &Value, name: &str, measured: [u64; 6], gates: [u64; 4]) {
     let workload = &baseline["runtime"]["workloads"][name];
     assert_eq!(

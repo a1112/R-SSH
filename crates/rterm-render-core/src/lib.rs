@@ -772,6 +772,90 @@ impl TerminalRenderSnapshot {
             .as_ref()
     }
 
+    /// Returns the snapshot's v1 logical explicit bytes.
+    ///
+    /// The formula counts the snapshot value, explicit `Vec` capacities,
+    /// logical hash entries, compatibility cells, image descriptors, and each
+    /// unique owned payload. It deliberately excludes allocator metadata,
+    /// `Arc` control blocks, and hash-table control/bucket overhead. This is an
+    /// attribution formula, not a heap allocator measurement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProjectOwnedLogicalBytesV1Error`] if any size calculation
+    /// overflows instead of silently clamping the attributed byte count.
+    pub fn project_owned_logical_bytes_v1(&self) -> Result<usize, ProjectOwnedLogicalBytesV1Error> {
+        let mut retained = std::mem::size_of::<Self>();
+        checked_add_capacity::<Arc<RenderRowSnapshot>>(&mut retained, self.rows.capacity())?;
+        checked_add_capacity::<RenderInlineImage>(&mut retained, self.inline_images.capacity())?;
+        checked_add_capacity::<RenderInlineImageFragment>(
+            &mut retained,
+            self.inline_image_fragments.capacity(),
+        )?;
+        checked_add_capacity::<(i64, i64)>(
+            &mut retained,
+            self.inline_image_parent_origins.capacity(),
+        )?;
+        checked_add_len::<usize>(
+            &mut retained,
+            self.empty_inline_image_attachment_parents.len(),
+        )?;
+        checked_add_map_len::<(usize, i64, i64), (i64, i64)>(
+            &mut retained,
+            self.inline_image_attachment_viewport_offsets.len(),
+        )?;
+        checked_add_map_len::<(usize, i64, i64), AttachmentViewportClip>(
+            &mut retained,
+            self.inline_image_attachment_viewport_clips.len(),
+        )?;
+
+        let mut rows = HashSet::<usize>::new();
+        let mut text_payloads = HashSet::<(usize, usize)>::new();
+        let mut styles = HashSet::<usize>::new();
+        for row in &self.rows {
+            if rows.insert(Arc::as_ptr(row) as usize) {
+                checked_add(&mut retained, std::mem::size_of::<RenderRowSnapshot>())?;
+                checked_add_len::<RenderCell>(&mut retained, row.cells.len())?;
+            }
+            checked_add(
+                &mut retained,
+                render_cells_owned_payload_bytes_checked(
+                    &row.cells,
+                    &mut text_payloads,
+                    &mut styles,
+                )?,
+            )?;
+        }
+        if let Some(cells) = self.compatibility_cells.get() {
+            checked_add_len::<RenderCell>(&mut retained, cells.len())?;
+            checked_add(
+                &mut retained,
+                render_cells_owned_payload_bytes_checked(cells, &mut text_payloads, &mut styles)?,
+            )?;
+        }
+
+        let mut image_payloads = HashSet::<(usize, usize)>::new();
+        for image in &self.inline_images {
+            checked_add(
+                &mut retained,
+                image.name.as_ref().map_or(0, String::capacity),
+            )?;
+            checked_add(
+                &mut retained,
+                image.width.as_ref().map_or(0, String::capacity),
+            )?;
+            checked_add(
+                &mut retained,
+                image.height.as_ref().map_or(0, String::capacity),
+            )?;
+            let payload = (image.data.as_ptr() as usize, image.data.len());
+            if image_payloads.insert(payload) {
+                checked_add(&mut retained, image.data.len())?;
+            }
+        }
+        Ok(retained)
+    }
+
     #[must_use]
     pub fn rows(&self) -> &[Arc<RenderRowSnapshot>] {
         &self.rows
@@ -1803,6 +1887,82 @@ fn snapshot_retained_bytes(snapshot: &TerminalRenderSnapshot) -> usize {
     row_bytes.saturating_add(image_bytes)
 }
 
+fn render_cells_owned_payload_bytes_checked(
+    cells: &[RenderCell],
+    text_payloads: &mut HashSet<(usize, usize)>,
+    styles: &mut HashSet<usize>,
+) -> Result<usize, ProjectOwnedLogicalBytesV1Error> {
+    let mut retained = 0usize;
+    for cell in cells {
+        let text = (cell.text.as_ptr() as usize, cell.text.len());
+        let hyperlink = cell
+            .hyperlink
+            .as_ref()
+            .map(|link| (link.as_ptr() as usize, link.len()));
+        let style = Arc::as_ptr(&cell.style) as usize;
+        if text_payloads.insert(text) {
+            checked_add(&mut retained, cell.text.len())?;
+        }
+        if styles.insert(style) {
+            checked_add(&mut retained, std::mem::size_of::<RenderStyle>())?;
+        }
+        if let Some(identity) = hyperlink
+            && text_payloads.insert(identity)
+        {
+            checked_add(&mut retained, identity.1)?;
+        }
+    }
+    Ok(retained)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ProjectOwnedLogicalBytesV1Error;
+
+impl std::fmt::Display for ProjectOwnedLogicalBytesV1Error {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("project-owned logical byte calculation overflowed")
+    }
+}
+
+impl std::error::Error for ProjectOwnedLogicalBytesV1Error {}
+
+fn checked_add(retained: &mut usize, bytes: usize) -> Result<(), ProjectOwnedLogicalBytesV1Error> {
+    *retained = retained
+        .checked_add(bytes)
+        .ok_or(ProjectOwnedLogicalBytesV1Error)?;
+    Ok(())
+}
+
+fn checked_add_len<T>(
+    retained: &mut usize,
+    len: usize,
+) -> Result<(), ProjectOwnedLogicalBytesV1Error> {
+    let bytes = len
+        .checked_mul(std::mem::size_of::<T>())
+        .ok_or(ProjectOwnedLogicalBytesV1Error)?;
+    checked_add(retained, bytes)
+}
+
+fn checked_add_capacity<T>(
+    retained: &mut usize,
+    capacity: usize,
+) -> Result<(), ProjectOwnedLogicalBytesV1Error> {
+    checked_add_len::<T>(retained, capacity)
+}
+
+fn checked_add_map_len<K, V>(
+    retained: &mut usize,
+    len: usize,
+) -> Result<(), ProjectOwnedLogicalBytesV1Error> {
+    let entry_bytes = std::mem::size_of::<K>()
+        .checked_add(std::mem::size_of::<V>())
+        .ok_or(ProjectOwnedLogicalBytesV1Error)?;
+    let bytes = len
+        .checked_mul(entry_bytes)
+        .ok_or(ProjectOwnedLogicalBytesV1Error)?;
+    checked_add(retained, bytes)
+}
+
 fn cell_has_renderable_content(cell: &Cell) -> bool {
     cell.is_continuation()
         || (!cell.is_blank() && cell.text() != " ")
@@ -1820,4 +1980,227 @@ fn blend_channel(foreground: u8, background: u8, alpha: u16, inverse_alpha: u16)
         .saturating_add(u16::from(background).saturating_mul(inverse_alpha))
         / u16::from(u8::MAX);
     u8::try_from(blended).unwrap_or(u8::MAX)
+}
+
+#[cfg(test)]
+mod project_owned_retained_bytes_tests {
+    use super::*;
+
+    fn fixture_snapshot() -> TerminalRenderSnapshot {
+        let mut cell = RenderCell::new(0, 0, "wide-owned-grapheme");
+        cell.hyperlink = Some(Arc::from("https://stage7.invalid/owned"));
+        let mut row_cells = Vec::with_capacity(3);
+        row_cells.push(cell);
+        let mut rows = Vec::with_capacity(4);
+        rows.push(Arc::new(RenderRowSnapshot {
+            row: 0,
+            cells: row_cells.into(),
+        }));
+
+        let payload: Arc<[u8]> = Arc::from(vec![7_u8; 257]);
+        let image = |name: &str| RenderInlineImage {
+            row: 0,
+            column: 0,
+            name: Some(name.to_owned()),
+            kitty_image_id: Some(7),
+            kitty_placement_id: Some(8),
+            kitty_z_index: Some(9),
+            size: Some(payload.len()),
+            width: Some("17cells".to_owned()),
+            height: Some("9cells".to_owned()),
+            preserve_aspect_ratio: Some(true),
+            image_format: InlineImageFormat::Rgba,
+            pixel_width: Some(17),
+            pixel_height: Some(9),
+            source_x: Some(1),
+            source_y: Some(2),
+            source_width: Some(3),
+            source_height: Some(4),
+            target_x: Some(5),
+            target_y: Some(6),
+            data: Arc::clone(&payload),
+        };
+        let mut inline_images = Vec::with_capacity(4);
+        inline_images.push(image("owned-image-one"));
+        inline_images.push(image("owned-image-two"));
+
+        let mut inline_image_fragments = Vec::with_capacity(3);
+        inline_image_fragments.push(RenderInlineImageFragment {
+            parent_image_index: 0,
+            cell_attachment: true,
+            row: 0,
+            column: 0,
+            source_row: 0,
+            source_column: 0,
+            destination_x: 0,
+            destination_y: 0,
+            destination_width: 1,
+            destination_height: 1,
+            source_x: 0,
+            source_y: 0,
+            source_width: 1,
+            source_height: 1,
+            sampling_source_x: 0,
+            sampling_source_y: 0,
+            sampling_source_width: 1,
+            sampling_source_height: 1,
+            source_destination_x: 0,
+            source_destination_y: 0,
+            source_destination_width: 1,
+            source_destination_height: 1,
+        });
+        let mut inline_image_parent_origins = Vec::with_capacity(3);
+        inline_image_parent_origins.push((1, 2));
+        let mut empty_inline_image_attachment_parents = HashSet::with_capacity(4);
+        empty_inline_image_attachment_parents.insert(1);
+        let mut inline_image_attachment_viewport_offsets = HashMap::with_capacity(4);
+        inline_image_attachment_viewport_offsets.insert((0, 1, 2), (3, 4));
+        let mut inline_image_attachment_viewport_clips = HashMap::with_capacity(4);
+        inline_image_attachment_viewport_clips.insert(
+            (0, 1, 2),
+            AttachmentViewportClip {
+                left: 1,
+                top: 2,
+                right: 3,
+                bottom: 4,
+            },
+        );
+
+        let snapshot = TerminalRenderSnapshot {
+            rows,
+            compatibility_cells: OnceLock::new(),
+            cursor: Some(RenderCursor {
+                row: 0,
+                column: 0,
+                shape: CursorShape::Block,
+                blinking: true,
+            }),
+            cursor_color: Some(Color::Indexed(7)),
+            inline_images,
+            inline_image_fragments,
+            inline_image_parent_origins,
+            empty_inline_image_attachment_parents,
+            inline_image_attachment_viewport_offsets,
+            inline_image_attachment_viewport_clips,
+            scrollback_offset: 3,
+        };
+        let _ = snapshot.cells();
+        snapshot
+    }
+
+    #[test]
+    fn project_owned_snapshot_bytes_cover_all_containers_and_unique_payloads() {
+        let snapshot = fixture_snapshot();
+        let bytes = snapshot
+            .project_owned_logical_bytes_v1()
+            .expect("fixture snapshot size");
+        assert!(
+            bytes > snapshot_retained_bytes(&snapshot),
+            "the attribution metric must include metadata omitted by the cache budget metric"
+        );
+        let structural_floor = std::mem::size_of::<TerminalRenderSnapshot>()
+            .saturating_add(
+                snapshot
+                    .rows
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<Arc<RenderRowSnapshot>>()),
+            )
+            .saturating_add(
+                snapshot
+                    .inline_images
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<RenderInlineImage>()),
+            )
+            .saturating_add(
+                snapshot
+                    .inline_image_fragments
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<RenderInlineImageFragment>()),
+            )
+            .saturating_add(
+                snapshot
+                    .inline_image_parent_origins
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<(i64, i64)>()),
+            )
+            .saturating_add(
+                snapshot
+                    .cells()
+                    .len()
+                    .saturating_mul(std::mem::size_of::<RenderCell>()),
+            );
+        assert!(bytes >= structural_floor);
+
+        let shared = snapshot.clone();
+        let mut distinct = snapshot.clone();
+        distinct.inline_images[1].data = Arc::from(vec![9_u8; 257]);
+        assert_eq!(
+            distinct
+                .project_owned_logical_bytes_v1()
+                .expect("distinct snapshot bytes")
+                .checked_sub(
+                    shared
+                        .project_owned_logical_bytes_v1()
+                        .expect("shared snapshot bytes"),
+                )
+                .expect("distinct payload is larger"),
+            257,
+            "shared inline-image payloads count once while distinct payloads count independently"
+        );
+    }
+
+    #[test]
+    fn project_owned_snapshot_v1_is_checked_and_does_not_guess_allocator_overhead() {
+        let source = include_str!("lib.rs");
+        let metric = source
+            .split("pub fn project_owned_logical_bytes_v1")
+            .nth(1)
+            .expect("project-owned snapshot metric")
+            .split("pub fn rows")
+            .next()
+            .expect("bounded project-owned snapshot metric");
+
+        assert!(
+            metric.contains("Result<usize, ProjectOwnedLogicalBytesV1Error>"),
+            "the v1 logical byte formula must fail closed on arithmetic overflow"
+        );
+        assert!(
+            !metric.contains("saturating_") && !metric.contains("unwrap_or"),
+            "overflow must not silently clamp the attributed owner size"
+        );
+        assert!(
+            source.contains("v1 logical explicit bytes")
+                && source.contains("excludes allocator")
+                && source.contains("hash-table control"),
+            "the stable v1 formula and its excluded overhead must be documented"
+        );
+        let map = source
+            .split("fn hash_map_retained_bytes")
+            .nth(1)
+            .expect("map logical byte helper")
+            .split("fn cell_has_renderable_content")
+            .next()
+            .expect("bounded map logical byte helper");
+        assert!(
+            !map.contains(".saturating_add(1)"),
+            "the logical metric must not guess one allocator byte per hash bucket"
+        );
+    }
+
+    #[test]
+    fn project_owned_snapshot_v1_overflow_fails_closed() {
+        let mut retained = usize::MAX;
+        assert_eq!(
+            checked_add(&mut retained, 1),
+            Err(ProjectOwnedLogicalBytesV1Error)
+        );
+        assert_eq!(retained, usize::MAX, "failure must not wrap the total");
+
+        let mut retained = 0;
+        assert_eq!(
+            checked_add_len::<u64>(&mut retained, usize::MAX),
+            Err(ProjectOwnedLogicalBytesV1Error)
+        );
+        assert_eq!(retained, 0, "failure must not partially update the total");
+    }
 }

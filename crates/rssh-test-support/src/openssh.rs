@@ -2,7 +2,10 @@ use std::{collections::BTreeSet, env, process::Command, time::Duration};
 
 use crate::{ChildGuard, ChildGuardError, TempHome};
 
-const PROBE_DEADLINE: Duration = Duration::from_secs(5);
+// Match the native E2E preflight budget: a cold hosted Windows client can
+// exceed five seconds before emitting its version banner. This only bounds
+// capability discovery; SSH operation and fixture deadlines stay separate.
+const PROBE_DEADLINE: Duration = Duration::from_secs(15);
 
 /// SSH client command-line capabilities exercised by interoperability gates.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
