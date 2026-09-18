@@ -3116,6 +3116,7 @@
             None,
             rssh_pty::PtyCommand::new("pane-close-test-process"),
         );
+        app.window_focused = true;
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -3162,6 +3163,7 @@
             None,
             rssh_pty::PtyCommand::new("pane-close-test-process"),
         );
+        app.window_focused = true;
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
@@ -3356,6 +3358,7 @@
     #[test]
     fn window_app_pane_close_button_latch_ignores_unmatched_release_and_clears_on_next_press() {
         let mut app = NativeWindowApp::new(None);
+        app.window_focused = true;
         app.dispatch_app_action(AppAction::SplitPane {
             pane: rssh_core::PaneId::new(1),
             direction: SplitDirection::Right,
@@ -3425,6 +3428,7 @@
         });
         app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
         assert!(app.handle_focus_changed(true).unwrap());
+        app.mouse_click_may_focus_window = false;
         let active_pane = app.active_pane_id();
         let active_rect = app
             .pane_render_layout()

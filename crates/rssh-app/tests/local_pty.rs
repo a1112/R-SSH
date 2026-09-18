@@ -55,7 +55,7 @@ fn retired_runtime_selector_is_ignored_and_does_not_change_public_cli() {
 
 #[test]
 fn local_pty_output_feeds_terminal_grid() {
-    let marker = "rssh-terminal-grid-smoke";
+    let marker = "rssh-terminal-grid-smoke-()（）!@#$%^&*，。！？";
     let output = PtySession::capture_output(
         &PtyCommand::platform_echo(marker),
         PtySize::try_new(160, 30).unwrap(),

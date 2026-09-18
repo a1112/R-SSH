@@ -3263,6 +3263,7 @@
             InvalidDropTarget::RightStatus,
         ] {
             let mut app = NativeWindowApp::new(None);
+        app.window_focused = true;
             app.runtime.resize(rssh_core::TerminalSize::new(120, 2));
             app.frame_width = 120 * CELL_WIDTH;
             app.right_status = "RIGHT".to_owned();
@@ -3355,6 +3356,7 @@
     #[test]
     fn window_app_clicking_tab_bar_close_marker_closes_tab() {
         let mut app = NativeWindowApp::new(None);
+        app.window_focused = true;
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
@@ -3399,6 +3401,7 @@
     #[test]
     fn window_app_tab_bar_close_marker_can_switch_to_last_active_tab() {
         let mut app = NativeWindowApp::new(None);
+        app.window_focused = true;
         app.dispatch_app_action(AppAction::NewTab { launch: None })
             .unwrap();
         app.dispatch_app_action(AppAction::NewTab { launch: None })
@@ -3416,44 +3419,11 @@
             ..NativeConfigSnapshot::default()
         });
 
-        let first_tab_width = tab_bar_tab_label(
-            0,
-            rssh_core::TabId::new(1),
-            1,
-            false,
-            None,
-            rssh_core::app_shell::PaneProgress::None,
-        )
-        .chars()
-        .count();
-        let second_tab_width = tab_bar_tab_label(
-            1,
-            rssh_core::TabId::new(2),
-            1,
-            false,
-            None,
-            rssh_core::app_shell::PaneProgress::None,
-        )
-        .chars()
-        .count();
-        let third_tab_label = tab_bar_tab_label(
-            2,
-            rssh_core::TabId::new(3),
-            1,
-            true,
-            None,
-            rssh_core::app_shell::PaneProgress::None,
-        );
-        let third_tab_start =
-            app.tab_bar_workspace_label().chars().count() + first_tab_width + second_tab_width;
-        let close_offset = third_tab_label
-            .chars()
-            .position(|character| character == 'x')
-            .expect("tab label should expose close marker");
-        let x = u32::try_from(third_tab_start + close_offset).unwrap_or(0) * CELL_WIDTH;
-
-        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
-            .unwrap();
+        let _ = rendered_tab_body_columns(&mut app);
+        let close_column = app.rendered_tab_bar_layout.borrow().as_ref().unwrap()
+            .tabs.iter().find(|tab| tab.tab_id == rssh_core::TabId::new(3))
+            .and_then(|tab| tab.close_column).expect("third tab close marker");
+        move_mouse_to_tab_bar_column(&mut app, close_column);
         assert!(
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
                 .unwrap()
@@ -3467,6 +3437,7 @@
     #[test]
     fn window_app_clicking_last_tab_bar_close_marker_requests_window_close() {
         let mut app = NativeWindowApp::new(None);
+        app.window_focused = true;
 
         let tab_label = tab_bar_tab_label(
             0,

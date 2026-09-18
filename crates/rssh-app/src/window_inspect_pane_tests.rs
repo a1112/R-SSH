@@ -448,6 +448,8 @@ fn focus_loss_downgrades_the_close_release_barrier_without_leaking_a_late_releas
     );
 
     assert!(app.handle_focus_changed(true).unwrap());
+    // Exercise input recovery after focus has settled, not the focus click policy.
+    app.mouse_click_may_focus_window = false;
     app.exit_confirmation_mode();
 
     let pane = app.active_pane_id();

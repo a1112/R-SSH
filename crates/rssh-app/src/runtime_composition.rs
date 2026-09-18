@@ -973,12 +973,33 @@ mod tests {
         )
         .expect("local worker");
         driver.wait_until_reader_blocked();
+        let token = runtime.token_for_pane(pane).expect("queued pane token");
 
         for byte in 0..output_batches {
             driver.push_reads([
                 ReadAction::bytes(vec![b'a' + u8::try_from(byte % 26).unwrap()]),
                 ReadAction::Block,
             ]);
+            // Reader blocking only proves that bytes entered the worker inbox.
+            // Wait for publication before feeding another byte so coalescing
+            // cannot turn the intended 70 batches into fewer than one drain.
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            loop {
+                let metrics = runtime
+                    .host
+                    .ports()
+                    .hub
+                    .publication_metrics(token)
+                    .expect("live pane publication");
+                if metrics.source_bytes == (byte + 1) as u64 {
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "output batch {byte} was not published: {metrics:?}"
+                );
+                std::thread::yield_now();
+            }
             runtime
                 .submit_input_to_pane(pane, &[b'0' + u8::try_from(byte % 10).unwrap()])
                 .expect("separator input");
@@ -993,18 +1014,20 @@ mod tests {
         const OUTPUT_BATCHES: usize = 70;
         let wakes = Arc::new(AtomicUsize::new(0));
         let wake_counter = Arc::clone(&wakes);
-        let (mut runtime, _driver, _pane) = runtime_with_queued_output_batches(
-            OUTPUT_BATCHES,
-            Arc::new(move || {
-                wake_counter.fetch_add(1, Ordering::Relaxed);
-            }),
-        );
-        let wakes_before_poll = wakes.load(Ordering::Relaxed);
+        let (mut runtime, _driver, _pane) =
+            runtime_with_queued_output_batches(OUTPUT_BATCHES, Arc::new(|| {}));
+        // Count continuation requests only; a late transport notice must not
+        // make this assertion pass when continuation scheduling is broken.
+        runtime.host.ports_mut().continuation_waker = Arc::new(move || {
+            wake_counter.fetch_add(1, Ordering::Relaxed);
+        });
 
         runtime.poll().expect("poll first bounded runtime turn");
 
-        assert!(
-            wakes.load(Ordering::Relaxed) > wakes_before_poll,
+        assert!(runtime.host.ports().has_continuations());
+        assert_eq!(
+            wakes.load(Ordering::Relaxed),
+            1,
             "the continuation must schedule another window turn"
         );
     }

@@ -5603,8 +5603,15 @@
     fn window_app_middle_click_pastes_primary_selection_by_default() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
+        app.window_focused = true;
         app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
         app.primary_selection_reader = Box::new(|| Some("primary\ntext".to_owned()));
+        // The initial cursor is in the tab bar, where middle-click closes tabs.
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()) + 1.0,
+        ))
+        .unwrap();
 
         assert!(
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
@@ -6029,4 +6036,3 @@
         assert_eq!(app.current_scrollback_offset(), 2);
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
     }
-
