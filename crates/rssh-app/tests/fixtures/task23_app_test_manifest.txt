@@ -2987,9 +2987,10 @@ T23-CONFIG-cb28c1ec4bcc|crates/rssh-app/src/window_compat_tests/part14_tests.rs|
 T23-CONFIG-b9d36c374ef9|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_reports_default_wezterm_ime_config|1|rssh-app|window::tests|config
 T23-CONFIG-36ca56e398ed|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_parses_wezterm_lua_config_ime_overrides|1|rssh-app|window::tests|config
 T23-CONFIG-2aa3ed42cdf7|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_parses_wezterm_lua_config_static_field_name_return_table_ime_overrides|1|rssh-app|window::tests|config
-T23-CONFIG-4e4f3ab1fe25|crates/rssh-app/src/window_compat_tests/part14_tests.rs|macos_ime_forwarding_uses_configured_modifier_mask_only_on_macos_with_ime_enabled|1|rssh-app|window::tests|config
 T23-CONFIG-dfe9a3345ee1|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_parses_wezterm_lua_config_ui_key_cap_rendering|1|rssh-app|window::tests|config
 T23-CONFIG-23362d96794c|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_renders_key_assignments_with_configured_ui_key_caps|1|rssh-app|window::tests|config
+T23-INPUT-6d0bf0fd8125|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_delivered_shift_text_reaches_pty_with_ime_enabled|1|rssh-app|window::tests|input
+T23-INPUT-a0d48165fc76|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_ime_commits_fullwidth_punctuation_once|1|rssh-app|window::tests|input
 T23-INPUT-6153ef741c42|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_writes_ime_commit_text_when_ime_is_enabled|1|rssh-app|window::tests|input
 T23-INPUT-341b8e3580a4|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_ignores_ime_commit_text_when_ime_is_disabled|1|rssh-app|window::tests|input
 T23-INPUT-5e2384c882c7|crates/rssh-app/src/window_compat_tests/part14_tests.rs|window_app_renders_builtin_ime_preedit_at_cursor|1|rssh-app|window::tests|input
