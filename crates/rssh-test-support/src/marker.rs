@@ -28,8 +28,11 @@ fn platform_marker_command_with_delay(marker: &str, delay_seconds: Option<u64>) 
         let sleep = delay_seconds.map_or_else(String::new, |seconds| {
             format!("; Start-Sleep -Seconds {seconds}")
         });
+        // ConPTY decodes raw console writes using the console output code page.
+        // Match it to the bytes below, including on non-UTF-8 Windows locales.
         let script = format!(
-            "$bytes=[Text.Encoding]::UTF8.GetBytes($env:RSSH_TEST_MARKER); \
+            "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); \
+             $bytes=[Text.Encoding]::UTF8.GetBytes($env:RSSH_TEST_MARKER); \
              $stdout=[Console]::OpenStandardOutput(); \
              $stdout.Write($bytes,0,$bytes.Length){sleep}"
         );

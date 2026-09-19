@@ -74,6 +74,34 @@ fn local_pty_output_feeds_terminal_grid() {
 }
 
 #[test]
+#[cfg(windows)]
+fn functional_marker_preserves_multilingual_text_through_conpty() {
+    let marker = "RSSH-LINK-BEGIN|office 中 مرحبا नमस्ते שלום 😀 █|RSSH-LINK-END";
+    let command = rssh_test_support::platform_marker_command(marker);
+    let mut pty_command = PtyCommand::new(command.get_program().to_str().unwrap())
+        .with_args(command.get_args().map(|arg| arg.to_str().unwrap()));
+    for (name, value) in command.get_envs() {
+        pty_command = pty_command.with_env(
+            name.to_str().unwrap(),
+            value.expect("marker environment value").to_str().unwrap(),
+        );
+    }
+    let output = PtySession::capture_output(
+        &pty_command,
+        PtySize::try_new(160, 30).unwrap(),
+        LOCAL_PTY_CAPTURE_BUDGET,
+    )
+    .unwrap();
+    let mut terminal = Terminal::new(TerminalSize::new(160, 30));
+    terminal.feed(&output);
+    assert!(
+        terminal_text(&terminal).contains(marker),
+        "functional marker was corrupted by the Windows console code page: {:?}",
+        terminal_text(&terminal)
+    );
+}
+
+#[test]
 fn local_app_drains_output_after_fast_child_exit() {
     let marker = "rssh-local-drain-smoke";
     let groups = quick_exit_groups();
