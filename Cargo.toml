@@ -1,28 +1,6 @@
 [workspace]
-members = [
-    "crates/rterm-types",
-    "crates/rssh-app",
-    "crates/rssh-config",
-    "crates/rssh-core",
-    "crates/rssh-domain",
-    "crates/rssh-diagnostics",
-    "crates/rssh-terminal",
-    "crates/rterm-render-core",
-    "crates/rterm-render-cpu",
-    "crates/rterm-render-wgpu",
-    "crates/rssh-renderer",
-    "crates/rssh-runtime",
-    "crates/rssh-native",
-    "crates/rssh-ssh",
-    "crates/rssh-pty",
-    "crates/rssh-test-support",
-    "crates/rssh-functional-tests",
-    "crates/rterm-fonts",
-    "crates/rssh-web",
-    "tauri/src-tauri",
-]
+members = ["crates/rssh-types", "crates/rssh-ssh", "crates/rssh-test-support", "crates/rssh-cli"]
 resolver = "3"
-exclude = ["contracts/rterm-consumer"]
 
 [workspace.package]
 edition = "2024"
@@ -49,6 +27,3 @@ debug = 1
 codegen-units = 1
 strip = "symbols"
 
-[patch.crates-io]
-glyphon = { path = "vendor/glyphon-0.12.0" }
-gpu-allocator = { path = "vendor/gpu-allocator-0.28.0" }

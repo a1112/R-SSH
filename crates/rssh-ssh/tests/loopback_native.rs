@@ -17,7 +17,7 @@ use rssh_ssh::{
 use rssh_test_support::ssh::{
     CommandResponse, HermeticSshServer, IdentityFixture, LoopbackEchoServer, SshEvent,
 };
-use rterm_types::TerminalSize;
+use rssh_types::TerminalSize;
 
 const DEADLINE: Duration = Duration::from_secs(5);
 

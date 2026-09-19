@@ -11,17 +11,6 @@ pub fn platform_marker_command(marker: &str) -> Command {
     platform_marker_command_with_delay(marker, None)
 }
 
-/// Builds a native command that writes `marker` as exact UTF-8 bytes to stdout
-/// and remains alive briefly before exiting.
-///
-/// Native-window frame probes use this variant so their rendering assertions do
-/// not race a deliberately short-lived marker process during window startup,
-/// while preserving the normal PTY close-and-reap lifecycle.
-#[must_use]
-pub fn platform_marker_command_for_window_frames(marker: &str) -> Command {
-    platform_marker_command_with_delay(marker, Some(5))
-}
-
 fn platform_marker_command_with_delay(marker: &str, delay_seconds: Option<u64>) -> Command {
     #[cfg(windows)]
     {

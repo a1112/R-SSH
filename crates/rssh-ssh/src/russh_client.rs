@@ -2617,7 +2617,7 @@ impl RusshChannelWriter {
         }
     }
 
-    fn resize_pty(&mut self, size: rterm_types::TerminalSize) -> Result<(), SshSessionError> {
+    fn resize_pty(&mut self, size: rssh_types::TerminalSize) -> Result<(), SshSessionError> {
         self.runtime
             .block_on(self.write_half.window_change(
                 u32::from(size.columns),
@@ -2630,7 +2630,7 @@ impl RusshChannelWriter {
 
     fn resize_cancellable_blocking(
         &mut self,
-        size: rterm_types::TerminalSize,
+        size: rssh_types::TerminalSize,
         cancelled: &std::sync::atomic::AtomicBool,
     ) -> Result<Option<()>, SshSessionError> {
         if cancelled.load(std::sync::atomic::Ordering::Acquire) {
@@ -2706,13 +2706,13 @@ impl SshShellWriter for RusshChannelWriter {
         self.write_cancellable_blocking(bytes, cancelled)
     }
 
-    fn resize(&mut self, size: rterm_types::TerminalSize) -> Result<(), SshSessionError> {
+    fn resize(&mut self, size: rssh_types::TerminalSize) -> Result<(), SshSessionError> {
         self.resize_pty(size)
     }
 
     fn resize_cancellable(
         &mut self,
-        size: rterm_types::TerminalSize,
+        size: rssh_types::TerminalSize,
         cancelled: &std::sync::atomic::AtomicBool,
     ) -> Result<Option<()>, SshSessionError> {
         self.resize_cancellable_blocking(size, cancelled)
@@ -2788,7 +2788,7 @@ impl SshChannel for RusshSshChannel {
         self.writer.write_blocking(bytes)
     }
 
-    fn resize_pty(&mut self, size: rterm_types::TerminalSize) -> Result<(), SshSessionError> {
+    fn resize_pty(&mut self, size: rssh_types::TerminalSize) -> Result<(), SshSessionError> {
         self.writer.resize_pty(size)
     }
 
@@ -2864,7 +2864,7 @@ impl SshChannelOpener for RusshChannelOpener {
 mod tests {
     use std::{future::Future, path::Path, pin::Pin, time::Duration};
 
-    use rterm_types::TerminalSize;
+    use rssh_types::TerminalSize;
 
     use super::*;
     use crate::{SshConnectRequest, SshSessionConfig};

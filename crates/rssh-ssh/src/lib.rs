@@ -1,15 +1,11 @@
 use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
-use rterm_types::TerminalSize;
+use rssh_types::TerminalSize;
 
-#[cfg(feature = "runtime-adapter")]
-mod runtime_adapter;
 mod russh_client;
 
 const REDACTED_SECRET: &str = "<redacted>";
 
-#[cfg(feature = "runtime-adapter")]
-pub use runtime_adapter::{SshControl, SshInterrupt, SshReader, SshTransport, SshWriter};
 pub use russh_client::{
     LazyRusshRuntime, RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener,
     RusshChannelStartupPlan, RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan,
@@ -1420,7 +1416,7 @@ mod tests {
         time::Duration,
     };
 
-    use rterm_types::TerminalSize;
+    use rssh_types::TerminalSize;
 
     use super::{
         SshAuthError, SshAuthMethod, SshChannel, SshChannelConnector, SshChannelOpenPlan,
