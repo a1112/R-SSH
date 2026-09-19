@@ -707,3 +707,36 @@ fn probe_ssh_banner(port: u16) -> io::Result<()> {
         ))
     }
 }
+
+#[test]
+fn linux_real_openssh_probe_remains_required_after_extraction() {
+    let native_ssh = include_str!("loopback_native.rs").replace("\r\n", "\n");
+    for contract in [
+        concat!(
+            "#[cfg(target_os = \"linux\")]\n",
+            "#[test]\n",
+            "fn native_client_interoperates_with_an_isolated_real_openssh_sshd()"
+        ),
+        "(\"sshd\", \"-V\")",
+        "required Linux OpenSSH fixture tool {tool} missing",
+    ] {
+        assert!(
+            native_ssh.contains(contract),
+            "required Linux real-sshd probe is missing {contract}"
+        );
+    }
+    let function_start = native_ssh
+        .find("fn native_client_interoperates_with_an_isolated_real_openssh_sshd()")
+        .expect("required Linux real-sshd test function");
+    let attribute_start = native_ssh[..function_start]
+        .rfind("\n\n")
+        .map_or(0, |offset| offset + 2);
+    let attributes = &native_ssh[attribute_start..function_start];
+    assert!(
+        !attributes.lines().any(|line| {
+            let attribute = line.trim_start();
+            attribute.starts_with("#[") && attribute.contains("ignore")
+        }),
+        "required Linux real-sshd probe must not be ignored"
+    );
+}
