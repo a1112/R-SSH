@@ -821,9 +821,11 @@
 
         app.handle_pty_output(b"A\x07").unwrap();
         let active_pane_id = app.active_pane_id();
+        let now = Instant::now();
+        app.visual_bell_test_now = Some(now);
         app.visual_bell_started_at.insert(
             active_pane_id,
-            Instant::now()
+            now
                 .checked_sub(Duration::from_millis(50_000))
                 .unwrap(),
         );
@@ -857,9 +859,11 @@
 
         app.handle_pty_output(b"A\x07").unwrap();
         let active_pane_id = app.active_pane_id();
+        let now = Instant::now();
+        app.visual_bell_test_now = Some(now);
         app.visual_bell_started_at.insert(
             active_pane_id,
-            Instant::now()
+            now
                 .checked_sub(Duration::from_millis(12_500))
                 .unwrap(),
         );
@@ -886,6 +890,7 @@
         });
 
         app.handle_pty_output(b"\x1b[31mA\x07").unwrap();
+        app.visual_bell_test_now = app.visual_bell_started_at.get(&app.active_pane_id()).copied();
 
         let snapshot = app.render_snapshot();
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
@@ -912,9 +917,11 @@
 
         app.handle_pty_output(b"\x1b[31mA\x08\x07").unwrap();
         let active_pane_id = app.active_pane_id();
+        let now = Instant::now();
+        app.visual_bell_test_now = Some(now);
         app.visual_bell_started_at.insert(
             active_pane_id,
-            Instant::now()
+            now
                 .checked_sub(Duration::from_millis(50_000))
                 .unwrap(),
         );

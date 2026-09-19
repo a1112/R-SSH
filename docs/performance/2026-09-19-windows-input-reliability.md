@@ -3,6 +3,8 @@
 本阶段承接 [Windows 本机验证](2026-09-19-windows-validation.md)，将现有回归用例整理为可重复执行的输入和会话验收矩阵。
 基线为 `7c203f01f23e4bf5cf77b4aeceb1ec1845d94e01` 加当前工作区补丁。
 
+本文保留首轮 19 项验收的历史记录；后续矩阵扩展与失败修复见 [Windows 认证复核](2026-09-19-windows-certification-followup.md)。
+
 ## 自动化入口
 
 使用 PowerShell 7，确保 `cargo`、`rustc`、`git`、`ssh.exe`、`powershell.exe`、`cmd.exe` 可从 PATH 找到。

@@ -1,7 +1,7 @@
 use std::{
     env,
     process::Command,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use rssh_core::TerminalSize;
@@ -114,18 +114,16 @@ fn local_app_drains_output_after_fast_child_exit() {
 
     for group in 1..=groups {
         let group_started = Instant::now();
-        let mut owned_process_ids = Vec::with_capacity(QUICK_EXIT_ATTEMPTS_PER_GROUP);
-        let mut owned_pty_child_ids = Vec::with_capacity(QUICK_EXIT_ATTEMPTS_PER_GROUP);
+        let mut attempts = Vec::with_capacity(QUICK_EXIT_ATTEMPTS_PER_GROUP);
 
         for attempt in 1..=QUICK_EXIT_ATTEMPTS_PER_GROUP {
             let result =
                 run_quick_exit_attempt(group, attempt, marker, test_deadline, total_budget);
-            owned_process_ids.push(result.app_process_id);
-            owned_pty_child_ids.push(result.pty_child_id);
             attempt_durations.push(result.elapsed);
+            attempts.push(result);
         }
 
-        assert_no_owned_console_processes(&owned_process_ids, &owned_pty_child_ids);
+        assert_no_owned_console_processes(&attempts);
         let group_elapsed = group_started.elapsed();
         assert!(
             quick_exit_group_within_budget(group_elapsed),
@@ -149,6 +147,21 @@ struct QuickExitAttempt {
     app_process_id: u32,
     pty_child_id: u32,
     elapsed: Duration,
+    started_ticks: u64,
+    finished_ticks: u64,
+}
+
+fn utc_ticks() -> u64 {
+    // Match Win32_Process.CreationDate's UTC .NET ticks (100 ns since year 1).
+    621_355_968_000_000_000
+        + u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+                / 100,
+        )
+        .expect("current time fits UTC ticks")
 }
 
 fn run_quick_exit_attempt(
@@ -175,6 +188,7 @@ fn run_quick_exit_attempt(
     #[cfg(not(windows))]
     command.args(["sh", "-lc"]).arg(format!("echo {marker}"));
 
+    let started_ticks = utc_ticks();
     let guard = ChildGuard::spawn(command, QUICK_EXIT_PROCESS_BUDGET.min(remaining))
         .unwrap_or_else(|error| panic!("group {group} attempt {attempt} failed to spawn: {error}"));
     let app_process_id = guard.process_id().expect("guarded app process id");
@@ -184,6 +198,11 @@ fn run_quick_exit_attempt(
         )
     });
     let elapsed = attempt_started.elapsed();
+    let finished_ticks = utc_ticks();
+    assert!(
+        finished_ticks >= started_ticks,
+        "wall clock moved backwards during the process ownership interval"
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let pty_child_id = traced_pty_child_id(&output.stderr).unwrap_or_else(|| {
@@ -210,6 +229,8 @@ fn run_quick_exit_attempt(
         app_process_id,
         pty_child_id,
         elapsed,
+        started_ticks,
+        finished_ticks,
     }
 }
 
@@ -406,38 +427,120 @@ fn traced_pty_child_id(stderr: &[u8]) -> Option<u32> {
     suffix.split(')').next()?.parse().ok()
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct ConsoleProcess {
+    pid: u32,
+    parent_pid: u32,
+    name: String,
+    created_ticks: u64,
+}
+
+fn console_process_is_owned(process: &ConsoleProcess, attempts: &[QuickExitAttempt]) -> bool {
+    attempts.iter().any(|attempt| {
+        // PID and parent PID alone can refer to a different process generation.
+        // A retained child must have been created during its owner's attempt.
+        (attempt.started_ticks..=attempt.finished_ticks).contains(&process.created_ticks)
+            && ((process.pid == attempt.app_process_id && process.name == "rssh-app.exe")
+                || ([attempt.app_process_id, attempt.pty_child_id].contains(&process.parent_pid)
+                    && matches!(
+                        process.name.as_str(),
+                        "rssh-app.exe" | "cmd.exe" | "conhost.exe" | "OpenConsole.exe"
+                    )))
+    })
+}
+
+#[test]
+fn console_process_ownership_rejects_reused_pids_but_detects_retained_children() {
+    let attempts = [QuickExitAttempt {
+        app_process_id: 10,
+        pty_child_id: 20,
+        elapsed: Duration::ZERO,
+        started_ticks: 1000,
+        finished_ticks: 2000,
+    }];
+    for (pid, parent_pid, name) in [
+        (10, 1, "rssh-app.exe"),
+        (20, 10, "cmd.exe"),
+        (30, 20, "conhost.exe"),
+        (31, 10, "OpenConsole.exe"),
+    ] {
+        for (created_ticks, expected) in [(999, false), (1500, true), (2001, false)] {
+            let process = ConsoleProcess {
+                pid,
+                parent_pid,
+                name: name.to_owned(),
+                created_ticks,
+            };
+            assert_eq!(
+                console_process_is_owned(&process, &attempts),
+                expected,
+                "{process:?}"
+            );
+        }
+    }
+    let unrelated = ConsoleProcess {
+        pid: 50,
+        parent_pid: 40,
+        name: "cmd.exe".to_owned(),
+        created_ticks: 1500,
+    };
+    assert!(!console_process_is_owned(&unrelated, &attempts));
+}
+
 #[cfg(windows)]
-fn assert_no_owned_console_processes(app_process_ids: &[u32], pty_child_ids: &[u32]) {
-    let app_ids = app_process_ids
-        .iter()
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
-    let owner_ids = app_process_ids
-        .iter()
-        .chain(pty_child_ids)
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
-    let script = format!(
-        "$appIds=@({app_ids}); $ownerIds=@({owner_ids}); $probePid=$PID; $deadline=[DateTime]::UtcNow.AddSeconds(3); do {{ $owned=@(Get-CimInstance Win32_Process | Where-Object {{ ($appIds -contains $_.ProcessId -and $_.Name -eq 'rssh-app.exe') -or ($ownerIds -contains $_.ParentProcessId -and $_.ParentProcessId -ne $probePid -and $_.Name -in @('rssh-app.exe','cmd.exe','conhost.exe','OpenConsole.exe')) }}); if ($owned.Count -eq 0) {{ exit 0 }}; $owned | ForEach-Object {{ Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }} | Wait-Process -Timeout 1 -ErrorAction SilentlyContinue }} while ([DateTime]::UtcNow -lt $deadline); $owned=@(Get-CimInstance Win32_Process | Where-Object {{ ($appIds -contains $_.ProcessId -and $_.Name -eq 'rssh-app.exe') -or ($ownerIds -contains $_.ParentProcessId -and $_.ParentProcessId -ne $probePid -and $_.Name -in @('rssh-app.exe','cmd.exe','conhost.exe','OpenConsole.exe')) }}); $owned | ForEach-Object {{ \"$($_.ProcessId):$($_.ParentProcessId):$($_.Name)\" }}"
-    );
-    let mut command = Command::new("powershell.exe");
-    command.args(["-NoLogo", "-NoProfile", "-Command", &script]);
-    let output = ChildGuard::spawn(command, Duration::from_secs(10))
-        .expect("spawn owned-process probe")
-        .wait()
-        .expect("owned-process probe deadline");
-    assert!(output.status.success(), "owned-process probe failed");
-    assert!(
-        output.stdout.is_empty(),
-        "quick-exit left owned processes: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
+fn assert_no_owned_console_processes(attempts: &[QuickExitAttempt]) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let settle_deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let mut command = Command::new("powershell.exe");
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            r"
+            $ErrorActionPreference='Stop'
+            $rows=@(Get-CimInstance Win32_Process | Where-Object {
+                $_.Name -in @('rssh-app.exe','cmd.exe','conhost.exe','OpenConsole.exe')
+            } | ForEach-Object {
+                if ($null -eq $_.CreationDate) { throw 'Missing process creation time' }
+                [pscustomobject]@{
+                    pid=$_.ProcessId; parent_pid=$_.ParentProcessId; name=$_.Name
+                    created_ticks=$_.CreationDate.ToUniversalTime().Ticks
+                }
+            })
+            ConvertTo-Json -InputObject $rows -Compress
+        ",
+        ]);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "owned-process probe deadline");
+        let output = ChildGuard::spawn(command, remaining)
+            .expect("spawn owned-process probe")
+            .wait()
+            .expect("owned-process probe deadline");
+        assert!(
+            output.status.success(),
+            "owned-process probe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let processes: Vec<ConsoleProcess> = serde_json::from_slice(&output.stdout)
+            .expect("owned-process probe must return process identities");
+        let owned: Vec<_> = processes
+            .iter()
+            .filter(|process| console_process_is_owned(process, attempts))
+            .collect();
+        if owned.is_empty() {
+            return;
+        }
+        assert!(
+            Instant::now() < settle_deadline,
+            "quick-exit left owned processes: {owned:?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 #[cfg(not(windows))]
-fn assert_no_owned_console_processes(_app_process_ids: &[u32], _pty_child_ids: &[u32]) {}
+fn assert_no_owned_console_processes(_attempts: &[QuickExitAttempt]) {}
 
 fn terminal_text(terminal: &Terminal) -> String {
     let size = terminal.grid().size();

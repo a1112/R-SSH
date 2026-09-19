@@ -3944,7 +3944,13 @@ impl NativeWindowApp {
             return None;
         }
 
-        let elapsed = self.visual_bell_started_at.get(&pane_id)?.elapsed();
+        let started_at = self.visual_bell_started_at.get(&pane_id)?;
+        #[cfg(test)]
+        let elapsed = self.visual_bell_test_now
+            .unwrap_or_else(Instant::now)
+            .saturating_duration_since(*started_at);
+        #[cfg(not(test))]
+        let elapsed = started_at.elapsed();
         visual_bell_intensity(self.visual_bell, elapsed)
     }
 

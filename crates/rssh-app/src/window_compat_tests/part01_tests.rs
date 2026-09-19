@@ -1678,17 +1678,19 @@
 
     #[cfg(target_os = "windows")]
     fn sleeping_pane_pty_command() -> PtyCommand {
-        PtyCommand::new("powershell.exe").with_args([
-            "-NoLogo",
-            "-NoProfile",
-            "-Command",
-            "Start-Sleep -Seconds 30",
+        // A built-in input wait needs no managed runtime or descendant process.
+        // /D also prevents user AutoRun commands from changing this fixture.
+        PtyCommand::new("cmd.exe").with_args([
+            "/D",
+            "/Q",
+            "/C",
+            "echo RSSH-PTY-READY & set /p RSSH_TEST_WAIT=",
         ])
     }
 
     #[cfg(not(target_os = "windows"))]
     fn sleeping_pane_pty_command() -> PtyCommand {
-        PtyCommand::new("/bin/sh").with_args(["-c", "exec sleep 30"])
+        PtyCommand::new("/bin/sh").with_args(["-c", "printf 'RSSH-PTY-READY\\n'; exec sleep 30"])
     }
 
     #[test]
@@ -1705,12 +1707,35 @@
             .process_id()
             .expect("real PTY must expose its child PID");
         let mut reader = session.take_reader().unwrap();
-        let writer = session.take_writer().unwrap();
+        let mut writer = session.take_writer().unwrap();
+        let (reader_ready_tx, reader_ready_rx) = mpsc::channel();
         let (reader_finished_tx, reader_finished_rx) = mpsc::channel();
         let reader_thread = thread::spawn(move || {
+            use std::io::Read;
+            let marker = b"RSSH-PTY-READY";
+            let mut startup = Vec::new();
+            let mut byte = [0_u8];
+            while !startup.ends_with(marker) {
+                reader.read_exact(&mut byte).expect("PTY readiness marker");
+                startup.push(byte[0]);
+                if startup.ends_with(b"\x1b[6n") {
+                    // Act as the terminal during startup. The PTY close helper
+                    // only answers outstanding cursor queries once closing.
+                    writer.write_all(b"\x1b[1;1R").unwrap();
+                    writer.flush().unwrap();
+                }
+            }
+            reader_ready_tx
+                .send(writer)
+                .unwrap_or_else(|_| panic!("PTY readiness receiver closed"));
             let result = io::copy(&mut reader, &mut io::sink()).map(|_| ());
             reader_finished_tx.send(result).unwrap();
         });
+        // Measure cleanup of a running shell, not ConPTY/shell startup
+        // racing termination while the parallel suite is creating processes.
+        let writer = reader_ready_rx
+            .recv_timeout(Duration::from_secs(15))
+            .expect("real PTY child and reader must be ready before cleanup");
         assert!(
             process_exists_for_pane_pty_test(process_id),
             "real PTY child {process_id} must be running before cleanup"

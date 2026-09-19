@@ -734,7 +734,7 @@ function Assert-BoundedProcessHarness {
     throw "process identity capture accepted a reused PID identity"
   }
 
-  $runningProcess = Start-Process powershell.exe -ArgumentList @(
+  $runningProcess = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
     "-NoProfile",
     "-NonInteractive",
     "-Command",
@@ -784,7 +784,7 @@ function Assert-BoundedProcessHarness {
   $env:RSSH_CI_JOB_SENTINEL = $sentinel
   $env:RSSH_CI_JOB_READY_EVENT = $readyEventName
   $timeoutScript = @'
-$grandchild = Start-Process powershell.exe -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '$wait=[Threading.ManualResetEvent]::new($false);$wait.WaitOne()') -PassThru
+$grandchild = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '$wait=[Threading.ManualResetEvent]::new($false);$wait.WaitOne()') -PassThru
 $grandchildIdentity = [ordered]@{
   pid = $grandchild.Id
   start_time_utc_ticks = $grandchild.StartTime.ToUniversalTime().Ticks
@@ -793,14 +793,18 @@ $grandchildIdentity = [ordered]@{
   $env:RSSH_CI_JOB_SENTINEL,
   ($grandchildIdentity | ConvertTo-Json -Compress)
 )
+# Publishing readiness allows the parent to terminate this process immediately.
+# Both streams must already contain the markers before that handoff.
+[Console]::Out.Write('timeout-stdout-marker')
+[Console]::Error.Write('timeout-stderr-marker')
+[Console]::Out.Flush()
+[Console]::Error.Flush()
 $ready = [Threading.EventWaitHandle]::OpenExisting($env:RSSH_CI_JOB_READY_EVENT)
 try {
   $null = $ready.Set()
 } finally {
   $ready.Dispose()
 }
-[Console]::Out.Write('timeout-stdout-marker')
-[Console]::Error.Write('timeout-stderr-marker')
 $wait = [Threading.ManualResetEvent]::new($false)
 $null = $wait.WaitOne()
 '@

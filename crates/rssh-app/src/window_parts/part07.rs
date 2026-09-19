@@ -1553,6 +1553,8 @@ struct NativeWindowInteractionState {
     close_confirmation: Option<WindowCloseConfirmation>,
     key_table_stack: Vec<WindowActiveKeyTable>,
     visual_bell_started_at: HashMap<rssh_core::PaneId, Instant>,
+    #[cfg(test)]
+    visual_bell_test_now: Option<Instant>,
     ime_preedit: Option<String>,
     last_ime_cursor_area: Cell<Option<(u32, u32, u32, u32)>>,
     dead_key_active: bool,

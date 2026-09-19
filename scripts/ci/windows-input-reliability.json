@@ -3,6 +3,21 @@
   "cases": [
     {
       "target": "rssh-app",
+      "group": "visual_bell",
+      "name": "window::tests::window_app_cursor_visual_bell_fades_from_force_reverse_cursor_color"
+    },
+    {
+      "target": "rssh-app",
+      "group": "process_ownership",
+      "name": "window::tests::exact_gpu_stop_stage::exact_gpu_stop_stage_wrapper_reaps_descendants_on_timeout"
+    },
+    {
+      "target": "rssh-app",
+      "group": "visual_bell",
+      "name": "window::tests::window_app_cursor_visual_bell_uses_foreground_without_tinting_background"
+    },
+    {
+      "target": "rssh-app",
       "group": "input_bytes",
       "name": "window::tests::window_app_delivered_shift_text_reaches_pty_with_ime_enabled"
     },
@@ -78,6 +93,21 @@
     },
     {
       "target": "local_pty",
+      "group": "process_ownership",
+      "name": "console_process_ownership_rejects_reused_pids_but_detects_retained_children"
+    },
+    {
+      "target": "rssh-app",
+      "group": "session_lifecycle",
+      "name": "window::tests::pane_pty_stop_reaps_real_child_and_joins_real_reader"
+    },
+    {
+      "target": "local_pty",
+      "group": "real_conpty",
+      "name": "local_app_drains_output_after_fast_child_exit"
+    },
+    {
+      "target": "local_pty",
       "group": "real_conpty",
       "name": "functional_marker_preserves_multilingual_text_through_conpty"
     },
@@ -104,8 +134,5 @@
     "sleep_wake",
     "real_network_switch"
   ],
-  "known_open_checks": [
-    "pane_pty_stop_reaps_real_child_and_joins_real_reader",
-    "local_app_drains_output_after_fast_child_exit"
-  ]
+  "known_open_checks": []
 }

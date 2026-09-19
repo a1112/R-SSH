@@ -663,6 +663,8 @@ impl NativeWindowApp {
                 close_confirmation: None,
                 key_table_stack: Vec::new(),
                 visual_bell_started_at: HashMap::new(),
+                #[cfg(test)]
+                visual_bell_test_now: None,
                 ime_preedit: None,
                 last_ime_cursor_area: Cell::new(None),
                 dead_key_active: false,

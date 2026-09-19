@@ -13,6 +13,10 @@ env:
 jobs:
   quality:
     runs-on: windows-2025
+    env:
+      # Cargo -j only bounds compilation. Bound native GUI/ConPTY test contention
+      # separately while retaining each test's existing cleanup deadlines.
+      RUST_TEST_THREADS: "4"
 
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
