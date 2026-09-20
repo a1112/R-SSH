@@ -1,0 +1,19 @@
+name: Windows repository boundary
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      RUST_TEST_THREADS: "4"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo fmt --all --check
+      - run: cargo test --locked --workspace --all-targets -j 2
+      - run: cargo build --locked -j 2
